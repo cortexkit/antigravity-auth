@@ -7,6 +7,10 @@
 - Vault approval requests from setup now show "Antigravity sign-in for OpenCode" or "Antigravity sign-in for Pi".
 - Updated the embedded common-auth library to published 0.43.0 and the Claustrum client to 0.17.0.
 
+### Fixed
+
+- Fix the Antigravity menu not opening in OpenCode 2 after switching to a session in another folder. Polling follows the session's location and releases unused location clients.
+
 ## [3.0.38] - 2026-11-08
 
 ### Added

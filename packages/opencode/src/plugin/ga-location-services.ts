@@ -746,6 +746,8 @@ export interface GaMenuCommandService extends GaCommandService {
 export function createGaMenuCommandService(input: {
   readonly menu: GaCommandMenu
   readonly notify: GaRpcActivation['notify']
+  readonly isConnected: GaRpcActivation['isConnected']
+  readonly disconnected: () => void
   readonly afterApply?: () => Promise<void>
 }): GaMenuCommandService {
   return {
@@ -778,6 +780,7 @@ export function createGaMenuCommandService(input: {
       )
       if (signal.aborted) throw abortError(signal)
       input.notify(scope, payload)
+      if (!input.isConnected(scope)) input.disconnected()
     },
   }
 }
@@ -2064,6 +2067,11 @@ async function createGaVaultLocationServices(input: {
         commands: createGaMenuCommandService({
           menu,
           notify: start.notify,
+          isConnected: start.isConnected,
+          disconnected: () =>
+            location.logger
+              .createLogger('menu')
+              .warn('No Antigravity window is showing this session’s folder.'),
           afterApply: () =>
             input.afterApply ? input.afterApply() : started.refreshAccounts(),
         }),
@@ -2413,6 +2421,13 @@ export function createGaLocationServicesFactory(
           commands: createGaMenuCommandService({
             menu: recoveryMenu,
             notify: input.notify,
+            isConnected: input.isConnected,
+            disconnected: () =>
+              location.logger
+                .createLogger('menu')
+                .warn(
+                  'No Antigravity window is showing this session’s folder.',
+                ),
           }),
         }
         const local = (): Promise<Serving> => {
@@ -2581,6 +2596,13 @@ export function createGaLocationServicesFactory(
                 commands: createGaMenuCommandService({
                   menu,
                   notify: input.notify,
+                  isConnected: input.isConnected,
+                  disconnected: () =>
+                    location.logger
+                      .createLogger('menu')
+                      .warn(
+                        'No Antigravity window is showing this session’s folder.',
+                      ),
                   afterApply: () => refreshSelectedSource(),
                 }),
                 execute: started.execute,

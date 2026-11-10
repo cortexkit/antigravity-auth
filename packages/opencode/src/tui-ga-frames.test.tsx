@@ -330,6 +330,9 @@ function fakeContext(
     ...extra,
     location: { directory: '/work/a' },
     client: {
+      session: {
+        get: async () => ({ location: { directory: '/work/a' } }),
+      },
       rpc: {
         call: async () => {
           if (answer instanceof Error) throw answer

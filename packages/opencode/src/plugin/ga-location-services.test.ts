@@ -545,10 +545,52 @@ describe('GA account state', () => {
 })
 
 describe('GA menu command service', () => {
+  it('reports a disconnected scope outside its queue while retaining the menu', async () => {
+    const scope = { kind: 'session', sessionID: 'ses-unpolled' } as const
+    const payload = {
+      command: 'antigravity',
+      menu: { command: 'antigravity', title: 'Antigravity', sections: [] },
+    }
+    const queued: unknown[] = []
+    let reports = 0
+    let connected = false
+    const service = createGaMenuCommandService({
+      menu: {
+        command: 'antigravity',
+        open: async () => payload,
+        apply: async () => {
+          throw new Error('not used')
+        },
+      },
+      notify: (target, entry) => {
+        queued.push({ scope: target, entry })
+        return 1
+      },
+      isConnected: (target) => {
+        expect(target).toEqual(scope)
+        return connected
+      },
+      disconnected: () => {
+        reports += 1
+      },
+    })
+    await service.open({ scope, signal: new AbortController().signal })
+    expect(reports).toBe(1)
+    expect(queued).toEqual([{ scope, entry: payload }])
+    connected = true
+    await service.open({ scope, signal: new AbortController().signal })
+    expect(reports).toBe(1)
+    expect(queued).toHaveLength(2)
+  })
+
   it('runs each request through the menu with an invocation for its scope', async () => {
     const calls: unknown[] = []
     const notices: unknown[] = []
     const service = createGaMenuCommandService({
+      isConnected: () => true,
+      disconnected: () => {
+        throw new Error('unexpected disconnection')
+      },
       menu: {
         command: 'antigravity',
         open: async () => {
@@ -612,6 +654,10 @@ describe('GA menu command service', () => {
     }
     const queued: unknown[] = []
     const service = createGaMenuCommandService({
+      isConnected: () => true,
+      disconnected: () => {
+        throw new Error('unexpected disconnection')
+      },
       menu: {
         command: 'antigravity',
         open: async (invocation) => {

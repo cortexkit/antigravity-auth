@@ -134,6 +134,11 @@ export interface GaTuiContext {
   readonly storage?: GaStorage
   readonly location: GaLocationRef | undefined
   readonly client: {
+    readonly session: {
+      get(input: { readonly sessionID: string }): Promise<{
+        readonly location: GaLocationRef
+      }>
+    }
     readonly rpc: {
       call(input: GaRpcCallInput): Promise<unknown>
     }
@@ -914,6 +919,37 @@ export function createGaLocationClient(options: {
   }
 }
 
+/** Keep the home client, but retain at most one other visible location. */
+export function createGaLocationClients(options: {
+  readonly call: (input: GaRpcCallInput) => Promise<unknown>
+  readonly location: GaLocationRef | undefined
+  readonly logger?: GaLogger
+}) {
+  const home = createGaLocationClient(options)
+  let shown = home
+  let shownKey = ''
+  const key = (location: GaLocationRef | undefined) =>
+    JSON.stringify([location?.directory, location?.workspaceID])
+  return {
+    current: () => shown,
+    select(location: GaLocationRef | undefined): GaLocationClient {
+      const nextKey = key(location)
+      if (shown !== home && nextKey === shownKey) return shown
+      if (shown !== home) shown.dispose()
+      shown =
+        nextKey === key(options.location)
+          ? home
+          : createGaLocationClient({ ...options, location })
+      shownKey = nextKey
+      return shown
+    },
+    dispose() {
+      shown.dispose()
+      home.dispose()
+    },
+  }
+}
+
 // ── Menu over the native state ──────────────────────────────────────────────
 
 const ACCOUNT_ITEM_PREFIX = 'account:'
@@ -1597,13 +1633,18 @@ export function setupGaTui(
 ): () => Promise<void> {
   const logger = options.logger
   const now = options.now ?? Date.now
-  const client = createGaLocationClient({
+  const clients = createGaLocationClients({
     call: (input) => context.client.rpc.call(input),
     location: context.location,
     ...(logger ? { logger } : {}),
   })
-  const active = () => !client.disposed()
-  const ui = createGaMenuUi(context, active)
+  let cleaned = false
+  const active = () => !cleaned
+  const isCurrent = (client: GaLocationClient, scope: GaScope) =>
+    active() &&
+    !client.disposed() &&
+    clients.current() === client &&
+    scopeKey(currentScope(context.ui.router.current())) === scopeKey(scope)
   const [view, setView] = createSignal<SidebarView | undefined>(undefined)
   const collapse = createGaCollapse(context.storage, logger)
 
@@ -1640,19 +1681,26 @@ export function setupGaTui(
    * Pulls fresh state for `scope`. Any
    * notifications the pull carries are handled like a poll tick's.
    */
-  const refresh = async (scope: GaScope): Promise<void> => {
+  const refresh = async (
+    client: GaLocationClient,
+    scope: GaScope,
+  ): Promise<void> => {
     await pollGaOnce({
       client,
       scope: () => scope,
       onSnapshot: (snapshot) => {
-        showSnapshot(snapshot)
+        if (isCurrent(client, scope)) showSnapshot(snapshot)
       },
-      onNotification,
+      onNotification: (notification) => {
+        if (isCurrent(client, scope))
+          onNotification(client, notification, scope)
+      },
       ...(logger ? { logger } : {}),
     })
   }
 
   const applyRequest = async (
+    client: GaLocationClient,
     scope: GaScope,
     request: MenuApplyRequest,
     shown: GaMenuPresentation,
@@ -1664,6 +1712,8 @@ export function setupGaTui(
       code,
       menu: shown.source,
     })
+    if (!isCurrent(client, scope))
+      return refused('That session is no longer shown.', 'stale-session')
     let body: GaApplyBody
     try {
       body = { request: shown.request(request) }
@@ -1680,12 +1730,14 @@ export function setupGaTui(
         return refused(error.message, error.reason)
       throw error
     }
-    await refresh(scope)
+    if (isCurrent(client, scope)) await refresh(client, scope)
     return result
   }
 
   let pendingLogin: { scope: string; finish(ok: boolean): void } | undefined
   const applyChoice = async (
+    client: GaLocationClient,
+    ui: MenuUi,
     scope: GaScope,
     request: MenuApplyRequest,
     shown: GaMenuPresentation,
@@ -1695,7 +1747,7 @@ export function setupGaTui(
       request.actionId !== 'add' ||
       request.itemId !== undefined
     )
-      return applyRequest(scope, request, shown)
+      return applyRequest(client, scope, request, shown)
     const completed = Promise.withResolvers<boolean>()
     const pending = { scope: scopeKey(scope), finish: completed.resolve }
     pendingLogin = pending
@@ -1704,14 +1756,19 @@ export function setupGaTui(
         ui,
         request,
         completed: completed.promise,
-        apply: (next) => applyRequest(scope, next, shown),
+        apply: (next) => applyRequest(client, scope, next, shown),
       })
     } finally {
       if (pendingLogin === pending) pendingLogin = undefined
     }
   }
 
-  function onNotification(notification: GaNotification, scope: GaScope) {
+  function onNotification(
+    client: GaLocationClient,
+    notification: GaNotification,
+    scope: GaScope,
+  ) {
+    const ui = createGaMenuUi(context, () => isCurrent(client, scope))
     const payload = notification.payload
     if ('notify' in payload) {
       if (
@@ -1734,7 +1791,7 @@ export function setupGaTui(
       {
         ui,
         apply: async (request) => {
-          const result = await applyChoice(scope, request, shown)
+          const result = await applyChoice(client, ui, scope, request, shown)
           shown = presentGaMenu(
             latest.get(scopeKey(scope)) ?? snapshot,
             now(),
@@ -1759,29 +1816,52 @@ export function setupGaTui(
   }
 
   let inFlight = false
+  let shownScope = ''
   const tick = () => {
     if (inFlight || !active()) return
     inFlight = true
-    void pollGaOnce({
-      client,
-      scope: () => currentScope(context.ui.router.current()),
-      onSnapshot: showSnapshot,
-      onNotification,
-      ...(logger ? { logger } : {}),
-    }).finally(() => {
-      inFlight = false
-    })
+    void (async () => {
+      const scope = currentScope(context.ui.router.current())
+      const nextScope = scopeKey(scope)
+      if (shownScope !== nextScope) {
+        latest.clear()
+        setView(undefined)
+        pendingLogin?.finish(false)
+        shownScope = nextScope
+      }
+      // Session lookup is global; RPC queues remain local to its returned location.
+      const location =
+        scope.kind === 'session'
+          ? (await context.client.session.get({ sessionID: scope.sessionID }))
+              .location
+          : context.location
+      if (
+        !active() ||
+        nextScope !== scopeKey(currentScope(context.ui.router.current()))
+      )
+        return
+      await refresh(clients.select(location), scope)
+    })()
+      .catch((error: unknown) => {
+        if (!active()) return
+        clients.select(context.location)
+        logger?.warn('ga-session-location-failed', {
+          error: error instanceof Error ? error.name : typeof error,
+        })
+      })
+      .finally(() => {
+        inFlight = false
+      })
   }
   const stop = (options.schedule ?? defaultSchedule)(tick, GA_SIDEBAR_PULL_MS)
   tick()
 
-  let cleaned = false
   return async () => {
     if (cleaned) return
     cleaned = true
     pendingLogin?.finish(false)
     stop()
-    client.dispose()
+    clients.dispose()
     releaseSlot()
   }
 }

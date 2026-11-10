@@ -2288,6 +2288,9 @@ describe('GA TUI setup', () => {
     const context = {
       location: { directory: '/work/a' },
       client: {
+        session: {
+          get: async () => ({ location: { directory: '/work/a' } }),
+        },
         rpc: {
           call: async (input: Record<string, any>) => {
             calls.push(input)
