@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.0.39] - 2026-11-10
+
 ### Added
 
 - Gemini 4 Carbon (Low, Medium, High) is available on OpenCode and Pi.
