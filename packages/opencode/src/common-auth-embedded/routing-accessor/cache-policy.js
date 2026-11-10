@@ -1,4 +1,15 @@
 import { routingHandle } from './handle.js';
+export const CACHE_WARM_STOP_REASONS = [
+    'cost-cap',
+    'count-cap',
+    'outside-hours',
+    'session-ended',
+    'unsupported',
+];
+/** Billing rejects unknown stop reasons; omit them rather than guessing. */
+export function isCacheWarmStopReason(value) {
+    return CACHE_WARM_STOP_REASONS.some((reason) => reason === value);
+}
 const warned = new Set();
 // Inspect descriptors rather than values so warning deduplication cannot invoke
 // a broken bridge's getters a second time. Do not print policy contents.

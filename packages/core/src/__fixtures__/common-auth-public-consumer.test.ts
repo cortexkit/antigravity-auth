@@ -29,7 +29,7 @@ export const PUBLIC_CONSUMER_PROJECT_ROOT = resolve(
 )
 const CONSUMER_PARENT = join(PUBLIC_CONSUMER_PROJECT_ROOT, 'node_modules')
 const PREFIX = '.common-auth-public-consumer-'
-const ARCHIVE_BYTES = 461024
+const ARCHIVE_BYTES = 463735
 const PACKAGE = '@cortexkit/common-auth'
 const VERSION = '0.43.0'
 const CONSUMER_MANIFEST = `${JSON.stringify({ name: 'common-auth-public-consumer', private: true, type: 'module' })}\n`

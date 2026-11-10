@@ -77,9 +77,9 @@ it('admits the complete candidate archive and records every member payload', asy
   const fixture = await provisionPublicConsumer()
   try {
     const admitted = await admitPublicConsumer(fixture.root)
-    expect(admitted.receipt.archive.bytes).toBe(461024)
+    expect(admitted.receipt.archive.bytes).toBe(463735)
     expect(admitted.receipt.archive.sha256).toBe(
-      'f1a8491419b1f30c0c5a0acdbd4f7981134159cee972eb21372e86f8f0e9ee31',
+      'f2c384c880b08859ac3f0cca3575cedfcdcd47e6e96dd8f72dc78af1fe6a7620',
     )
     expect(admitted.entries).toEqual(await admittedPublicArchive())
     const pkg = JSON.parse(
@@ -227,7 +227,7 @@ it('refuses missing, truncated and corrupt archives before provisioning', async 
   const archive = await publicFixtureBytes(
     join(
       PUBLIC_CONSUMER_PROJECT_ROOT,
-      'tools/common-auth-build/inputs/cortexkit-common-auth-0.43.0-r2.tgz',
+      'tools/common-auth-build/inputs/cortexkit-common-auth-0.43.0.tgz',
     ),
   )
   expect(() => admitPublicArchiveBytes(archive.subarray(1))).toThrow(

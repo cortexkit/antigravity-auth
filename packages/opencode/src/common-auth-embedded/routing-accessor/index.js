@@ -3,10 +3,67 @@
  * shaping. Account ids are vault account ids, not local pool rows. Nothing is
  * persisted here; plugins on routes the runner does not serve get no turn notes.
  */
+import { isCacheWarmStopReason, } from './cache-policy.js';
 import { routingHandle } from './handle.js';
-export { reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
+export { CACHE_WARM_STOP_REASONS, isCacheWarmStopReason, reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
 function isObject(value) {
     return typeof value === 'object' && value !== null;
+}
+function isNonEmptyString(value) {
+    return typeof value === 'string' && value.length > 0;
+}
+function billingCache(value) {
+    if (!isObject(value) || Array.isArray(value))
+        return;
+    const { ttlMs, implicit, warming } = value;
+    const cache = {};
+    // Conflicting lifetime claims cannot prove what the request cached.
+    if (!(ttlMs !== undefined && implicit !== undefined)) {
+        if (typeof ttlMs === 'number' && Number.isSafeInteger(ttlMs) && ttlMs > 0) {
+            cache.ttl_ms = ttlMs;
+        }
+        else if (implicit === true) {
+            cache.implicit = true;
+        }
+    }
+    if (isObject(warming) && !Array.isArray(warming)) {
+        const { on, stopReason } = warming;
+        if (typeof on === 'boolean') {
+            cache.warming = {
+                on,
+                ...(!on && isCacheWarmStopReason(stopReason)
+                    ? { stop_reason: stopReason }
+                    : {}),
+            };
+        }
+    }
+    return Object.keys(cache).length > 0 ? cache : undefined;
+}
+function billingUsage(value) {
+    if (!isObject(value) || Array.isArray(value))
+        return;
+    const usage = {};
+    for (const [inputKey, payloadKey] of [
+        ['input', 'input'],
+        ['output', 'output'],
+        ['cacheRead', 'cache_read'],
+        ['cacheWrite', 'cache_write'],
+        ['cacheWrite5m', 'cache_write_5m'],
+        ['cacheWrite1h', 'cache_write_1h'],
+        ['reasoning', 'reasoning'],
+    ]) {
+        const count = value[inputKey];
+        if (typeof count === 'number' &&
+            Number.isSafeInteger(count) &&
+            count >= 0) {
+            usage[payloadKey] = count;
+        }
+    }
+    const reasoningIncludedInOutput = value.reasoningIncludedInOutput;
+    if (typeof reasoningIncludedInOutput === 'boolean') {
+        usage.reasoning_included_in_output = reasoningIncludedInOutput;
+    }
+    return Object.keys(usage).length > 0 ? usage : undefined;
 }
 /**
  * Read advisory input for request shaping, in landing order, without persisting
@@ -124,10 +181,10 @@ export async function askRouting(input) {
     }
 }
 /**
- * Report a vault request or turn-note event without waiting for routing. Only
- * contract fields are sent, and all accessor failures are ignored. Headers must
- * already be limited to rate-limit headers by the caller; values are not filtered
- * or redacted here.
+ * Report a vault request, billing result or turn-note event without waiting for
+ * routing. Only contract fields are sent, and all accessor failures are ignored.
+ * Headers must already be limited to rate-limit headers by the caller; values
+ * are not filtered or redacted here.
  */
 export function reportRouting(input) {
     try {
@@ -140,6 +197,80 @@ export function reportRouting(input) {
         let payload;
         if ('kind' in input) {
             switch (input.kind) {
+                case 'billing': {
+                    const { attemptId, requestKind, credentialId, provider, model, outcome, accountId, providerRequestId, providerResponseId, userMessageId, status, attempt, chargeBasis, usage: inputUsage, usageByModel: inputUsageByModel, cache: inputCache, } = input;
+                    if (!isNonEmptyString(attemptId) ||
+                        !isNonEmptyString(credentialId) ||
+                        !isNonEmptyString(provider) ||
+                        !isNonEmptyString(model) ||
+                        (requestKind !== 'primary' &&
+                            requestKind !== 'title' &&
+                            requestKind !== 'compaction' &&
+                            requestKind !== 'generate' &&
+                            requestKind !== 'keep_warm' &&
+                            requestKind !== 'prime') ||
+                        (outcome !== 'completed' &&
+                            outcome !== 'cut' &&
+                            outcome !== 'failed'))
+                        return;
+                    const usage = billingUsage(inputUsage);
+                    const cache = billingCache(inputCache);
+                    const usageByModel = [];
+                    if (Array.isArray(inputUsageByModel)) {
+                        for (const entry of inputUsageByModel) {
+                            if (!isObject(entry) || Array.isArray(entry))
+                                continue;
+                            const modelUsed = entry.modelUsed;
+                            if (!isNonEmptyString(modelUsed))
+                                continue;
+                            const modelUsage = billingUsage(entry.usage);
+                            // Thalamus rejects the whole report when an entry has no usage
+                            // object, so an entry without a valid reading is dropped.
+                            if (!modelUsage)
+                                continue;
+                            usageByModel.push({ model_used: modelUsed, usage: modelUsage });
+                        }
+                    }
+                    payload = {
+                        kind: 'billing',
+                        attempt_id: attemptId,
+                        request_kind: requestKind,
+                        credential_id: credentialId,
+                        provider,
+                        model,
+                        outcome,
+                        ...(isNonEmptyString(accountId) ? { account_id: accountId } : {}),
+                        ...(isNonEmptyString(providerRequestId)
+                            ? { provider_request_id: providerRequestId }
+                            : {}),
+                        ...(isNonEmptyString(providerResponseId)
+                            ? { provider_response_id: providerResponseId }
+                            : {}),
+                        ...(isNonEmptyString(userMessageId)
+                            ? { user_message_id: userMessageId }
+                            : {}),
+                        ...(typeof status === 'number' &&
+                            Number.isInteger(status) &&
+                            status >= 0
+                            ? { status }
+                            : {}),
+                        ...(typeof attempt === 'number' &&
+                            Number.isInteger(attempt) &&
+                            attempt >= 1
+                            ? { attempt }
+                            : {}),
+                        ...(chargeBasis === 'subscription_included' ||
+                            chargeBasis === 'metered_api'
+                            ? { charge_basis: chargeBasis }
+                            : {}),
+                        ...(usage ? { usage } : {}),
+                        ...(usageByModel.length > 0
+                            ? { usage_by_model: usageByModel }
+                            : {}),
+                        ...(cache ? { cache } : {}),
+                    };
+                    break;
+                }
                 case 'turn_notes_supported': {
                     const { model, supported } = input;
                     if (typeof model !== 'string' ||

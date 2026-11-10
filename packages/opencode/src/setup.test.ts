@@ -873,6 +873,63 @@ describe('setup plugin callbacks', () => {
   })
 
   it.each([
+    ['opencode', '1', 'Antigravity sign-in for OpenCode'],
+    ['opencode', '2', 'Antigravity sign-in for OpenCode'],
+    ['pi', '1', 'Antigravity sign-in for Pi'],
+  ] as const)('vault proposal for %s generation %s carries its sign-in display name', async (host, generation, displayName) => {
+    const p = profile()
+    fakeHostCommands(p)
+    Object.assign(process.env, p.env)
+    const plugin = await createSetupPlugin(
+      createDefaultCliDependencies(),
+      async () => 0,
+    )
+    plugin.beforeSignIn = mock(async () => {})
+    plugin.signInLocal = mock(async () => {})
+    plugin.beforeRegister = mock(async () => {})
+    plugin.migrate = mock(async () => {})
+    writeFileSync(plugin.vault.connectionFile, '{}')
+    const name = plugin.vault.hosts[host].name
+    const enrollPropose = mock(
+      async (_input: {
+        name: string
+        requestSecretHash: string
+        displayName?: string
+      }) => ({ requestId: 'sign-in-display-name' }),
+    )
+    const close = mock(() => {})
+    const result = await runSetup(
+      plugin,
+      ['--yes', '--enroll-only', `--host=${host}`, `--opencode=${generation}`],
+      {
+        env: p.env,
+        connect: async () => ({
+          enrollPropose,
+          enrollPoll: async () => ({
+            status: 'approved' as const,
+            name,
+            token: 'ab'.repeat(32),
+            tokenGeneration: 1,
+          }),
+          close,
+        }),
+      },
+    )
+    expect(result.hosts).toEqual([host])
+    expect(result.mode).toBe('claustrum')
+    expect(enrollPropose).toHaveBeenCalledTimes(1)
+    expect(enrollPropose.mock.calls[0]?.[0]).toEqual({
+      name,
+      displayName,
+      requestSecretHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+    })
+    expect(close).toHaveBeenCalled()
+    expect(plugin.signInLocal).not.toHaveBeenCalled()
+    expect(plugin.beforeRegister).not.toHaveBeenCalled()
+    expect(plugin.migrate).not.toHaveBeenCalled()
+  })
+
+  it.each([
     ['Escape', '\u001b'],
     ['Ctrl-C', '\u0003'],
   ])('cancelling the vault question with %s changes nothing', async (_key, cancel) => {

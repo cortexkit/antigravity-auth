@@ -34,4 +34,4 @@
 /packages/opencode/src/common-auth-embedded/source-output.json -text -eol -filter -working-tree-encoding
 /packages/opencode/src/common-auth-embedded/NOTICE.txt -text -eol -filter -working-tree-encoding
 /packages/core/src/common-auth-embedded/** -text -eol -filter -working-tree-encoding
-/tools/common-auth-build/inputs/cortexkit-common-auth-0.43.0-r2.tgz -text -eol -filter -working-tree-encoding
+/tools/common-auth-build/inputs/cortexkit-common-auth-0.43.0.tgz -text -eol -filter -working-tree-encoding

@@ -54,7 +54,7 @@ function approveCommand(requestId, name) {
 export async function connectSetupHost(plugin, host, io, terminal, fence) {
     if (hasVaultHost())
         throw new Error(VAULT_HOST_CONNECT_REFUSAL);
-    const { name, paths: input } = plugin.vault.hosts[host];
+    const { name, displayName, paths: input } = plugin.vault.hosts[host];
     const paths = hostEnrollmentPaths(input);
     await fence();
     const client = await (io.connect ?? connectClaustrumEnrollmentClient)({
@@ -68,6 +68,7 @@ export async function connectSetupHost(plugin, host, io, terminal, fence) {
     try {
         const manager = new ClaustrumEnrollmentManager({
             proposedName: name,
+            displayName,
             paths,
             // Each tick of the wait below checks the fence once, just before
             // reconcile proposes or polls. Checking again inside every vault call

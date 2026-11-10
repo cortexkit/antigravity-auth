@@ -3,8 +3,9 @@
  * shaping. Account ids are vault account ids, not local pool rows. Nothing is
  * persisted here; plugins on routes the runner does not serve get no turn notes.
  */
+import { type CacheWarmStopReason } from './cache-policy.js';
 export type { CacheTouchInput, CacheWarmStoppedInput, CacheWarmStopReason, SessionCacheHours, SessionCachePolicy, SessionCacheTtl, SessionKeepWarmMode, SessionToolWait, } from './cache-policy.js';
-export { reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
+export { CACHE_WARM_STOP_REASONS, isCacheWarmStopReason, reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
 /** An eligible vault route, not a local pool row. */
 export interface RoutingCandidate {
     /** Vault account id, not the plugin's route id. */
@@ -42,6 +43,19 @@ interface RoutingReportIdentity {
     accountId: string;
     credentialId?: string;
 }
+export type BillingRequestKind = 'primary' | 'title' | 'compaction' | 'generate' | 'keep_warm' | 'prime';
+export type BillingOutcome = 'completed' | 'cut' | 'failed';
+/** Omit unread counts; zero represents a measured count, not a default. */
+export interface BillingUsage {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    cacheWrite5m?: number;
+    cacheWrite1h?: number;
+    reasoning?: number;
+    reasoningIncludedInOutput?: boolean;
+}
 export type ReportRoutingInput = (RoutingReportIdentity & ({
     outcome: 'served';
     /**
@@ -73,6 +87,35 @@ export type ReportRoutingInput = (RoutingReportIdentity & ({
     kind: 'turn_note_skipped';
     after_tool_use_id: string;
     reason: 'anchor_missing' | 'before_user_message' | 'unsupported_model' | 'not_oauth';
+} | {
+    sessionId: string;
+    kind: 'billing';
+    attemptId: string;
+    requestKind: BillingRequestKind;
+    credentialId: string;
+    accountId?: string;
+    provider: string;
+    model: string;
+    outcome: BillingOutcome;
+    providerRequestId?: string;
+    providerResponseId?: string;
+    userMessageId?: string;
+    status?: number;
+    attempt?: number;
+    chargeBasis?: 'subscription_included' | 'metered_api';
+    usage?: BillingUsage;
+    usageByModel?: readonly {
+        modelUsed: string;
+        usage: BillingUsage;
+    }[];
+    cache?: {
+        ttlMs?: number;
+        implicit?: true;
+        warming?: {
+            on: boolean;
+            stopReason?: CacheWarmStopReason;
+        };
+    };
 };
 /**
  * Read advisory input for request shaping, in landing order, without persisting
@@ -90,9 +133,9 @@ export declare function turnNotes(sessionId: string): readonly {
  */
 export declare function askRouting<Candidate extends RoutingCandidate>(input: AskRoutingInput<Candidate>): Promise<RoutingSelection<Candidate> | undefined>;
 /**
- * Report a vault request or turn-note event without waiting for routing. Only
- * contract fields are sent, and all accessor failures are ignored. Headers must
- * already be limited to rate-limit headers by the caller; values are not filtered
- * or redacted here.
+ * Report a vault request, billing result or turn-note event without waiting for
+ * routing. Only contract fields are sent, and all accessor failures are ignored.
+ * Headers must already be limited to rate-limit headers by the caller; values
+ * are not filtered or redacted here.
  */
 export declare function reportRouting(input: ReportRoutingInput): void;

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- Vault approval requests from setup now show "Antigravity sign-in for OpenCode" or "Antigravity sign-in for Pi".
+- Updated the embedded common-auth library to published 0.43.0.
+
 ## [3.0.38] - 2026-11-08
 
 ### Added

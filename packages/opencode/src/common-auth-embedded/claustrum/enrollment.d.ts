@@ -29,10 +29,13 @@ export declare function classifyEnrollmentError(error: unknown): {
  * Each host enrolls separately so the operator can revoke one without the other.
  */
 export declare function enrollmentName(plugin: string, host: string): string;
+/** Match the vault's plain-text, code-point limit before proposing a display name. */
+export declare function validEnrollmentDisplayName(displayName: string): boolean;
 export interface ClaustrumEnrollmentClient {
     enrollPropose(input: {
         name: string;
         requestSecretHash: string;
+        displayName?: string;
     }): Promise<{
         requestId: string;
     }>;
@@ -142,6 +145,7 @@ export declare class ClaustrumEnrollmentManager {
         client: ClaustrumEnrollmentClient;
         paths: ClaustrumEnrollmentPaths;
         proposedName: string;
+        displayName?: string;
         now?: () => number;
         mintSecret?: () => string;
         writeTokenFile?: typeof writeEnrollmentTokenFile;

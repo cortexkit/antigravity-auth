@@ -43,7 +43,7 @@ test('build.private_toolchain', async () => {
   for (const path of [
     'package.json',
     'bun.lock',
-    'inputs/cortexkit-common-auth-0.43.0-r2.tgz',
+    'inputs/cortexkit-common-auth-0.43.0.tgz',
   ]) {
     await mkdir(dirname(join(target, path)), { recursive: true })
     await cp(join(root, prefix, path), join(target, path))
@@ -51,7 +51,7 @@ test('build.private_toolchain', async () => {
   const before = digest(await readFile(join(target, 'bun.lock')))
   // Check the lockfile digest before installation to verify all transitive dependency integrity values separately from the install.
   expect(before).toBe(
-    'd1c11f7276ee0000d710f42a748d279a4186ae12ba50a3323e084a754759ca67',
+    '1b746126cde07fd1d51b8025a6045ccc140d4c86b05dd3406a4a3b5ace03cfeb',
   )
   const installed = await run(target, [
     'install',
@@ -68,7 +68,7 @@ test('build.private_toolchain', async () => {
     await readFile(join(target, 'package.json'), 'utf8'),
   )
   expect(manifest.dependencies).toEqual({
-    '@cortexkit/common-auth': 'file:inputs/cortexkit-common-auth-0.43.0-r2.tgz',
+    '@cortexkit/common-auth': 'file:inputs/cortexkit-common-auth-0.43.0.tgz',
     '@opentui/core': '0.5.14',
     '@opentui/solid': '0.5.14',
     'solid-js': '1.9.12',
@@ -103,7 +103,7 @@ test('build.private_toolchain', async () => {
     const pkg = JSON.parse(await readFile(packageFile, 'utf8'))
     expect(entry[0]).toBe(
       name === '@cortexkit/common-auth'
-        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.43.0-r2.tgz'
+        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.43.0.tgz'
         : `${pkg.name}@${pkg.version}`,
     )
   }

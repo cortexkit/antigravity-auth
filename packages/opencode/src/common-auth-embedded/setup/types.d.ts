@@ -50,6 +50,7 @@ export interface SetupPlugin {
         connectionFile: string;
         hosts: Record<SetupHost, {
             name: string;
+            displayName?: string;
             paths: Parameters<typeof hostEnrollmentPaths>[0];
         }>;
     };

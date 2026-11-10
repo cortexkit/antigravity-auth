@@ -1,14 +1,14 @@
 {
   "version": "0.43.0",
-  "artifactStatus": "candidate",
-  "archiveBytes": 461024,
-  "sha256": "f1a8491419b1f30c0c5a0acdbd4f7981134159cee972eb21372e86f8f0e9ee31",
-  "sri": "sha512-BAThCJ0ZZePtz/Q4cdcrC1DsXdYdEDndpaj5kYgOyfHmEi4P9Gli9orcWGTbCSB0zem+A2IllO5qhyVlZx9bAQ==",
+  "artifactStatus": "published",
+  "archiveBytes": 463735,
+  "sha256": "f2c384c880b08859ac3f0cca3575cedfcdcd47e6e96dd8f72dc78af1fe6a7620",
+  "sri": "sha512-J0vA1VHliTdDhBghn/G5oR6oRcm5sA0ScL/6ghwqMEsQjlSZ5K8q40vYVbW15gZcw69hcmVuA6Gbq1/26yKR4A==",
   "manifestSha256": "2d9ce0b32945609d99f13422bd1eac2708f8d243f0c913c298f1815617d4df87",
   "inventorySha256": "ac70aa45ad17d0f261af46e10d9de34699695875d2dae476858d33be4e4282dd",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
   "canonicalFiles": 214,
-  "canonicalBytes": 1340356,
+  "canonicalBytes": 1342356,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -75,14 +75,14 @@
     {
       "source": "package/dist/routing-accessor/cache-policy.d.ts",
       "output": "routing-accessor/cache-policy.d.ts",
-      "bytes": 2177,
-      "hash": "d9a938b7f5c688e398a8d67a74c5ad9d3fd1e2c72648f3bcae02acf9f8894ac2"
+      "bytes": 2499,
+      "hash": "941d59d7758fe9958c7ad50f744d8d127419f71d0cc44c043af49750089d5dbc"
     },
     {
       "source": "package/dist/routing-accessor/cache-policy.js",
       "output": "routing-accessor/cache-policy.js",
-      "bytes": 6700,
-      "hash": "3342f84975f498d36a44860b60263bb0e3a2d826faa9aff6fb24a58944d7b71b"
+      "bytes": 7035,
+      "hash": "3dd1190a495f02c9a35638065c22f34372b7aaf37817ceb31920eead004abcf2"
     },
     {
       "source": "package/dist/routing-accessor/handle.js",
@@ -93,14 +93,14 @@
     {
       "source": "package/dist/routing-accessor/index.d.ts",
       "output": "routing-accessor/index.d.ts",
-      "bytes": 4243,
-      "hash": "f2dd26706a869322c9c31ccae1bc3612d5ce89e4f79b6c4fb999f6b50ae5f88e"
+      "bytes": 5573,
+      "hash": "2175d74fc07473fa02ddd401fc069938a89fdf6d22706afcd9d3ae5225f49708"
     },
     {
       "source": "package/dist/routing-accessor/index.js",
       "output": "routing-accessor/index.js",
-      "bytes": 8406,
-      "hash": "83945bf1bcd2b6d7d5bfdd597b62211d5b00b8cdd75e29089c75478af7f6eafc"
+      "bytes": 14506,
+      "hash": "f3adc02d9b528c4ea8345d61e4cc04d1ab43899056931cc57eae67ddcb601b80"
     }
   ],
   "sidebarRoot": {
@@ -254,13 +254,13 @@
     ],
     [
       "claustrum/enrollment.d.ts",
-      8761,
-      "4ebace01478b70ccabca0964128a47ea93c553d4ad1c307c29946a6952023dbe"
+      8990,
+      "395691b7c46020b5ab8850e1effdab1ce378312cf9f71b9b2ab613d4331a1669"
     ],
     [
       "claustrum/enrollment.js",
-      37156,
-      "b5bd0f39bc78277cc36a15dd30bad763f114d7ed099466671752dbeecd1cd873"
+      38799,
+      "3cb9bf3fae4b90b64b743a618b142047cad3a99b81b52932d0f9afc8540adad7"
     ],
     [
       "claustrum/errors.d.ts",
@@ -304,13 +304,13 @@
     ],
     [
       "claustrum/index.d.ts",
-      4937,
-      "9270d05fd212b2e4b38afe6fc1021b0763ced055921de03943fec1992c871aa3"
+      4965,
+      "6b95f03d2135a664e8960d3ba5d3fc294e4dea0cb7ca32ac183c3a3312f88a5d"
     ],
     [
       "claustrum/index.js",
-      4062,
-      "72f0f4bd7c17b82aa7abc3f196e1499d5a3d51173a456fbd7c3b72425ffaba48"
+      4090,
+      "57a6e23ad884e39989da2ffd8eadb1b62f744402a9d6c33bb68b25d6c329e4f0"
     ],
     [
       "claustrum/insula.d.ts",
@@ -929,8 +929,8 @@
     ],
     [
       "setup/enroll.js",
-      8966,
-      "e05ca19de7459da5a3c90c06dfec95d65ae4f8101f8fab3fc5d77d4e02728940"
+      9004,
+      "e94fc4b0238f24911a5486d9480da42948b72d89d8d2d5df53e8d9c84c5b3a64"
     ],
     [
       "setup/flags.d.ts",
@@ -984,8 +984,8 @@
     ],
     [
       "setup/types.d.ts",
-      6038,
-      "f4091b3f1f5018e9ac9b3da4329cb388302ef1c12c7c927fb43c631e1a0295f6"
+      6072,
+      "b14118ed7b204bb57b62e785558db22bcc9e32bb99748883be4289fca746fa7a"
     ],
     [
       "store/attribution.d.ts",
