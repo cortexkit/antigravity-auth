@@ -552,7 +552,6 @@ describe('GA menu command service', () => {
       menu: { command: 'antigravity', title: 'Antigravity', sections: [] },
     }
     const queued: unknown[] = []
-    let reports = 0
     let connected = false
     const service = createGaMenuCommandService({
       menu: {
@@ -570,16 +569,13 @@ describe('GA menu command service', () => {
         expect(target).toEqual(scope)
         return connected
       },
-      disconnected: () => {
-        reports += 1
-      },
     })
-    await service.open({ scope, signal: new AbortController().signal })
-    expect(reports).toBe(1)
+    await expect(
+      service.open({ scope, signal: new AbortController().signal }),
+    ).rejects.toThrow('No Antigravity window is showing this session’s folder.')
     expect(queued).toEqual([{ scope, entry: payload }])
     connected = true
     await service.open({ scope, signal: new AbortController().signal })
-    expect(reports).toBe(1)
     expect(queued).toHaveLength(2)
   })
 
@@ -588,9 +584,6 @@ describe('GA menu command service', () => {
     const notices: unknown[] = []
     const service = createGaMenuCommandService({
       isConnected: () => true,
-      disconnected: () => {
-        throw new Error('unexpected disconnection')
-      },
       menu: {
         command: 'antigravity',
         open: async () => {
@@ -655,9 +648,6 @@ describe('GA menu command service', () => {
     const queued: unknown[] = []
     const service = createGaMenuCommandService({
       isConnected: () => true,
-      disconnected: () => {
-        throw new Error('unexpected disconnection')
-      },
       menu: {
         command: 'antigravity',
         open: async (invocation) => {
@@ -1132,6 +1122,7 @@ async function transportLocation(
   const prepared = spyOn(locationRuntime.debug, 'startAntigravityDebugRequest')
   restorePrepared = () => prepared.mockRestore()
   let notify: GaRpcActivation['notify'] = () => null
+  let isConnected: GaRpcActivation['isConnected'] = () => false
   const serving = await scope.step(() =>
     configured.start({
       runtime: locationRuntime,
@@ -1140,7 +1131,7 @@ async function transportLocation(
         throw new Error('legacy send plumbing must stay unused')
       },
       notify: (...args) => notify(...args),
-      isConnected: () => false,
+      isConnected: (...args) => isConnected(...args),
     }),
   )
   networkCalls.length = 0
@@ -1148,6 +1139,9 @@ async function transportLocation(
     root,
     bindNotify: (next: GaRpcActivation['notify']) => {
       notify = next
+    },
+    bindConnected: (next: GaRpcActivation['isConnected']) => {
+      isConnected = next
     },
     serving,
     services: configured,
@@ -4089,6 +4083,7 @@ describe('GA drawer account actions through native RPC', () => {
       commands: fixture.serving.commands,
       parseApplyRequest: commands.parseApplyRequest,
     })
+    fixture.bindConnected(rpc.isConnected)
     scope.defer(() => rpc.dispose())
     const completed = Promise.withResolvers<void>()
     fixture.bindNotify((scope, payload) => {
@@ -4591,6 +4586,7 @@ describe('GA drawer account actions through native RPC', () => {
             commands: fixture.serving.commands,
             parseApplyRequest: commands.parseApplyRequest,
           })
+          fixture.bindConnected(rpc.isConnected)
           scope.defer(() => rpc.dispose())
           const client = host.createGaLocationClient({
             location: undefined,

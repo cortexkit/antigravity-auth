@@ -80,11 +80,12 @@ export const GA_TUI_ID = 'cortexkit.antigravity-auth' as const
 export const GA_RPC_ID = 'antigravity-auth' as const
 export const GA_RPC_VERSION = 1 as const
 
-/** How often the TUI pulls state and notifications from its location. */
+/** How often the TUI pulls state and notifications for the visible route. */
 export const GA_SIDEBAR_PULL_MS = 1_000
 
 /** Pulls in one tick while the server reports more notifications waiting. */
 const MAX_PULLS_PER_TICK = 4
+const MAX_SESSION_LOCATIONS = 32
 
 // ── Host surface (structural subset of the GA TUI context) ─────────────────
 
@@ -1817,6 +1818,22 @@ export function setupGaTui(
 
   let inFlight = false
   let shownScope = ''
+  // Session locations are immutable; keep only the most recently viewed sessions.
+  const sessionLocations = new Map<string, GaLocationRef>()
+  const sessionLocation = async (sessionID: string): Promise<GaLocationRef> => {
+    const location =
+      sessionLocations.get(sessionID) ??
+      (await context.client.session.get({ sessionID })).location
+    if (active()) {
+      sessionLocations.delete(sessionID)
+      sessionLocations.set(sessionID, location)
+      if (sessionLocations.size > MAX_SESSION_LOCATIONS) {
+        const oldest = sessionLocations.keys().next().value
+        if (oldest !== undefined) sessionLocations.delete(oldest)
+      }
+    }
+    return location
+  }
   const tick = () => {
     if (inFlight || !active()) return
     inFlight = true
@@ -1832,8 +1849,7 @@ export function setupGaTui(
       // Session lookup is global; RPC queues remain local to its returned location.
       const location =
         scope.kind === 'session'
-          ? (await context.client.session.get({ sessionID: scope.sessionID }))
-              .location
+          ? await sessionLocation(scope.sessionID)
           : context.location
       if (
         !active() ||
@@ -1862,14 +1878,15 @@ export function setupGaTui(
     pendingLogin?.finish(false)
     stop()
     clients.dispose()
+    sessionLocations.clear()
     releaseSlot()
   }
 }
 
 /**
  * The GA TUI plugin definition (`{ id, setup }`, the 2.0.22 TUI plugin
- * shape). Importing this module starts nothing; `setup` binds to the
- * context's location and returns the cleanup that stops everything it
+ * shape). Importing this module starts nothing; `setup` follows the current
+ * session's location and returns the cleanup that stops everything it
  * started. The host calls `setup(context)`; the package's `./tui` entry
  * passes the plugin version as the second argument. This module's graph
  * may use no Node built-in (the build refuses one), so it cannot read

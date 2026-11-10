@@ -23,7 +23,10 @@ function answer(input: GaRpcCallInput, notified: boolean) {
       generation: input.location?.directory === B.directory ? 'gen-b' : 'gen-a',
       scope: (input.input as { scope: GaScope }).scope,
       reset: null,
-      cursor: notified ? 1 : 0,
+      cursor: Math.max(
+        notified ? 1 : 0,
+        (input.input as { cursor?: number }).cursor ?? 0,
+      ),
       dropped: 0,
       more: false,
       notifications: notified ? [{ cursor: 1, payload: MENU }] : [],
@@ -60,13 +63,19 @@ function host() {
     location: id === 'ses_b' ? B : A,
   })
   const calls: GaRpcCallInput[] = []
+  const lookups: string[] = []
   const menus: string[] = []
   const warnings: string[] = []
   const queues = new Set([B.directory])
   const context: GaTuiContext = {
     location: A,
     client: {
-      session: { get: ({ sessionID }) => lookup(sessionID) },
+      session: {
+        get: ({ sessionID }) => {
+          lookups.push(sessionID)
+          return lookup(sessionID)
+        },
+      },
       rpc: {
         call: async (input) => {
           calls.push(input)
@@ -106,6 +115,7 @@ function host() {
   })
   return {
     calls,
+    lookups,
     menus,
     warnings,
     queues,
@@ -121,6 +131,70 @@ function host() {
 }
 
 describe('GA session location polling', () => {
+  it('looks up a visible session once across repeated ticks', async () => {
+    const fake = host()
+    try {
+      await settle()
+      for (let i = 0; i < 3; i += 1) {
+        fake.tick()
+        await settle()
+      }
+      expect(fake.calls).toHaveLength(4)
+      expect(fake.calls.map((call) => call.location)).toEqual([B, B, B, B])
+      expect(fake.lookups).toEqual(['ses_b'])
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it('retries failed session lookups and caches only a successful result', async () => {
+    const fake = host()
+    try {
+      await settle()
+      let attempts = 0
+      fake.lookup(async () => {
+        attempts += 1
+        if (attempts === 1) throw new Error('session unavailable')
+        return { location: A }
+      })
+      fake.route({ type: 'session', sessionID: 'ses_retry' })
+      fake.tick()
+      await settle()
+      expect(fake.calls).toHaveLength(1)
+      fake.tick()
+      await settle()
+      fake.tick()
+      await settle()
+      expect(attempts).toBe(2)
+      expect(fake.calls).toHaveLength(3)
+      expect(fake.lookups).toEqual(['ses_b', 'ses_retry', 'ses_retry'])
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it('bounds the location cache to the 32 most recently viewed sessions', async () => {
+    const fake = host()
+    const visit = async (sessionID: string) => {
+      fake.route({ type: 'session', sessionID })
+      fake.tick()
+      await settle()
+    }
+    try {
+      await settle()
+      for (let i = 0; i < 31; i += 1) await visit(`ses_${i}`)
+      await visit('ses_b')
+      await visit('ses_31')
+      await visit('ses_b')
+      await visit('ses_0')
+      expect(fake.lookups.filter((id) => id === 'ses_b')).toHaveLength(1)
+      expect(fake.lookups.filter((id) => id === 'ses_0')).toHaveLength(2)
+      expect(fake.lookups).toHaveLength(34)
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
   it('opens the B queue menu when the TUI started in A', async () => {
     const fake = host()
     try {
@@ -160,6 +234,32 @@ describe('GA session location polling', () => {
         cursor: 0,
         scope: { kind: 'sessionless' },
       })
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it('reuses the location client and its cursor between two sessions in B', async () => {
+    const fake = host()
+    try {
+      await settle()
+      fake.lookup(async () => ({ location: B }))
+      fake.route({ type: 'session', sessionID: 'ses_b_other' })
+      fake.tick()
+      await settle()
+      expect(fake.calls[1]?.input).toMatchObject({
+        generation: 'gen-b',
+        cursor: 0,
+      })
+      fake.route({ type: 'session', sessionID: 'ses_b' })
+      fake.tick()
+      await settle()
+      expect(fake.calls[2]?.input).toMatchObject({
+        generation: 'gen-b',
+        cursor: 1,
+      })
+      expect(fake.calls.map((call) => call.location)).toEqual([B, B, B])
+      expect(fake.menus).toEqual(['Antigravity'])
     } finally {
       await fake.cleanup()
     }

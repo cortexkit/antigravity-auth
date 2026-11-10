@@ -9,7 +9,7 @@
 
 ### Fixed
 
-- Fix the Antigravity menu not opening in OpenCode 2 after switching to a session in another folder. Polling follows the session's location and releases unused location clients.
+- Fix the Antigravity menu not opening in OpenCode 2 after switching to a session in another folder. Polling follows the session's location and releases unused location clients. A menu command with no Antigravity window showing that session now explains why no menu appeared.
 
 ## [3.0.38] - 2026-11-08
 
