@@ -28,8 +28,8 @@ import {
   loadCommonAuthClaustrum,
   loadCommonAuthPiSlot,
 } from '@cortexkit/antigravity-auth-core'
-import { ClaustrumWireClient } from '@cortexkit/claustrum-client'
-import { ClaustrumWireClient as LegacyClaustrumWireClient } from 'claustrum-client-017-control'
+import { ClaustrumClient as ClaustrumWireClient } from '@cortexkit/claustrum-client'
+import { ClaustrumClient as LegacyClaustrumWireClient } from 'claustrum-client-017-control'
 
 import { runCommand } from '../../../test/support/run-command.ts'
 import { withVaultHost } from '../../../test/support/vault-host.ts'
