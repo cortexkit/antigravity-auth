@@ -184,7 +184,7 @@ test('embed.inventory', async () => {
     expect(hash(data)).toBe(String(digest))
     total += data.length
   }
-  expect(total).toBe(1361810)
+  expect(total).toBe(1363485)
   for (const [property, value, message] of [
     ['name', 'wrong', 'identity'],
     ['version', '0.9.4', 'version'],
@@ -270,7 +270,7 @@ test('embed.attribution', async () => {
     './routing-accessor': publication.routingAccessorRoot,
   })
   expect(manifest.canonicalFiles).toBe(222)
-  expect(manifest.canonicalBytes).toBe(1396298)
+  expect(manifest.canonicalBytes).toBe(1397973)
   expect(manifest.generator.version).toBe(4)
   expect(manifest.files).toEqual([
     ...publication.files.map(([path, bytes, digest]) => ({
