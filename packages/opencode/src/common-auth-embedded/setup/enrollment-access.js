@@ -17,11 +17,17 @@ export async function confirmEnrollmentAccess(client, status, tokenPath, configu
             grantCommand: `ck auth grant --principal ${shellArgument(`enrolled:${status.approvedName}`)} --selector-kind ${grant.selector.exact === undefined ? 'category' : 'exact'} --selector ${shellArgument(grant.selector.exact ?? grant.selector.category)} --operation ${grant.operation}`,
         }),
     }));
+    const access = {
+        grants,
+        ...(status.requestedGrantsStatus !== undefined && {
+            requestedGrantsStatus: status.requestedGrantsStatus,
+        }),
+    };
     if (status.requestedGrantsStatus === 'dropped')
-        return { state: 'older-vault', grants };
+        return { ...access, state: 'older-vault' };
     try {
         if (!client.listScoped)
-            return { state: 'unconfirmed', grants };
+            return { ...access, state: 'unconfirmed' };
         const { token } = await readClaustrumEnrollmentToken(tokenPath);
         const inventory = await client.listScoped(token);
         const confirmed = grants.map((entry) => ({
@@ -32,6 +38,7 @@ export async function confirmEnrollmentAccess(client, status, tokenPath, configu
                     : row.categories.includes(entry.grant.selector.category))).length,
         }));
         return {
+            ...access,
             state: confirmed.every((entry) => entry.reachableLogins > 0)
                 ? 'reachable'
                 : confirmed.some((entry) => entry.reachableLogins > 0)
@@ -47,10 +54,12 @@ export async function confirmEnrollmentAccess(client, status, tokenPath, configu
     }
     catch {
         // A listing failure cannot undo approval, and its error may contain secrets.
-        return { state: 'unconfirmed', grants };
+        return { ...access, state: 'unconfirmed' };
     }
 }
-export function enrollmentAccessLines(access) {
+export function enrollmentAccessLines(access, grantFallback = 'setup') {
+    if (grantFallback === 'plugin' && access.requestedGrantsStatus !== 'sent')
+        return [];
     const lines = [];
     const remedy = access.grants.some((entry) => entry.grantCommand)
         ? 'run:'

@@ -61,4 +61,4 @@ test-file.ts
 
 # Platform-specific lockfile (npm optional-dep bug #4828 with rollup native binaries)
 package-lock.json
-!/tools/common-auth-build/inputs/cortexkit-common-auth-0.44.0.tgz
+!/tools/common-auth-build/inputs/cortexkit-common-auth-0.45.0.tgz

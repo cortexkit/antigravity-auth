@@ -21,7 +21,7 @@ export class LockOwnershipError extends Error {
         this.details = details;
     }
 }
-function isChangingLockRecord(error, target, name) {
+export function isChangingLockRecord(error, target, name) {
     const path = resolve(lockPathFor(target, name));
     const paths = [path, join(path, 'owner.json')];
     return (((isWindowsSharingViolation(error) ||

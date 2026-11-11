@@ -1,14 +1,14 @@
 {
-  "version": "0.44.0",
-  "artifactStatus": "published",
-  "archiveBytes": 466385,
-  "sha256": "53be392a1605d4b1bb37573937e86c0d9b865baf70e464029265cc1d09d4fe90",
-  "sri": "sha512-2MGgT3DpyrwuxhbXw7XXfbxQJZR2X2eznPW8KP7GRtHPEdFngx4JY+nAdPAygy5kZ7WpOUWTR1J2kFwLeOK/lg==",
-  "manifestSha256": "4f8158ddef9b017c763e59bababea71376c9069a79d258693eabd64ffb99f69b",
-  "inventorySha256": "c91894ca0624fa3506f820f37fd9df62be417c180a9dc1f7f489ed6acec18f0d",
+  "version": "0.45.0",
+  "artifactStatus": "candidate",
+  "archiveBytes": 491031,
+  "sha256": "52e245be19b36fc26b16a5c094e3416be35e147864385490b3ec30286d0b150b",
+  "sri": "sha512-utoAeh/DGHV5eJhqE2mPvWkCDRDvhOXYFbg2iJqbD2mDGc6+TuwFCVSzX829ijw5RSw+5JTfn1vsbHyHjgAKHg==",
+  "manifestSha256": "c892d2419030123182068a70227d1fe74fb7d646e4780cc3f0257a31b54761ad",
+  "inventorySha256": "ff5865d79455f1912ad599ad32818ef9167e510837a2076b4c5d559fb07cff9f",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
   "canonicalFiles": 215,
-  "canonicalBytes": 1353253,
+  "canonicalBytes": 1361810,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -449,8 +449,8 @@
     ],
     [
       "fs/file-read-cache.js",
-      2407,
-      "e801af164fbcf7f3574eaefbb5cba932b3fbee68e819bad57442451712f83235"
+      2598,
+      "38a98883fda0457a7dcc30b4508b7c5cdb36007747491de29abbceb6f57b7adc"
     ],
     [
       "fs/index.d.ts",
@@ -489,23 +489,23 @@
     ],
     [
       "fs/refresh-file-lock.d.ts",
-      3402,
-      "fefff72fcbbcedd80d96cea0f15d7a367220af76ea8c4dfea3f81f83b9931ab1"
+      4049,
+      "5ac8445327934a3a42ad22ee182668cf717fe70e60f7d22986bb2b34ec659531"
     ],
     [
       "fs/refresh-file-lock.js",
-      46870,
-      "fb2d2c236e468a1c38b28d2d628f5b01e246e6d34165d844b1ba8faf2f692b37"
+      53316,
+      "6930a34883f8d795c4f64ceafb03ec42b49132e99dd1b0b0c32dce6273634dbd"
     ],
     [
       "fs/with-lock.d.ts",
-      1179,
-      "403d301f0cc332b72f8e7d904ac26f8efc93081cbd2cddd46b3f6a5a61d52685"
+      1358,
+      "38d393f3aeee5b48011ca1ccb742e203cd49258716ae1c85a6eed154c77b422b"
     ],
     [
       "fs/with-lock.js",
-      3278,
-      "3036b3e1cf9d80d33feebced3bdc14bbfd841ce69a8e784957be984d3c94a461"
+      3285,
+      "72141717fe2b5cf1c027a2349cf85fabfb2debc2761738afc06299484471f86f"
     ],
     [
       "limits/activity.d.ts",
@@ -884,13 +884,13 @@
     ],
     [
       "setup/command-error.d.ts",
-      1506,
-      "015ef109f6899e8640418e515fd22a97a966b694ba749cd8067660ba75326fc4"
+      1541,
+      "442aa57b042c7a7b707468665a555f26a403ab985238a72f1d21df2e0309a30d"
     ],
     [
       "setup/command-error.js",
-      3446,
-      "6c828a87868322c0b67dcccab82298fa28890d4220071409deead6f7837ca527"
+      3530,
+      "cc2ca158ae00fa345f03e555a198be468e4e9838247c7ca7c3519cd283de8d48"
     ],
     [
       "setup/command-runner.js",
@@ -904,8 +904,8 @@
     ],
     [
       "setup/command.js",
-      14783,
-      "6b519fad2e6fc0a85844646b54340c49f17a707d2e7a89a4bc4c95db151425b7"
+      15044,
+      "edbaa8a02ccd4aad9462906ee76a7e1a02f115d34ce3d8fc516d9514ebc315c1"
     ],
     [
       "setup/config-write.js",
@@ -929,13 +929,13 @@
     ],
     [
       "setup/enroll.js",
-      9662,
-      "c13ed63c9b35d40c9b54032154376ec1dca78e6b30571823237c2f0555fae8d6"
+      9707,
+      "6d63da24cfe89385889d190323b4781c0dfd223b4d9077f97679ff79f9c9091a"
     ],
     [
       "setup/enrollment-access.js",
-      3910,
-      "6cca250e1dd9a71895311afee4bbad234e3c30db4c8512b408dd01c67ade5d88"
+      4246,
+      "9644d635e30f376723241a1706a6c692456d4e9c689563c9ecde9543aa124d8a"
     ],
     [
       "setup/flags.d.ts",
@@ -989,8 +989,8 @@
     ],
     [
       "setup/types.d.ts",
-      6551,
-      "1281750ce5f65a21d296a894e90c625323c0f5aed7131868bb5b669d667ef38f"
+      6877,
+      "f6e3ee3aafee1c01ba45903fdf832cb5343535526bb8e16f96b44d96deb39302"
     ],
     [
       "store/attribution.d.ts",

@@ -17,7 +17,7 @@ export declare class SetupCommandError extends Error {
     });
 }
 /** The line setup prints for one host's outcome, e.g. `Pi: not connected`. */
-export declare function setupEnrollmentLine({ host, outcome, access, }: SetupHostEnrollment): string;
+export declare function setupEnrollmentLine({ host, outcome, access }: SetupHostEnrollment, grantFallback?: 'setup' | 'plugin'): string;
 /**
  * Remember which hosts a failed setup left connected to the vault, against the
  * thrown value. Only objects can carry a record; a thrown primitive is left as

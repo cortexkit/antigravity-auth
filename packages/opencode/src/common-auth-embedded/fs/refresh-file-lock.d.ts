@@ -4,6 +4,17 @@ type LeaseCreationTestHooks = {
 };
 /** Test-only creation faults; not re-exported from the public fs entry point. */
 export declare function setLeaseCreationTestHooksForTest(hooks?: LeaseCreationTestHooks): void;
+type StagingSweepTestHooks = {
+    readdir?: (directory: string) => Promise<string[]>;
+    beforeUnlink?: (path: string) => void | Promise<void>;
+    unlink?: (path: string) => Promise<void>;
+};
+/** Test-only sweep faults; not re-exported from the public fs entry point. */
+export declare function setStagingSweepTestHooksForTest(hooks?: StagingSweepTestHooks): void;
+/** Tests only: wait for every staging sweep started so far to finish. */
+export declare function settleStagingSweepsForTest(): Promise<void>;
+/** Tests only: let the next acquisition of every lock path sweep again. */
+export declare function forgetStagingSweepsForTest(): void;
 export declare function isLostMarkerRaceError(error: unknown): boolean;
 /** Test-only fault injection between marker mkdir and owner.json write. */
 export interface EvictionMarkerTestHooks {

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { link, lstat, mkdir, open, readFile, rename, rm, stat, } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { link, lstat, mkdir, open, readdir, readFile, rename, rm, stat, unlink, } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { DisappearedLockRecordError, isWindowsAccessDeniedCreate, isWindowsAccessDeniedRead, readLockRecord, } from './lock-record.js';
 import { createPrivateBytes, createPrivateDirectoryExclusive, ensurePrivateDirectory, isWindowsSharingViolation, PrivateFileError, privateOperation, readPrivateText, verifyPrivate, windowsPrivateFiles, writePrivateAtomic, } from './private-files.js';
 import { LockOwnershipError, lockPathFor } from './with-lock.js';
@@ -90,6 +90,149 @@ async function writeExclusiveText(path, text) {
     finally {
         await handle.close();
     }
+}
+// Lease owner records are staged in sibling files named
+// `<lock file name>.<random UUID>.tmp` before they are linked or renamed into
+// place: by createExclusiveText and by renewal, whose Windows branch uses
+// writePrivateAtomic's default staging name of the same shape. Each writer
+// removes its staging file when it finishes, but a process killed between
+// creating the file and that cleanup leaves it behind for good, since nothing
+// else ever reads that name. The sweep below removes only such leftovers.
+const STAGING_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+// A staging file records the expiry of the lease it was about to publish,
+// which is always in the future while its writer is alive. Requiring the
+// expiry to be at least a lease TTL in the past, and never less than this
+// floor, keeps a live writer's file safe even if wall clocks disagree.
+const STAGING_SWEEP_MIN_AGE_MS = 10 * 60_000;
+// Bounds the work one sweep does; any remainder is left for a later process.
+const STAGING_SWEEP_MAX_CANDIDATES = 256;
+// A complete owner record is under 100 bytes; anything far larger is not one.
+const STAGING_SWEEP_MAX_BYTES = 4_096;
+// Lock paths already swept by this process. Sweeping once per process keeps
+// the directory listing off the hot path of every later acquisition.
+const sweptLockPaths = new Set();
+const pendingStagingSweeps = new Set();
+let stagingSweepTestHooks;
+/** Test-only sweep faults; not re-exported from the public fs entry point. */
+export function setStagingSweepTestHooksForTest(hooks) {
+    stagingSweepTestHooks = hooks;
+}
+/** Tests only: wait for every staging sweep started so far to finish. */
+export async function settleStagingSweepsForTest() {
+    while (pendingStagingSweeps.size > 0)
+        await Promise.all([...pendingStagingSweeps]);
+}
+/** Tests only: let the next acquisition of every lock path sweep again. */
+export function forgetStagingSweepsForTest() {
+    sweptLockPaths.clear();
+}
+function isStagingName(name, lockName) {
+    const prefix = `${lockName}.`;
+    const suffix = '.tmp';
+    if (!name.startsWith(prefix) || !name.endsWith(suffix))
+        return false;
+    return STAGING_UUID.test(name.slice(prefix.length, -suffix.length));
+}
+function sameStagingFile(a, b) {
+    return (a.dev === b.dev &&
+        a.ino === b.ino &&
+        a.size === b.size &&
+        a.mtimeMs === b.mtimeMs &&
+        a.birthtimeMs === b.birthtimeMs);
+}
+/**
+ * Read the owner record a staging file holds, or undefined when the path is
+ * not a plain file holding exactly a complete `{ownerId, expiresAt}` record.
+ * Returns the lstat identity the record was read from, for the unlink fence.
+ */
+async function readStagedOwner(path) {
+    const before = await lstat(path);
+    if (!before.isFile() || before.isSymbolicLink())
+        return undefined;
+    if (before.size > STAGING_SWEEP_MAX_BYTES)
+        return undefined;
+    const handle = await open(path, 'r');
+    let text;
+    try {
+        // The path could be swapped between the lstat and the open; read only
+        // when the opened file is the one the lstat described.
+        if (!sameStagingFile(before, await handle.stat()))
+            return undefined;
+        text = await handle.readFile('utf8');
+    }
+    finally {
+        await handle.close();
+    }
+    let record;
+    try {
+        record = JSON.parse(text);
+    }
+    catch {
+        return undefined;
+    }
+    if (!record || typeof record !== 'object' || Array.isArray(record))
+        return undefined;
+    const keys = Object.keys(record).sort();
+    if (keys.length !== 2 || keys[0] !== 'expiresAt' || keys[1] !== 'ownerId')
+        return undefined;
+    const { ownerId, expiresAt } = record;
+    if (typeof ownerId !== 'string' || !STAGING_UUID.test(ownerId))
+        return undefined;
+    if (typeof expiresAt !== 'number' || !Number.isFinite(expiresAt))
+        return undefined;
+    return { identity: before, expiresAt };
+}
+async function sweepAbandonedStaging(lockPath, ttlMs, now) {
+    const directory = dirname(lockPath);
+    const lockName = basename(lockPath);
+    const hooks = stagingSweepTestHooks;
+    const names = await (hooks?.readdir ?? readdir)(directory);
+    const candidates = names
+        .filter((name) => isStagingName(name, lockName))
+        .slice(0, STAGING_SWEEP_MAX_CANDIDATES);
+    const marginMs = Math.max(Number.isFinite(ttlMs) ? ttlMs : 0, STAGING_SWEEP_MIN_AGE_MS);
+    for (const name of candidates) {
+        const path = join(directory, name);
+        try {
+            // A file written within the margin belongs to a writer that may be
+            // alive, so don't even open it; the record's expiry still decides.
+            if (now() - (await lstat(path)).mtimeMs < marginMs)
+                continue;
+            const staged = await readStagedOwner(path);
+            if (!staged || !(staged.expiresAt < now() - marginMs))
+                continue;
+            if (hooks?.beforeUnlink)
+                await hooks.beforeUnlink(path);
+            // Remove only the file that was read: a name reused since then keeps
+            // its new contents. Inode numbers can be reused at once after an
+            // unlink, so the record is read again as well as the identity compared.
+            const current = await readStagedOwner(path);
+            if (!current ||
+                !sameStagingFile(staged.identity, current.identity) ||
+                !(current.expiresAt < now() - marginMs))
+                continue;
+            await (hooks?.unlink ?? unlink)(path);
+        }
+        catch {
+            // Each leftover is independent; a vanished or unreadable one is skipped.
+        }
+    }
+}
+/**
+ * Start a background sweep of abandoned staging files beside `lockPath`, at
+ * most once per process per lock path. Called after this process acquires the
+ * lock, so no other cooperating process sweeps the same name at that moment.
+ * The sweep never delays or fails the acquisition: every error is ignored.
+ */
+function startStagingSweep(lockPath, ttlMs, now) {
+    if (sweptLockPaths.has(lockPath))
+        return;
+    sweptLockPaths.add(lockPath);
+    const sweep = Promise.resolve()
+        .then(() => sweepAbandonedStaging(lockPath, ttlMs, now))
+        .catch(() => { });
+    pendingStagingSweeps.add(sweep);
+    void sweep.finally(() => pendingStagingSweeps.delete(sweep));
 }
 const setRefreshLockRenewalTimeout = globalThis.setTimeout.bind(globalThis);
 const clearRefreshLockRenewalTimeout = globalThis.clearTimeout.bind(globalThis);
@@ -970,6 +1113,7 @@ export async function acquireRefreshFileLockWithClock(options) {
         return null;
     }
     scheduleRenewal();
+    startStagingSweep(lockPath, options.ttlMs, now);
     return {
         ownerId,
         whenLost: () => lostPromise,

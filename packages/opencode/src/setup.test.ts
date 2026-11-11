@@ -1024,6 +1024,15 @@ describe('setup plugin callbacks', () => {
           expect(output).not.toContain('no logins are reachable')
         }
         expect(daemon.errors).toEqual([])
+        // Save the complete terminal bytes when comparing installed library versions.
+        const outputDirectory = process.env.ANTIGRAVITY_SETUP_OUTPUT_DIR
+        if (outputDirectory) {
+          mkdirSync(outputDirectory, { recursive: true })
+          writeFileSync(
+            join(outputDirectory, `${host}-${generation}-${emptyRoster}.txt`),
+            output,
+          )
+        }
       } finally {
         await daemon.close()
       }

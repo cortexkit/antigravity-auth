@@ -319,7 +319,7 @@
       "node:fs/promises",
       "node:path"
     ],
-    "fs/with-lock.d.ts": ["./refresh-file-lock.js"],
+    "fs/with-lock.d.ts": ["./private-files.js", "./refresh-file-lock.js"],
     "fs/with-lock.js": [
       "./lock-record.js",
       "./private-files.js",

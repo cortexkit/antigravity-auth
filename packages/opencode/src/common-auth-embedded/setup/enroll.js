@@ -55,7 +55,7 @@ function approveCommand(requestId, name) {
 export async function connectSetupHost(plugin, host, io, terminal, fence) {
     if (hasVaultHost())
         throw new Error(VAULT_HOST_CONNECT_REFUSAL);
-    const { name, displayName, requestedGrants, paths: input, } = plugin.vault.hosts[host];
+    const { name, displayName, requestedGrants, grantFallback, paths: input, } = plugin.vault.hosts[host];
     const paths = hostEnrollmentPaths(input);
     await fence();
     const client = await (io.connect ?? connectClaustrumEnrollmentClient)({
@@ -89,7 +89,7 @@ export async function connectSetupHost(plugin, host, io, terminal, fence) {
             printLine(terminal, `Already connected as ${initial.approvedName ?? initial.proposedName}.`);
             const access = await confirmEnrollmentAccess(client, initial, paths.tokenPath, requestedGrants);
             if (access)
-                for (const line of enrollmentAccessLines(access))
+                for (const line of enrollmentAccessLines(access, grantFallback))
                     printLine(terminal, line);
             return access;
         }
@@ -105,7 +105,7 @@ export async function connectSetupHost(plugin, host, io, terminal, fence) {
                 printLine(terminal, `Connected ${host} to Claustrum.`);
                 const access = await confirmEnrollmentAccess(client, status, paths.tokenPath, requestedGrants);
                 if (access)
-                    for (const line of enrollmentAccessLines(access))
+                    for (const line of enrollmentAccessLines(access, grantFallback))
                         printLine(terminal, line);
                 return access;
             }

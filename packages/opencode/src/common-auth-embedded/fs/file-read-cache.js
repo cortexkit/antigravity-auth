@@ -1,10 +1,10 @@
 import { lstat, stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
-async function identity(path, followSymlinks) {
+async function identity(path, probe) {
     try {
         // Match the reader: private readers reject links, while readFile follows
         // them and needs the target's identity, not the link's identity.
-        const metadata = await (followSymlinks ? stat(path) : lstat(path));
+        const metadata = await probe(path);
         return metadata.isFile() ? metadata : undefined;
     }
     catch (error) {
@@ -24,15 +24,19 @@ function sameIdentity(left, right) {
 }
 /** Process-local reads, capped at 64 path sets with one value per resolved set. */
 export class FileReadCache {
-    #followSymlinks;
+    #probe;
     #entries = new Map();
     constructor(options = {}) {
-        this.#followSymlinks = options.followSymlinks ?? false;
+        // Look the probe up on every call, not once here: tests replace the
+        // node:fs/promises functions (and SettingsFs methods) after caches exist.
+        this.#probe = options.followSymlinks
+            ? (path) => (options.stat ?? stat)(path)
+            : (path) => (options.lstat ?? lstat)(path);
     }
     async read(paths, read, validateHit) {
         const resolvedPaths = paths.map((path) => resolve(path));
         const key = JSON.stringify(resolvedPaths);
-        const probed = await Promise.all(resolvedPaths.map((path) => identity(path, this.#followSymlinks)));
+        const probed = await Promise.all(resolvedPaths.map((path) => identity(path, this.#probe)));
         const identities = probed.every((entry) => entry !== undefined)
             ? probed
             : undefined;

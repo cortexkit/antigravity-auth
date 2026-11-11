@@ -13,6 +13,8 @@ export type SetupEnvironment = Record<string, string | undefined>;
 export type SetupEnrollmentOutcome = 'enrolled' | 'not-enrolled' | 'unknown';
 export interface SetupEnrollmentAccess {
     state: 'reachable' | 'no-logins' | 'partial' | 'older-vault' | 'unconfirmed';
+    /** Whether grants were sent with the proposal or dropped for an older vault. Absent for enrollments made before 0.44.0. */
+    requestedGrantsStatus?: 'sent' | 'dropped';
     /** One result per requested grant, in proposal order. No count means unknown. */
     grants: readonly {
         grant: ClaustrumRequestedGrant;
@@ -62,6 +64,8 @@ export interface SetupPlugin {
             name: string;
             displayName?: string;
             requestedGrants?: ReadonlyArray<ClaustrumRequestedGrant>;
+            /** Who reports access when grants were not sent with enrollment; defaults to 'setup'. */
+            grantFallback?: 'setup' | 'plugin';
             paths: Parameters<typeof hostEnrollmentPaths>[0];
         }>;
     };
