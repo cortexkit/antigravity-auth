@@ -892,6 +892,7 @@ async function admitExistingMap(mapFile: string) {
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.39.1' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.40.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.42.0' &&
+        metadata.compiler !== '@cortexkit/common-auth/tui-build@0.43.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.44.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')
     )
