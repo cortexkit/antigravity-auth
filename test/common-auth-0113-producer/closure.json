@@ -495,6 +495,103 @@
       "node:path"
     ],
     "rpc/server-registry.d.ts": ["./rpc-server.js"],
+    "settings/define.d.ts": ["./descriptors.js"],
+    "settings/define.js": ["./descriptors.js"],
+    "settings/edit.d.ts": ["./define.js"],
+    "settings/edit.js": [
+      "./descriptors.js",
+      "./parse.js",
+      "./refusal.js",
+      "jsonc-parser",
+      "node:util"
+    ],
+    "settings/fs.js": ["node:fs/promises"],
+    "settings/handle.d.ts": [
+      "../logger/engine.js",
+      "./define.js",
+      "./descriptors.js",
+      "./edit.js",
+      "./resolve.js",
+      "./snapshot.js"
+    ],
+    "settings/handle.js": [
+      "../fs/file-read-cache.js",
+      "../tui-prefs/watcher.js",
+      "./descriptors.js",
+      "./fs.js",
+      "./parse.js",
+      "./resolve.js",
+      "./snapshot.js",
+      "./update.js",
+      "node:path"
+    ],
+    "settings/index.d.ts": [
+      "./define.js",
+      "./descriptors.js",
+      "./edit.js",
+      "./handle.js",
+      "./move.js",
+      "./paths.js",
+      "./refusal.js",
+      "./resolve.js",
+      "./schema.js",
+      "./snapshot.js"
+    ],
+    "settings/index.js": [
+      "./define.js",
+      "./descriptors.js",
+      "./handle.js",
+      "./move.js",
+      "./paths.js",
+      "./refusal.js",
+      "./schema.js"
+    ],
+    "settings/lock-errors.js": [
+      "../fs/private-files.js",
+      "../fs/with-lock.js",
+      "./refusal.js"
+    ],
+    "settings/move.d.ts": [
+      "../logger/engine.js",
+      "../store/refresh-lock.js",
+      "./define.js"
+    ],
+    "settings/move.js": [
+      "../fs/private-files.js",
+      "../fs/with-lock.js",
+      "../store/refresh-lock.js",
+      "./descriptors.js",
+      "./fs.js",
+      "./lock-errors.js",
+      "./refusal.js",
+      "node:crypto",
+      "node:path",
+      "node:util"
+    ],
+    "settings/parse.d.ts": ["jsonc-parser"],
+    "settings/parse.js": ["jsonc-parser"],
+    "settings/paths.js": ["./refusal.js", "node:path"],
+    "settings/resolve.d.ts": [
+      "./define.js",
+      "./descriptors.js",
+      "./snapshot.js"
+    ],
+    "settings/resolve.js": ["./descriptors.js", "./parse.js"],
+    "settings/schema.d.ts": ["./define.js"],
+    "settings/snapshot.d.ts": ["./define.js", "./parse.js"],
+    "settings/snapshot.js": ["./define.js", "./descriptors.js", "./parse.js"],
+    "settings/update.js": [
+      "../fs/private-files.js",
+      "../fs/with-lock.js",
+      "./edit.js",
+      "./fs.js",
+      "./lock-errors.js",
+      "./parse.js",
+      "./refusal.js",
+      "./write.js",
+      "node:path"
+    ],
+    "settings/write.js": ["./fs.js", "./refusal.js", "node:crypto"],
     "setup/command-error.d.ts": ["./types.js"],
     "setup/command-error.js": [
       "../logger/redact.js",
@@ -799,6 +896,13 @@
     ],
     "store/torn.d.ts": ["./identity.js", "./schema.js"],
     "store/torn.js": ["./identity.js", "./schema.js"],
+    "tui-prefs/watcher.js": [
+      "../fs/private-files.js",
+      "node:fs",
+      "node:fs/promises",
+      "node:path",
+      "node:timers"
+    ],
     "tui/index.js": ["node:path"]
   },
   "nonlocalImports": [
@@ -820,6 +924,7 @@
     "node:net",
     "node:os",
     "node:path",
+    "node:timers",
     "node:timers/promises",
     "node:url",
     "node:util"

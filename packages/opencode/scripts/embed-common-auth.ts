@@ -36,6 +36,10 @@ export const publicRoots = {
     import: './dist/store/index.js',
   },
   './fs': { types: './dist/fs/index.d.ts', import: './dist/fs/index.js' },
+  './settings': {
+    types: './dist/settings/index.d.ts',
+    import: './dist/settings/index.js',
+  },
   './claustrum': {
     types: './dist/claustrum/index.d.ts',
     import: './dist/claustrum/index.js',
@@ -91,6 +95,7 @@ export const embeddingProfiles = {
     publicRoots: {
       './store': publicRoots['./store'],
       './fs': publicRoots['./fs'],
+      './settings': publicRoots['./settings'],
       './claustrum': publicRoots['./claustrum'],
       './commands': publicRoots['./commands'],
       './auth-menu': publicRoots['./auth-menu'],
@@ -865,6 +870,146 @@ const canonical: readonly (readonly [string, number, string])[] = [
     '7a7bb67f11f072e2fd655694445458295c5461579bc4e73b11559c9d18d3c93d',
   ],
   [
+    'settings/define.d.ts',
+    1692,
+    'e2ce7ef1694e7118efdaacc742aac7033d0032f473449b90dffb82cfb03c82e7',
+  ],
+  [
+    'settings/define.js',
+    2404,
+    '27b948deb5efbbebb368156dc39074f1a3d8bc41072bb9530b2839f8d7696c2d',
+  ],
+  [
+    'settings/descriptors.d.ts',
+    3322,
+    'ca10623f8a58199853fc5db2068a7e6294fbc1ffe8917a5945a1dfd83eba3d1c',
+  ],
+  [
+    'settings/descriptors.js',
+    3185,
+    '4d31aaeb667cee2d1abab39a7fbcd8b018e0d13a12cab1da5ad68e1944f5f551',
+  ],
+  [
+    'settings/edit.d.ts',
+    662,
+    'abd44206e80335425293a51b7aa2a0d9392768ea817569d467dfd8e32184fb06',
+  ],
+  [
+    'settings/edit.js',
+    8928,
+    '4e16333dd69be5fdccd0b65f2c96cc7a7766ece514f935a2d4faac7583e610c6',
+  ],
+  [
+    'settings/fs.js',
+    597,
+    'ea80efd40e62102b9853b39ba372ad5a6298226f136ac4828b487fb73f3160cf',
+  ],
+  [
+    'settings/handle.d.ts',
+    1576,
+    'e15a5e36534948bcba2487dd6631def42bef626f2cb8333f20e42ec4a6f0d7d3',
+  ],
+  [
+    'settings/handle.js',
+    9231,
+    '4efeb5fff7f3e2f2508e6a9d440ff26b1bc1e89cd15095218d6ead4077a106f7',
+  ],
+  [
+    'settings/index.d.ts',
+    915,
+    '998e3c0947ad044e8719a90c4f26e6e94f20b13d782ef84d0415d9d9bbfef3e5',
+  ],
+  [
+    'settings/index.js',
+    452,
+    '3afff83fbc442c59d551b7a245d18be938e0d0ad2f416f3e068202282eebfe49',
+  ],
+  [
+    'settings/lock-errors.js',
+    819,
+    'ffb2e85666b4d186c092defcd034c56dd24332888cd159153ff8c82117ff8ced',
+  ],
+  [
+    'settings/move.d.ts',
+    2365,
+    'f5adcef98ec04f0e573699bcc5b6fb194749f13a80ff27f2aed1293e009b115e',
+  ],
+  [
+    'settings/move.js',
+    13464,
+    'df87a4dbec8812e685ae9b7036a333dd6de66d77fed78978d436fe186f37c7c6',
+  ],
+  [
+    'settings/parse.d.ts',
+    1080,
+    '2d6532a2b4c6ef28b0980218611816638bb01aff19f125a119b95f955bfc1b3b',
+  ],
+  [
+    'settings/parse.js',
+    2260,
+    '72464ec959df83d89d710a535f676ff73f52882332413207f5e8c5c521eb69a4',
+  ],
+  [
+    'settings/paths.d.ts',
+    496,
+    'b5203035312c328a61d89f2dc5823df44ab36e277d2b483d2acad37fcf7b121b',
+  ],
+  [
+    'settings/paths.js',
+    2078,
+    '0e584af35ef7153def080f01ffa3639dc4fddf940e0298801632010e94b62dad',
+  ],
+  [
+    'settings/refusal.d.ts',
+    467,
+    'a62477453f51e6b5f041026560caeb14db6cc67af49c618e7ed0f20b8588b7dc',
+  ],
+  [
+    'settings/refusal.js',
+    389,
+    '58fdc6db1a1d92e313920f690c056ae250ccfb30f745a4b61eea381c688d012e',
+  ],
+  [
+    'settings/resolve.d.ts',
+    829,
+    '8ef2eff4b7cba78e92e5ef805d5a204be6b38b6986e78939f741e444ac449d2d',
+  ],
+  [
+    'settings/resolve.js',
+    2220,
+    'e668ba20892288a22aea2346e19c3178b7d001c2155b9e3d7c704745cf36edfd',
+  ],
+  [
+    'settings/schema.d.ts',
+    924,
+    '1da25582cc2efa38161b73248aa7d069059782cfe7900b371036c09f11156564',
+  ],
+  [
+    'settings/schema.js',
+    2886,
+    '32723a2e7cdee1adea22d5f997ab8a0c8b1edf59e4b3f44517a4fa304b68b6b0',
+  ],
+  [
+    'settings/snapshot.d.ts',
+    1085,
+    'c522fc67ac406a58a766c709d213031eaf669f300f12eb7faaa0e4ae0cc50d18',
+  ],
+  [
+    'settings/snapshot.js',
+    5923,
+    '353437b45c3b96f3df6d64de05765acb2e4da54b6ac9d293fcd5ccbb6517ad3b',
+  ],
+  [
+    'settings/update.js',
+    5513,
+    '204a8d98f9eac4c90e8062e3d1e5f7e7cc336dd0ec791da4f97a20ea516eba3d',
+  ],
+  [
+    'settings/write.js',
+    3346,
+    'a2d7b87fe0d5da33e782fb5002f1076eb5b801ac0d854b87d6b5b7b50fd5d614',
+  ],
+  [
     'setup/command-error.d.ts',
     1541,
     '442aa57b042c7a7b707468665a555f26a403ab985238a72f1d21df2e0309a30d',
@@ -1165,6 +1310,11 @@ const canonical: readonly (readonly [string, number, string])[] = [
     'd5a4338ef9795e4d638e221d40a25334909db74db6456e2823f5870f7c963854',
   ],
   [
+    'tui-prefs/watcher.js',
+    7749,
+    '8300e3fc6c5d0834b70aeff50de95e35bda96bdbb59311083a60b190e2cfe089',
+  ],
+  [
     'tui/index.d.ts',
     281,
     '9d4555b13b599cdef275f1501154d3802ac237a17ee06fafd34e05a183918921',
@@ -1424,7 +1574,7 @@ function profileOutputs(
   generatorSha256: string,
 ): Map<string, Buffer> {
   const profile = embeddingProfiles[consumer]
-  // Core's public roots need the menu, store, vault and routing closures, but never RPC or TUI.
+  // Core includes the settings watcher, but not the RPC or TUI renderer APIs.
   const selected = canonicalEntries(consumer)
   const files = selected.map(({ source, output, bytes, hash }) => ({
     source,

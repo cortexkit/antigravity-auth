@@ -405,6 +405,51 @@ test('graph.routing_accessor_server_only', async () => {
   }
 })
 
+test('graph.settings_server_library_only', async () => {
+  const root = await fixture(true)
+  const settings = join(root, 'src/common-auth-embedded/settings/index.js')
+  const watcher = join(root, 'src/common-auth-embedded/tui-prefs/watcher.js')
+  const graph = await auditGraph(settings, { tui: false })
+  expect(graph.files).toContain(settings)
+  expect(graph.files).toContain(watcher)
+  expect(graph.externals).toContain('jsonc-parser')
+  for (const path of ['src/server.ts', 'index.ts']) {
+    const entry = join(root, path)
+    const specifier = `./${relative(dirname(entry), settings).replaceAll('\\', '/')}`
+    await writeFile(
+      entry,
+      `${await readFile(entry, 'utf8')}\nimport ${JSON.stringify(specifier)}\n`,
+    )
+    const admitted = await auditGraph(entry, { tui: false })
+    for (const file of graph.files) expect(admitted.files).toContain(file)
+  }
+})
+
+test('graph.settings_and_watcher_both_renderers_refused', async () => {
+  const root = await fixture(true)
+  for (const profile of TUI_ROOTS) {
+    const entry = join(root, profile.entry)
+    const original = await readFile(entry, 'utf8')
+    for (const path of ['settings/index.js', 'tui-prefs/watcher.js']) {
+      const specifier = `./${relative(
+        dirname(entry),
+        join(root, 'src/common-auth-embedded', path),
+      ).replaceAll('\\', '/')}`
+      await writeFile(
+        entry,
+        `${original}\nimport ${JSON.stringify(specifier)}\n`,
+      )
+      await expect(auditGraph(entry)).rejects.toThrow('forbidden TUI source')
+    }
+    await writeFile(
+      entry,
+      `${original}\nimport '@cortexkit/antigravity-auth-core/common-auth/settings'\n`,
+    )
+    await expect(auditGraph(entry)).rejects.toThrow('forbidden TUI external')
+    await writeFile(entry, original)
+  }
+})
+
 test('graph.routing_handle_renderer_refused', async () => {
   const root = await fixture(true)
   // The Claustrum host-mode client (`claustrum/host.js`) and the routing

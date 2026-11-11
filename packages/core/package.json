@@ -64,6 +64,10 @@
     "./common-auth/logger": {
       "types": "./dist/common-auth-embedded/logger/index.d.ts",
       "import": "./dist/common-auth-embedded/logger/index.js"
+    },
+    "./common-auth/settings": {
+      "types": "./dist/common-auth-embedded/settings/index.d.ts",
+      "import": "./dist/common-auth-embedded/settings/index.js"
     }
   },
   "files": [
@@ -81,6 +85,7 @@
     "@cortexkit/claustrum-client": "0.18.0",
     "@cortexkit/subc-client": "0.24.0",
     "@cortexkit/private-files": "0.2.2",
+    "jsonc-parser": "^3.3.1",
     "xdg-basedir": "^5.1.0",
     "zod": "^4.0.0"
   },

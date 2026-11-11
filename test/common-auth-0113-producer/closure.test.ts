@@ -183,13 +183,13 @@ test('producer.public_roots_and_exact_closure', async () => {
   const graph = reach(entries, starts)
   expect(graph.files).toEqual(selected)
   expect(graph.externals).toEqual(closure.nonlocalImports)
-  expect(graph.files.length).toBe(215)
+  expect(graph.files.length).toBe(244)
   expect(
     graph.files.reduce(
       (sum, file) => sum + entries.get(`package/dist/${file}`)!.length,
       0,
     ),
-  ).toBe(1363485)
+  ).toBe(1450342)
   expect(graph.files.filter((file) => file.startsWith('routing/'))).toEqual(
     closure.routingFiles,
   )
@@ -200,6 +200,27 @@ test('producer.public_roots_and_exact_closure', async () => {
   )
   expect(graph.files.some((file) => file.startsWith('tui-build/'))).toBe(false)
   expect(reach(entries, ['commands/index.js']).files).toContain('store/pool.js')
+})
+
+test('producer.settings_lock_only_store_boundary', async () => {
+  const entries = await archive()
+  for (const suffix of ['js', 'd.ts']) {
+    const graph = reach(entries, [`settings/index.${suffix}`])
+    // Settings reuses the store's lock helper, not its account data or roster APIs.
+    expect(
+      graph.files.filter((file) =>
+        /^(?:store|claustrum|credentials?)\//.test(file),
+      ),
+    ).toEqual([`store/refresh-lock.${suffix}`])
+    expect(
+      imports(entries.get(`package/dist/settings/move.${suffix}`)!.toString()),
+    ).toContain('../store/refresh-lock.js')
+  }
+  const runtime = reach(entries, ['settings/index.js'])
+  expect(runtime.files).toContain('tui-prefs/watcher.js')
+  expect(runtime.externals).toContain('jsonc-parser')
+  expect(publicRoots).not.toHaveProperty('./tui-prefs')
+  expect(embeddingProfiles.core.publicRoots).not.toHaveProperty('./tui-prefs')
 })
 
 test('producer.slim_runtime_reachability', async () => {
@@ -273,8 +294,8 @@ test('producer.verbatim_map', async () => {
     './quota-sidebar': publication.sidebarRoot,
     './routing-accessor': publication.routingAccessorRoot,
   })
-  expect(map.canonicalFiles).toBe(222)
-  expect(map.canonicalBytes).toBe(1397973)
+  expect(map.canonicalFiles).toBe(251)
+  expect(map.canonicalBytes).toBe(1484830)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
@@ -396,9 +417,9 @@ test('producer.shared_core_profile_exact_closure', async () => {
       'utf8',
     ),
   )
-  expect(required.length).toBe(154)
-  expect(map.canonicalFiles).toBe(154)
-  expect(map.canonicalBytes).toBe(1066528)
+  expect(required.length).toBe(183)
+  expect(map.canonicalFiles).toBe(183)
+  expect(map.canonicalBytes).toBe(1153385)
   expect(map.publicRoots).toEqual(profile.publicRoots)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.files.map((file: { output: string }) => file.output)).toEqual(

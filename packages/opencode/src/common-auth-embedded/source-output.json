@@ -28,6 +28,10 @@
       "types": "./dist/fs/index.d.ts",
       "import": "./dist/fs/index.js"
     },
+    "./settings": {
+      "types": "./dist/settings/index.d.ts",
+      "import": "./dist/settings/index.js"
+    },
     "./claustrum": {
       "types": "./dist/claustrum/index.d.ts",
       "import": "./dist/claustrum/index.js"
@@ -72,12 +76,12 @@
   "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.45.0.tgz",
   "tarballSha256": "acd923e2f5cc0e236c9be96491ffb9726848127b30d9a73e0172d3109b85ef6b",
   "sri": "sha512-bvf/ZMXqcDwIqLliUnSfTGH1waLo9p4TH5yRYDwI4Ux4ni16tNAeO6qYQuNVl9+rR8u/Ya7dgi0ZBA4xDnUCeg==",
-  "canonicalFiles": 222,
-  "canonicalBytes": 1397973,
+  "canonicalFiles": 251,
+  "canonicalBytes": 1484830,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "267d011bcd69c8991e03a73d9f3fbe1b91449346ab8e6c3ce32c998c447b9440"
+    "sha256": "14338c2d3c7ff0817590a0a45bfe4af256edc0924c5660395dc89a93252174f6"
   },
   "files": [
     {
@@ -1297,6 +1301,230 @@
       "transform": "verbatim"
     },
     {
+      "source": "package/dist/settings/define.d.ts",
+      "output": "settings/define.d.ts",
+      "bytes": 1692,
+      "sourceSha256": "e2ce7ef1694e7118efdaacc742aac7033d0032f473449b90dffb82cfb03c82e7",
+      "outputSha256": "e2ce7ef1694e7118efdaacc742aac7033d0032f473449b90dffb82cfb03c82e7",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/define.js",
+      "output": "settings/define.js",
+      "bytes": 2404,
+      "sourceSha256": "27b948deb5efbbebb368156dc39074f1a3d8bc41072bb9530b2839f8d7696c2d",
+      "outputSha256": "27b948deb5efbbebb368156dc39074f1a3d8bc41072bb9530b2839f8d7696c2d",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/descriptors.d.ts",
+      "output": "settings/descriptors.d.ts",
+      "bytes": 3322,
+      "sourceSha256": "ca10623f8a58199853fc5db2068a7e6294fbc1ffe8917a5945a1dfd83eba3d1c",
+      "outputSha256": "ca10623f8a58199853fc5db2068a7e6294fbc1ffe8917a5945a1dfd83eba3d1c",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/descriptors.js",
+      "output": "settings/descriptors.js",
+      "bytes": 3185,
+      "sourceSha256": "4d31aaeb667cee2d1abab39a7fbcd8b018e0d13a12cab1da5ad68e1944f5f551",
+      "outputSha256": "4d31aaeb667cee2d1abab39a7fbcd8b018e0d13a12cab1da5ad68e1944f5f551",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/edit.d.ts",
+      "output": "settings/edit.d.ts",
+      "bytes": 662,
+      "sourceSha256": "abd44206e80335425293a51b7aa2a0d9392768ea817569d467dfd8e32184fb06",
+      "outputSha256": "abd44206e80335425293a51b7aa2a0d9392768ea817569d467dfd8e32184fb06",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/edit.js",
+      "output": "settings/edit.js",
+      "bytes": 8928,
+      "sourceSha256": "4e16333dd69be5fdccd0b65f2c96cc7a7766ece514f935a2d4faac7583e610c6",
+      "outputSha256": "4e16333dd69be5fdccd0b65f2c96cc7a7766ece514f935a2d4faac7583e610c6",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/fs.js",
+      "output": "settings/fs.js",
+      "bytes": 597,
+      "sourceSha256": "ea80efd40e62102b9853b39ba372ad5a6298226f136ac4828b487fb73f3160cf",
+      "outputSha256": "ea80efd40e62102b9853b39ba372ad5a6298226f136ac4828b487fb73f3160cf",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/handle.d.ts",
+      "output": "settings/handle.d.ts",
+      "bytes": 1576,
+      "sourceSha256": "e15a5e36534948bcba2487dd6631def42bef626f2cb8333f20e42ec4a6f0d7d3",
+      "outputSha256": "e15a5e36534948bcba2487dd6631def42bef626f2cb8333f20e42ec4a6f0d7d3",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/handle.js",
+      "output": "settings/handle.js",
+      "bytes": 9231,
+      "sourceSha256": "4efeb5fff7f3e2f2508e6a9d440ff26b1bc1e89cd15095218d6ead4077a106f7",
+      "outputSha256": "4efeb5fff7f3e2f2508e6a9d440ff26b1bc1e89cd15095218d6ead4077a106f7",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/index.d.ts",
+      "output": "settings/index.d.ts",
+      "bytes": 915,
+      "sourceSha256": "998e3c0947ad044e8719a90c4f26e6e94f20b13d782ef84d0415d9d9bbfef3e5",
+      "outputSha256": "998e3c0947ad044e8719a90c4f26e6e94f20b13d782ef84d0415d9d9bbfef3e5",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/index.js",
+      "output": "settings/index.js",
+      "bytes": 452,
+      "sourceSha256": "3afff83fbc442c59d551b7a245d18be938e0d0ad2f416f3e068202282eebfe49",
+      "outputSha256": "3afff83fbc442c59d551b7a245d18be938e0d0ad2f416f3e068202282eebfe49",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/lock-errors.js",
+      "output": "settings/lock-errors.js",
+      "bytes": 819,
+      "sourceSha256": "ffb2e85666b4d186c092defcd034c56dd24332888cd159153ff8c82117ff8ced",
+      "outputSha256": "ffb2e85666b4d186c092defcd034c56dd24332888cd159153ff8c82117ff8ced",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/move.d.ts",
+      "output": "settings/move.d.ts",
+      "bytes": 2365,
+      "sourceSha256": "f5adcef98ec04f0e573699bcc5b6fb194749f13a80ff27f2aed1293e009b115e",
+      "outputSha256": "f5adcef98ec04f0e573699bcc5b6fb194749f13a80ff27f2aed1293e009b115e",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/move.js",
+      "output": "settings/move.js",
+      "bytes": 13464,
+      "sourceSha256": "df87a4dbec8812e685ae9b7036a333dd6de66d77fed78978d436fe186f37c7c6",
+      "outputSha256": "df87a4dbec8812e685ae9b7036a333dd6de66d77fed78978d436fe186f37c7c6",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/parse.d.ts",
+      "output": "settings/parse.d.ts",
+      "bytes": 1080,
+      "sourceSha256": "2d6532a2b4c6ef28b0980218611816638bb01aff19f125a119b95f955bfc1b3b",
+      "outputSha256": "2d6532a2b4c6ef28b0980218611816638bb01aff19f125a119b95f955bfc1b3b",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/parse.js",
+      "output": "settings/parse.js",
+      "bytes": 2260,
+      "sourceSha256": "72464ec959df83d89d710a535f676ff73f52882332413207f5e8c5c521eb69a4",
+      "outputSha256": "72464ec959df83d89d710a535f676ff73f52882332413207f5e8c5c521eb69a4",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/paths.d.ts",
+      "output": "settings/paths.d.ts",
+      "bytes": 496,
+      "sourceSha256": "b5203035312c328a61d89f2dc5823df44ab36e277d2b483d2acad37fcf7b121b",
+      "outputSha256": "b5203035312c328a61d89f2dc5823df44ab36e277d2b483d2acad37fcf7b121b",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/paths.js",
+      "output": "settings/paths.js",
+      "bytes": 2078,
+      "sourceSha256": "0e584af35ef7153def080f01ffa3639dc4fddf940e0298801632010e94b62dad",
+      "outputSha256": "0e584af35ef7153def080f01ffa3639dc4fddf940e0298801632010e94b62dad",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/refusal.d.ts",
+      "output": "settings/refusal.d.ts",
+      "bytes": 467,
+      "sourceSha256": "a62477453f51e6b5f041026560caeb14db6cc67af49c618e7ed0f20b8588b7dc",
+      "outputSha256": "a62477453f51e6b5f041026560caeb14db6cc67af49c618e7ed0f20b8588b7dc",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/refusal.js",
+      "output": "settings/refusal.js",
+      "bytes": 389,
+      "sourceSha256": "58fdc6db1a1d92e313920f690c056ae250ccfb30f745a4b61eea381c688d012e",
+      "outputSha256": "58fdc6db1a1d92e313920f690c056ae250ccfb30f745a4b61eea381c688d012e",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/resolve.d.ts",
+      "output": "settings/resolve.d.ts",
+      "bytes": 829,
+      "sourceSha256": "8ef2eff4b7cba78e92e5ef805d5a204be6b38b6986e78939f741e444ac449d2d",
+      "outputSha256": "8ef2eff4b7cba78e92e5ef805d5a204be6b38b6986e78939f741e444ac449d2d",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/resolve.js",
+      "output": "settings/resolve.js",
+      "bytes": 2220,
+      "sourceSha256": "e668ba20892288a22aea2346e19c3178b7d001c2155b9e3d7c704745cf36edfd",
+      "outputSha256": "e668ba20892288a22aea2346e19c3178b7d001c2155b9e3d7c704745cf36edfd",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/schema.d.ts",
+      "output": "settings/schema.d.ts",
+      "bytes": 924,
+      "sourceSha256": "1da25582cc2efa38161b73248aa7d069059782cfe7900b371036c09f11156564",
+      "outputSha256": "1da25582cc2efa38161b73248aa7d069059782cfe7900b371036c09f11156564",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/schema.js",
+      "output": "settings/schema.js",
+      "bytes": 2886,
+      "sourceSha256": "32723a2e7cdee1adea22d5f997ab8a0c8b1edf59e4b3f44517a4fa304b68b6b0",
+      "outputSha256": "32723a2e7cdee1adea22d5f997ab8a0c8b1edf59e4b3f44517a4fa304b68b6b0",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/snapshot.d.ts",
+      "output": "settings/snapshot.d.ts",
+      "bytes": 1085,
+      "sourceSha256": "c522fc67ac406a58a766c709d213031eaf669f300f12eb7faaa0e4ae0cc50d18",
+      "outputSha256": "c522fc67ac406a58a766c709d213031eaf669f300f12eb7faaa0e4ae0cc50d18",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/snapshot.js",
+      "output": "settings/snapshot.js",
+      "bytes": 5923,
+      "sourceSha256": "353437b45c3b96f3df6d64de05765acb2e4da54b6ac9d293fcd5ccbb6517ad3b",
+      "outputSha256": "353437b45c3b96f3df6d64de05765acb2e4da54b6ac9d293fcd5ccbb6517ad3b",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/update.js",
+      "output": "settings/update.js",
+      "bytes": 5513,
+      "sourceSha256": "204a8d98f9eac4c90e8062e3d1e5f7e7cc336dd0ec791da4f97a20ea516eba3d",
+      "outputSha256": "204a8d98f9eac4c90e8062e3d1e5f7e7cc336dd0ec791da4f97a20ea516eba3d",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/settings/write.js",
+      "output": "settings/write.js",
+      "bytes": 3346,
+      "sourceSha256": "a2d7b87fe0d5da33e782fb5002f1076eb5b801ac0d854b87d6b5b7b50fd5d614",
+      "outputSha256": "a2d7b87fe0d5da33e782fb5002f1076eb5b801ac0d854b87d6b5b7b50fd5d614",
+      "transform": "verbatim"
+    },
+    {
       "source": "package/dist/setup/command-error.d.ts",
       "output": "setup/command-error.d.ts",
       "bytes": 1541,
@@ -1774,6 +2002,14 @@
       "bytes": 14708,
       "sourceSha256": "d5a4338ef9795e4d638e221d40a25334909db74db6456e2823f5870f7c963854",
       "outputSha256": "d5a4338ef9795e4d638e221d40a25334909db74db6456e2823f5870f7c963854",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/tui-prefs/watcher.js",
+      "output": "tui-prefs/watcher.js",
+      "bytes": 7749,
+      "sourceSha256": "8300e3fc6c5d0834b70aeff50de95e35bda96bdbb59311083a60b190e2cfe089",
+      "outputSha256": "8300e3fc6c5d0834b70aeff50de95e35bda96bdbb59311083a60b190e2cfe089",
       "transform": "verbatim"
     },
     {
