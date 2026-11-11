@@ -173,10 +173,13 @@ describe('shared request engine import graph', () => {
         'createRequestCancellation',
         'retainResponseLifetime',
       ],
+      '../../common-auth-embedded/claustrum/host.js': ['hasVaultHost'],
       '../../common-auth-embedded/routing-accessor/index.js': [
         'askRouting',
+        'type BillingRequestKind',
         'type RoutingCandidate',
       ],
+      './vault-billing': ['VaultBillingAttempt'],
       './vault-routing': [
         'hasVaultRoutingAccessor',
         'observeVaultServed',

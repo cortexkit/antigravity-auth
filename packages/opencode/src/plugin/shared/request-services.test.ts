@@ -918,6 +918,7 @@ describe('createRequestExecutor vault billing', () => {
           if (source === 'hosted') process.env.CORTEXKIT_VAULT_HOST = 'thalamus'
           else delete process.env.CORTEXKIT_VAULT_HOST
           const records: Array<{
+            service: string
             level: string
             message: string
             extra?: Record<string, unknown>
