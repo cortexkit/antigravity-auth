@@ -7,8 +7,8 @@
   "manifestSha256": "4f8158ddef9b017c763e59bababea71376c9069a79d258693eabd64ffb99f69b",
   "inventorySha256": "c91894ca0624fa3506f820f37fd9df62be417c180a9dc1f7f489ed6acec18f0d",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
-  "canonicalFiles": 216,
-  "canonicalBytes": 1353928,
+  "canonicalFiles": 215,
+  "canonicalBytes": 1353253,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -931,11 +931,6 @@
       "setup/enroll.js",
       9662,
       "c13ed63c9b35d40c9b54032154376ec1dca78e6b30571823237c2f0555fae8d6"
-    ],
-    [
-      "setup/enrollment-access.d.ts",
-      675,
-      "015188db8d20d3bf99984f725a28ec6f01cba9dc9e4951eeeec289a935a72d6a"
     ],
     [
       "setup/enrollment-access.js",

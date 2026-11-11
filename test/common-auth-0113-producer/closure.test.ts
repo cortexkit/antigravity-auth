@@ -183,13 +183,13 @@ test('producer.public_roots_and_exact_closure', async () => {
   const graph = reach(entries, starts)
   expect(graph.files).toEqual(selected)
   expect(graph.externals).toEqual(closure.nonlocalImports)
-  expect(graph.files.length).toBe(216)
+  expect(graph.files.length).toBe(215)
   expect(
     graph.files.reduce(
       (sum, file) => sum + entries.get(`package/dist/${file}`)!.length,
       0,
     ),
-  ).toBe(1353928)
+  ).toBe(1353253)
   expect(graph.files.filter((file) => file.startsWith('routing/'))).toEqual(
     closure.routingFiles,
   )
@@ -273,8 +273,8 @@ test('producer.verbatim_map', async () => {
     './quota-sidebar': publication.sidebarRoot,
     './routing-accessor': publication.routingAccessorRoot,
   })
-  expect(map.canonicalFiles).toBe(223)
-  expect(map.canonicalBytes).toBe(1388416)
+  expect(map.canonicalFiles).toBe(222)
+  expect(map.canonicalBytes).toBe(1387741)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])

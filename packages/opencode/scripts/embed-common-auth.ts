@@ -915,11 +915,6 @@ const canonical: readonly (readonly [string, number, string])[] = [
     'c13ed63c9b35d40c9b54032154376ec1dca78e6b30571823237c2f0555fae8d6',
   ],
   [
-    'setup/enrollment-access.d.ts',
-    675,
-    '015188db8d20d3bf99984f725a28ec6f01cba9dc9e4951eeeec289a935a72d6a',
-  ],
-  [
     'setup/enrollment-access.js',
     3910,
     '6cca250e1dd9a71895311afee4bbad234e3c30db4c8512b408dd01c67ade5d88',

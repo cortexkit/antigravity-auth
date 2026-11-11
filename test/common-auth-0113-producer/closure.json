@@ -546,10 +546,6 @@
       "@cortexkit/claustrum-client",
       "node:timers/promises"
     ],
-    "setup/enrollment-access.d.ts": [
-      "../claustrum/enrollment.js",
-      "./types.js"
-    ],
     "setup/enrollment-access.js": ["../claustrum/enrollment.js"],
     "setup/flags.d.ts": ["./types.js"],
     "setup/index.d.ts": [
