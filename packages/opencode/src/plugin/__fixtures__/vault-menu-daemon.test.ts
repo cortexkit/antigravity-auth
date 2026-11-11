@@ -22,7 +22,11 @@ export function expectedInsulaReset(
 export async function startMenuVaultFixture(
   root: string,
   credential?: { accessToken: string; projectId: string },
-  options: { unsupportedEnrollment?: boolean; enrollmentName?: string } = {},
+  options: {
+    unsupportedEnrollment?: boolean
+    enrollmentName?: string
+    emptyRoster?: boolean
+  } = {},
 ) {
   // Node needs --experimental-import-meta-resolve to honor the client as the parent.
   const clientEntry =
@@ -111,20 +115,22 @@ export async function startMenuVaultFixture(
       return {
         result: {
           view: 'synthetic-menu-view',
-          credentials: [
-            {
-              id: 'synthetic-vault-credential',
-              type: 'oauth',
-              state: 'active',
-              record_version: 1,
-              categories: ['antigravity-native'],
-              serves: ['google'],
-              provider_ids: ['google'],
-              operations: ['read'],
-              refresh_adapter: 'antigravity',
-              account_id: 'synthetic-vault-account',
-            },
-          ],
+          credentials: options.emptyRoster
+            ? []
+            : [
+                {
+                  id: 'synthetic-vault-credential',
+                  type: 'oauth',
+                  state: 'active',
+                  record_version: 1,
+                  categories: ['antigravity-native'],
+                  serves: ['google'],
+                  provider_ids: ['google'],
+                  operations: ['read'],
+                  refresh_adapter: 'antigravity',
+                  account_id: 'synthetic-vault-account',
+                },
+              ],
         },
       }
     if (method === 'auth.watch_scoped' && params.enrollment_token === token)

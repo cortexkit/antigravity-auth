@@ -1,5 +1,5 @@
 import type { MenuTerminal } from '../auth-menu/terminal.js';
-import type { ClaustrumEnrollmentConnection, hostEnrollmentPaths } from '../claustrum/index.js';
+import type { ClaustrumEnrollmentConnection, ClaustrumRequestedGrant, hostEnrollmentPaths } from '../claustrum/index.js';
 export type SetupHost = 'opencode' | 'pi';
 export type OpenCodeGeneration = '1' | '2' | 'both';
 export type SetupEnvironment = Record<string, string | undefined>;
@@ -11,9 +11,19 @@ export type SetupEnvironment = Record<string, string | undefined>;
  * flight and the host's token file could not settle it.
  */
 export type SetupEnrollmentOutcome = 'enrolled' | 'not-enrolled' | 'unknown';
+export interface SetupEnrollmentAccess {
+    state: 'reachable' | 'no-logins' | 'partial' | 'older-vault' | 'unconfirmed';
+    /** One result per requested grant, in proposal order. No count means unknown. */
+    grants: readonly {
+        grant: ClaustrumRequestedGrant;
+        reachableLogins?: number;
+        grantCommand?: string;
+    }[];
+}
 export interface SetupHostEnrollment {
     host: SetupHost;
     outcome: SetupEnrollmentOutcome;
+    access?: SetupEnrollmentAccess;
 }
 /**
  * What setup decided before calling a plugin callback. The OpenCode generation
@@ -51,6 +61,7 @@ export interface SetupPlugin {
         hosts: Record<SetupHost, {
             name: string;
             displayName?: string;
+            requestedGrants?: ReadonlyArray<ClaustrumRequestedGrant>;
             paths: Parameters<typeof hostEnrollmentPaths>[0];
         }>;
     };

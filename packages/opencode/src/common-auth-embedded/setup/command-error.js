@@ -1,5 +1,6 @@
 import { redact } from '../logger/redact.js';
 import { STDERR_TAIL_MAX_BYTES } from './command-runner.js';
+import { enrollmentAccessLines } from './enrollment-access.js';
 const PI_INSTALL_ERROR_MESSAGE = 'Pi install failed; run pi install after checking your npm connection.';
 function utf8Tail(value) {
     const bytes = Buffer.from(value, 'utf8');
@@ -47,8 +48,8 @@ const OUTCOME_TEXT = {
     unknown: 'unknown, check with ck auth status',
 };
 /** The line setup prints for one host's outcome, e.g. `Pi: not connected`. */
-export function setupEnrollmentLine({ host, outcome, }) {
-    return `${HOST_LABELS[host]}: ${OUTCOME_TEXT[outcome]}`;
+export function setupEnrollmentLine({ host, outcome, access, }) {
+    return `${HOST_LABELS[host]}: ${OUTCOME_TEXT[outcome]}${access ? ` — ${enrollmentAccessLines(access).join('\n')}` : ''}`;
 }
 // Outcomes recorded against the value a failed `runSetup` threw. A WeakMap
 // keeps the thrown value itself untouched: setup never reads, rewrites or

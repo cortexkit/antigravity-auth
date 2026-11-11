@@ -66,7 +66,7 @@ afterEach(async () => {
 
 /** An owned stand-in for the vault's enrollment service. */
 function fakeEnrollmentService() {
-  const proposals: { name: string }[] = []
+  const proposals: { name: string; requestedGrants?: unknown }[] = []
   let approve = false
   let approvedName: string = OPENCODE_VAULT_ENROLLMENT_NAME
   let denied = false
@@ -85,8 +85,15 @@ function fakeEnrollmentService() {
       blocked = true
     },
     connect: async () => ({
-      async enrollPropose(input: { name: string; requestSecretHash: string }) {
-        proposals.push({ name: input.name })
+      async enrollPropose(input: {
+        name: string
+        requestSecretHash: string
+        requestedGrants?: unknown
+      }) {
+        proposals.push({
+          name: input.name,
+          requestedGrants: input.requestedGrants,
+        })
         return { requestId: 'request-1' }
       },
       async enrollPoll() {
@@ -345,7 +352,14 @@ describe('createOpenCodeVaultCustody', () => {
 
     const pending = await custody.requestAccess()
     expect(pending.state).toBe('pending')
-    expect(service.proposals).toEqual([{ name: 'antigravity-auth-opencode' }])
+    expect(service.proposals).toEqual([
+      {
+        name: 'antigravity-auth-opencode',
+        requestedGrants: [
+          { selector: { category: 'antigravity-native' }, operation: 'read' },
+        ],
+      },
+    ])
     service.approveNext()
     const approved = await custody.requestAccess()
     expect(approved.state).toBe('approved')

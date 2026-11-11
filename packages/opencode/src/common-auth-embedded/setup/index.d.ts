@@ -5,4 +5,4 @@ export { ENROLLMENT_WAIT_MS, HostNotEnrolledError, type HostNotEnrolledReason, U
 export { setupUsage } from './flags.js';
 export { assertHostsStopped, createProcessFence, listSetupProcesses, ProcessFenceViolationError, ProcessInspectionError, type ProcessInspectionStep, } from './process-fence.js';
 export { type PlannedWrite, planOpenCodeRegistration, registerOpenCode, registerPi, updatePluginConfig, } from './register.js';
-export type { CommandResult, CommandRunner, HostDetection, OpenCodeGeneration, ProcessFence, SetupCallbackContext, SetupDetection, SetupEnrollmentOutcome, SetupEnvironment, SetupFileSystem, SetupHost, SetupHostEnrollment, SetupIO, SetupPlugin, SetupResult, } from './types.js';
+export type { CommandResult, CommandRunner, HostDetection, OpenCodeGeneration, ProcessFence, SetupCallbackContext, SetupDetection, SetupEnrollmentAccess, SetupEnrollmentOutcome, SetupEnvironment, SetupFileSystem, SetupHost, SetupHostEnrollment, SetupIO, SetupPlugin, SetupResult, } from './types.js';

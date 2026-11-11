@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@cortexkit/claustrum-client": "0.17.0",
+    "@cortexkit/claustrum-client": "0.18.0",
     "@cortexkit/private-files": "0.2.2",
     "@cortexkit/subc-client": "0.24.0",
     "@opencode/cli-linux-x64": "2.0.22",

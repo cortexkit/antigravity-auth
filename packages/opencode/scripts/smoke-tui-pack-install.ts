@@ -295,7 +295,7 @@ export function expectedCandidateGraph(
         ...dependencies,
         [coreName]: candidateMetadata.corePin,
         '@cortexkit/private-files': '0.2.2',
-        '@cortexkit/claustrum-client': '0.17.0',
+        '@cortexkit/claustrum-client': '0.18.0',
         '@cortexkit/subc-client': '0.24.0',
       }),
       orderedMap({ ...peers, '@opencode/plugin': '>=2.0.22' }),
@@ -310,7 +310,7 @@ export function expectedCandidateGraph(
 
 export function assertVaultClientGraph(graph: readonly unknown[]): void {
   for (const [name, version] of [
-    ['@cortexkit/claustrum-client', '0.17.0'],
+    ['@cortexkit/claustrum-client', '0.18.0'],
     ['@cortexkit/subc-client', '0.24.0'],
   ]) {
     const rows = graph.filter((row) => Array.isArray(row) && row[1] === name)

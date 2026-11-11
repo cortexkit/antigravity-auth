@@ -1,5 +1,5 @@
 import { type MenuTerminal } from '../auth-menu/terminal.js';
-import type { SetupHost, SetupIO, SetupPlugin } from './types.js';
+import type { SetupEnrollmentAccess, SetupHost, SetupIO, SetupPlugin } from './types.js';
 /** Fixed text: no version, host or account detail, so it is safe to print anywhere. */
 export declare const UNSUPPORTED_VAULT_MESSAGE = "This Claustrum vault is too old to connect plugins. Run ck upgrade to move to Claustrum v0.2.0 or newer (read \"Upgrading from v0.1.3\" in its release notes first), or run setup without --claustrum to use local accounts.";
 /**
@@ -31,4 +31,4 @@ export declare class HostNotEnrolledError extends Error {
     });
 }
 /** Enroll an independently revocable host; plugin callbacks choose its credential store and account permissions. */
-export declare function connectSetupHost(plugin: SetupPlugin, host: SetupHost, io: SetupIO, terminal: MenuTerminal, fence: () => Promise<void>): Promise<void>;
+export declare function connectSetupHost(plugin: SetupPlugin, host: SetupHost, io: SetupIO, terminal: MenuTerminal, fence: () => Promise<void>): Promise<SetupEnrollmentAccess | undefined>;

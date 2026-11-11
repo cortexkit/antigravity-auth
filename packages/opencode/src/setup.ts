@@ -219,6 +219,12 @@ export async function createSetupPlugin(
     opencode: {
       name: OPENCODE_VAULT_ENROLLMENT_NAME,
       displayName: 'Antigravity sign-in for OpenCode',
+      requestedGrants: [
+        {
+          selector: { category: 'antigravity-native' },
+          operation: 'read' as const,
+        },
+      ],
       // Read at each use: a real run settles the vault folder in
       // `beforeSignIn`, which may move it after this plugin is built.
       paths: {
@@ -231,6 +237,12 @@ export async function createSetupPlugin(
     pi: {
       name: 'antigravity-auth-pi',
       displayName: 'Antigravity sign-in for Pi',
+      requestedGrants: [
+        {
+          selector: { category: 'antigravity-native' },
+          operation: 'read' as const,
+        },
+      ],
       paths: { stateDir: piDir, host: 'pi' },
     },
   }

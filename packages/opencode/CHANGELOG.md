@@ -6,6 +6,11 @@
 
 - In Thalamus and other routed vault setups, antigravity-auth now reports each request's usage for billing, and logs which account source served it. On OpenCode 2, the account-source line goes to the host process's stderr.
 
+### Changed
+
+- Vault setup now asks for antigravity-auth's account access in the same approval, so no separate `ck auth grant` is needed with a current vault.
+- Updated the embedded common-auth library to published 0.44.0 and the Claustrum client to 0.18.0.
+
 ## [3.0.39] - 2026-11-10
 
 ### Added

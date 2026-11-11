@@ -1,4 +1,4 @@
-import { type ClaustrumClientOptions as ClaustrumEnrollmentClientOptions, type EnrollmentPollOutcome, type EnrollmentTokenFile, writeEnrollmentTokenFile } from '@cortexkit/claustrum-client';
+import { type ClaustrumClientOptions as ClaustrumEnrollmentClientOptions, ClaustrumClient as ClaustrumWireClient, type EnrollmentPollOutcome, type EnrollmentTokenFile, writeEnrollmentTokenFile } from '@cortexkit/claustrum-client';
 /**
  * The code a vault without the enrollment ceremony answers a proposal with.
  * Setup reports it as "this vault cannot connect plugins" instead of waiting.
@@ -31,11 +31,29 @@ export declare function classifyEnrollmentError(error: unknown): {
 export declare function enrollmentName(plugin: string, host: string): string;
 /** Match the vault's plain-text, code-point limit before proposing a display name. */
 export declare function validEnrollmentDisplayName(displayName: string): boolean;
+export type ClaustrumRequestedGrant = {
+    selector: {
+        category: string;
+        exact?: never;
+    } | {
+        exact: string;
+        category?: never;
+    };
+    operation: 'read' | 'list';
+};
+/** Reject malformed permissions before a compatibility retry can omit them. */
+export declare function validEnrollmentRequestedGrants(grants: unknown): grants is ReadonlyArray<ClaustrumRequestedGrant>;
+interface EnrollmentGrantProposal {
+    requestedGrants?: ReadonlyArray<ClaustrumRequestedGrant>;
+    /** Sent is not proof of access: the operator can approve without grants. */
+    requestedGrantsStatus?: 'sent' | 'dropped';
+}
 export interface ClaustrumEnrollmentClient {
     enrollPropose(input: {
         name: string;
         requestSecretHash: string;
         displayName?: string;
+        requestedGrants?: ReadonlyArray<ClaustrumRequestedGrant>;
     }): Promise<{
         requestId: string;
     }>;
@@ -46,6 +64,7 @@ export interface ClaustrumEnrollmentClient {
 }
 export interface ClaustrumEnrollmentConnection extends ClaustrumEnrollmentClient {
     close(): void;
+    listScoped?: ClaustrumWireClient['listScoped'];
 }
 /**
  * Connect the enrollment ceremony. Setup calls this; the request path never
@@ -57,17 +76,17 @@ export declare function connectClaustrumEnrollmentClient(options: ClaustrumEnrol
 }): Promise<ClaustrumEnrollmentConnection>;
 export type ClaustrumEnrollmentStatus = {
     state: 'idle';
-} | {
+} | (EnrollmentGrantProposal & {
     state: 'pending';
     proposedName: string;
     requestId?: string;
     retryCode?: string;
-} | {
+}) | (EnrollmentGrantProposal & {
     state: 'approved';
     proposedName: string;
     approvedName?: string;
     tokenGeneration: number;
-} | {
+}) | {
     state: 'denied';
     proposedName: string;
 } | {
@@ -146,6 +165,7 @@ export declare class ClaustrumEnrollmentManager {
         paths: ClaustrumEnrollmentPaths;
         proposedName: string;
         displayName?: string;
+        requestedGrants?: ReadonlyArray<ClaustrumRequestedGrant>;
         now?: () => number;
         mintSecret?: () => string;
         writeTokenFile?: typeof writeEnrollmentTokenFile;
@@ -182,3 +202,4 @@ export type ClaustrumEnrollmentDisconnectResult = 'disconnected' | 'idle' | 'bus
  * wrong owner, not owner-only) refuses with `unsafe-file` and both files stay.
  */
 export declare function disconnectClaustrumEnrollment(paths: ClaustrumEnrollmentPaths, proposedName: string): Promise<ClaustrumEnrollmentDisconnectResult>;
+export {};

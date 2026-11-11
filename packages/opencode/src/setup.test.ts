@@ -28,6 +28,8 @@ import {
   loadCommonAuthClaustrum,
   loadCommonAuthPiSlot,
 } from '@cortexkit/antigravity-auth-core'
+import { ClaustrumWireClient } from '@cortexkit/claustrum-client'
+import { ClaustrumWireClient as LegacyClaustrumWireClient } from 'claustrum-client-017-control'
 
 import { runCommand } from '../../../test/support/run-command.ts'
 import { withVaultHost } from '../../../test/support/vault-host.ts'
@@ -896,6 +898,10 @@ describe('setup plugin callbacks', () => {
         name: string
         requestSecretHash: string
         displayName?: string
+        requestedGrants?: ReadonlyArray<{
+          selector: { category: string }
+          operation: 'read'
+        }>
       }) => ({ requestId: 'sign-in-display-name' }),
     )
     const close = mock(() => {})
@@ -922,6 +928,9 @@ describe('setup plugin callbacks', () => {
     expect(enrollPropose.mock.calls[0]?.[0]).toEqual({
       name,
       displayName,
+      requestedGrants: [
+        { selector: { category: 'antigravity-native' }, operation: 'read' },
+      ],
       requestSecretHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     })
     expect(close).toHaveBeenCalled()
@@ -930,19 +939,27 @@ describe('setup plugin callbacks', () => {
     expect(plugin.migrate).not.toHaveBeenCalled()
   })
 
-  it('real Claustrum setup wire carries both sign-in display names', async () => {
-    for (const [host, name, displayName] of [
-      [
-        'opencode',
-        'antigravity-auth-opencode',
-        'Antigravity sign-in for OpenCode',
-      ],
-      ['pi', 'antigravity-auth-pi', 'Antigravity sign-in for Pi'],
-    ] as const) {
+  it.each([
+    [
+      'opencode',
+      '1',
+      'antigravity-auth-opencode',
+      'Antigravity sign-in for OpenCode',
+    ],
+    [
+      'opencode',
+      '2',
+      'antigravity-auth-opencode',
+      'Antigravity sign-in for OpenCode',
+    ],
+    ['pi', '1', 'antigravity-auth-pi', 'Antigravity sign-in for Pi'],
+  ] as const)('real Claustrum setup wire for %s generation %s carries its display name and account grant, and confirms access', async (host, generation, name, displayName) => {
+    for (const emptyRoster of [false, true]) {
       const p = profile()
       fakeHostCommands(p)
       const daemon = await startMenuVaultFixture(p.root, undefined, {
         enrollmentName: name,
+        emptyRoster,
       })
       try {
         daemon.approve()
@@ -954,27 +971,121 @@ describe('setup plugin callbacks', () => {
           async () => 0,
         )
         plugin.beforeSignIn = mock(async () => {})
+        let output = ''
         // Leave SetupIO.connect unset so common-auth opens the installed transport.
         const result = await runSetup(
           plugin,
-          ['--yes', '--enroll-only', `--host=${host}`, '--opencode=2'],
-          { env: p.env },
+          [
+            '--yes',
+            '--enroll-only',
+            `--host=${host}`,
+            `--opencode=${generation}`,
+          ],
+          {
+            env: p.env,
+            terminal: {
+              input: process.stdin,
+              output: {
+                write(text) {
+                  output += text
+                },
+              },
+            },
+          },
         )
         expect(result.hosts).toEqual([host])
         expect(daemon.proposalFrames).toHaveLength(1)
-        expect(JSON.parse(daemon.proposalFrames[0]!)).toMatchObject({
-          method: 'auth.enroll_propose',
-          params: {
-            proposed_name: name,
-            display_name: displayName,
-            request_secret_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
-          },
+        const body = JSON.parse(daemon.proposalFrames[0]!)
+        expect(body.method).toBe('auth.enroll_propose')
+        expect(body.params).toEqual({
+          proposed_name: name,
+          display_name: displayName,
+          request_secret_hash: expect.stringMatching(/^[a-f0-9]{64}$/),
+          requested_grants: [
+            { selector: { category: 'antigravity-native' }, operation: 'read' },
+          ],
         })
+        expect(
+          daemon.calls.filter((method) => method === 'credential.list_scoped'),
+        ).toHaveLength(1)
+        if (emptyRoster) {
+          expect(output).toContain(
+            'Approved, but no logins are reachable yet; run:',
+          )
+          expect(output).toContain(
+            `ck auth grant --principal enrolled:${name} --selector-kind category --selector antigravity-native --operation read`,
+          )
+          expect(output).not.toContain('Confirmed read access')
+        } else {
+          expect(output).toContain(
+            `Confirmed read access to the vault's "antigravity-native" accounts (1 reachable login).`,
+          )
+          expect(output).not.toContain('ck auth grant')
+          expect(output).not.toContain('no logins are reachable')
+        }
         expect(daemon.errors).toEqual([])
       } finally {
         await daemon.close()
       }
     }
+  })
+
+  it('client 0.17.0 drops requested grants, while no-grant proposal bytes remain compatible with common-auth 0.43.0', async () => {
+    const claustrum = await loadCommonAuthClaustrum()
+    const frames: string[] = []
+    const secret = 'cd'.repeat(32)
+    for (const [Client, withGrants] of [
+      [ClaustrumWireClient, false],
+      [LegacyClaustrumWireClient, false],
+      [LegacyClaustrumWireClient, true],
+    ] as const) {
+      const p = profile()
+      const daemon = await startMenuVaultFixture(p.root)
+      const client = await Client.connect({
+        connectionFile: daemon.connectionFile,
+      })
+      try {
+        if (withGrants) {
+          const input = {
+            name: 'antigravity-auth-opencode',
+            requestSecretHash:
+              '7969ec0fcb8b648dfde24b1d0ae24568d398dcc3a83b80a850f973238cdfd3d9',
+            displayName: 'Antigravity sign-in for OpenCode',
+            requestedGrants: [
+              {
+                selector: { category: 'antigravity-native' },
+                operation: 'read' as const,
+              },
+            ],
+          }
+          await client.enrollPropose(input)
+        } else {
+          const manager = new claustrum.ClaustrumEnrollmentManager({
+            client,
+            paths: claustrum.hostEnrollmentPaths({
+              stateDir: join(p.root, 'vault'),
+              host: 'opencode',
+            }),
+            proposedName: 'antigravity-auth-opencode',
+            displayName: 'Antigravity sign-in for OpenCode',
+            mintSecret: () => secret,
+          })
+          expect((await manager.reconcile()).state).toBe('pending')
+        }
+        expect(daemon.proposalFrames).toHaveLength(1)
+        frames.push(daemon.proposalFrames[0]!)
+        expect(daemon.errors).toEqual([])
+      } finally {
+        client.close()
+        await daemon.close()
+      }
+    }
+    // Freeze the complete common-auth 0.43.0/client 0.17.0 body, including key order.
+    expect(frames[0]).toBe(
+      '{"method":"auth.enroll_propose","params":{"proposed_name":"antigravity-auth-opencode","request_secret_hash":"7969ec0fcb8b648dfde24b1d0ae24568d398dcc3a83b80a850f973238cdfd3d9","display_name":"Antigravity sign-in for OpenCode"}}',
+    )
+    expect(frames[0]).toBe(frames[1])
+    expect(frames[2]).toBe(frames[1])
   })
 
   it.each([

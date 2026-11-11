@@ -41,6 +41,7 @@
     "@types/bun": "1.3",
     "@tsconfig/bun": "1.0.10",
     "@types/node": "24.10.1",
+    "claustrum-client-017-control": "npm:@cortexkit/claustrum-client@0.17.0",
     "lefthook": "2.1.9",
     "typescript": "6.0.3"
   }

@@ -647,6 +647,9 @@ export function createOpenCodeVaultCustody(
         client,
         paths: await enrollmentPaths(),
         proposedName: OPENCODE_VAULT_ENROLLMENT_NAME,
+        requestedGrants: [
+          { selector: { category: 'antigravity-native' }, operation: 'read' },
+        ],
         ...(options.now ? { now: options.now } : {}),
       })
       const current = await manager.status()

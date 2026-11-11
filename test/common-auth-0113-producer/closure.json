@@ -496,7 +496,11 @@
     ],
     "rpc/server-registry.d.ts": ["./rpc-server.js"],
     "setup/command-error.d.ts": ["./types.js"],
-    "setup/command-error.js": ["../logger/redact.js", "./command-runner.js"],
+    "setup/command-error.js": [
+      "../logger/redact.js",
+      "./command-runner.js",
+      "./enrollment-access.js"
+    ],
     "setup/command-runner.js": ["node:child_process"],
     "setup/command.d.ts": ["./types.js"],
     "setup/command.js": [
@@ -508,6 +512,7 @@
       "./command-runner.js",
       "./detect.js",
       "./enroll.js",
+      "./enrollment-access.js",
       "./flags.js",
       "./paths.js",
       "./process-fence.js",
@@ -536,10 +541,16 @@
       "../auth-menu/terminal.js",
       "../claustrum/enrollment.js",
       "../claustrum/host.js",
+      "./enrollment-access.js",
       "./process-fence.js",
       "@cortexkit/claustrum-client",
       "node:timers/promises"
     ],
+    "setup/enrollment-access.d.ts": [
+      "../claustrum/enrollment.js",
+      "./types.js"
+    ],
+    "setup/enrollment-access.js": ["../claustrum/enrollment.js"],
     "setup/flags.d.ts": ["./types.js"],
     "setup/index.d.ts": [
       "./command-error.js",

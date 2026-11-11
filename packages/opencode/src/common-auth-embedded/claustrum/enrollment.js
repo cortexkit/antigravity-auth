@@ -75,6 +75,35 @@ export function validEnrollmentDisplayName(displayName) {
         length <= 40 &&
         !/[\p{Cc}\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\u200b-\u200d\u2060\ufeff]/u.test(displayName));
 }
+/** Reject malformed permissions before a compatibility retry can omit them. */
+export function validEnrollmentRequestedGrants(grants) {
+    return (Array.isArray(grants) &&
+        grants.length >= 1 &&
+        grants.length <= 4 &&
+        Array.from(grants).every((grant) => {
+            if (!isRecord(grant) ||
+                Object.keys(grant).length !== 2 ||
+                (grant.operation !== 'read' && grant.operation !== 'list') ||
+                !isRecord(grant.selector))
+                return false;
+            const keys = Object.keys(grant.selector);
+            const key = keys[0];
+            return (keys.length === 1 &&
+                (key === 'category' || key === 'exact') &&
+                typeof grant.selector[key] === 'string' &&
+                grant.selector[key].trim().length > 0);
+        }));
+}
+function grantProposal(state) {
+    return {
+        ...(state.requestedGrants !== undefined && {
+            requestedGrants: state.requestedGrants,
+        }),
+        ...(state.requestedGrantsStatus !== undefined && {
+            requestedGrantsStatus: state.requestedGrantsStatus,
+        }),
+    };
+}
 /**
  * Connect the enrollment ceremony. Setup calls this; the request path never
  * does. `connectionFile` is required because this library reads no
@@ -129,6 +158,7 @@ function decodeEnrollmentState(value) {
         throw invalidState();
     }
     if (value.phase === 'pending') {
+        const grants = decodeGrantProposal(value);
         if (!TOKEN_RE.test(String(value.requestSecret ?? '')) ||
             (value.requestId !== undefined &&
                 (typeof value.requestId !== 'string' ||
@@ -147,9 +177,11 @@ function decodeEnrollmentState(value) {
             }),
             createdAt: value.createdAt,
             updatedAt: value.updatedAt,
+            ...grants,
         };
     }
     if (value.phase === 'approved') {
+        const grants = decodeGrantProposal(value);
         if ((value.approvedName !== undefined &&
             (typeof value.approvedName !== 'string' ||
                 value.approvedName.length === 0)) ||
@@ -166,6 +198,7 @@ function decodeEnrollmentState(value) {
             }),
             tokenGeneration: value.tokenGeneration,
             updatedAt: value.updatedAt,
+            ...grants,
         };
     }
     if (value.phase === 'denied' || value.phase === 'blocked') {
@@ -184,6 +217,18 @@ function decodeEnrollmentState(value) {
         };
     }
     throw invalidState();
+}
+function decodeGrantProposal(value) {
+    // Optional proposal metadata from a newer version must not invalidate an
+    // existing enrollment when a plugin is downgraded. Never infer access from it.
+    if ((value.requestedGrants !== undefined &&
+        !validEnrollmentRequestedGrants(value.requestedGrants)) ||
+        (value.requestedGrantsStatus !== undefined &&
+            (value.requestedGrants === undefined ||
+                (value.requestedGrantsStatus !== 'sent' &&
+                    value.requestedGrantsStatus !== 'dropped'))))
+        return {};
+    return grantProposal(value);
 }
 function decodeTokenFile(value) {
     if (!isRecord(value) ||
@@ -452,6 +497,9 @@ async function readEnrollmentStatus(paths, proposedName) {
                     approvedName: state.approvedName,
                 }),
                 tokenGeneration: token.token_generation,
+                ...(state &&
+                    (state.phase === 'approved' || state.phase === 'pending') &&
+                    grantProposal(state)),
             },
         };
     }
@@ -534,6 +582,7 @@ function statusFromState(state) {
             state: 'pending',
             proposedName: state.proposedName,
             ...(state.requestId !== undefined && { requestId: state.requestId }),
+            ...grantProposal(state),
         };
     }
     if (state.phase === 'approved') {
@@ -544,6 +593,7 @@ function statusFromState(state) {
                 approvedName: state.approvedName,
             }),
             tokenGeneration: state.tokenGeneration,
+            ...grantProposal(state),
         };
     }
     if (state.phase === 'denied')
@@ -567,6 +617,7 @@ export class ClaustrumEnrollmentManager {
     #paths;
     #proposedName;
     #displayName;
+    #requestedGrants;
     #now;
     #mintSecret;
     #writeTokenFile;
@@ -575,6 +626,13 @@ export class ClaustrumEnrollmentManager {
         if (options.displayName !== undefined &&
             !validEnrollmentDisplayName(options.displayName))
             throw new ClaustrumConsumerError('invalid-state', 'invalid Claustrum enrollment display name');
+        if (options.requestedGrants !== undefined &&
+            !validEnrollmentRequestedGrants(options.requestedGrants))
+            throw new ClaustrumConsumerError('invalid-state', 'invalid Claustrum enrollment requested grants');
+        this.#requestedGrants = options.requestedGrants?.map((grant) => ({
+            selector: { ...grant.selector },
+            operation: grant.operation,
+        }));
         this.#ancestorOptions = options.ancestorOptions ?? {};
         this.#client = options.client;
         this.#paths = options.paths;
@@ -627,6 +685,7 @@ export class ClaustrumEnrollmentManager {
                         phase: 'approved',
                         proposedName: state?.proposedName ?? this.#proposedName,
                         tokenGeneration: token.token_generation,
+                        ...(state && grantProposal(state)),
                         updatedAt: this.#now(),
                     };
                     await writeStateAtomic(this.#paths.statePath, approved, this.#ancestorOptions);
@@ -640,6 +699,7 @@ export class ClaustrumEnrollmentManager {
                         approvedName: state.approvedName,
                     }),
                     tokenGeneration: token.token_generation,
+                    ...(state.phase === 'approved' && grantProposal(state)),
                 };
             }
             if (state?.phase === 'approved') {
@@ -664,6 +724,9 @@ export class ClaustrumEnrollmentManager {
                     requestSecret: this.#mintSecret(),
                     createdAt: now,
                     updatedAt: now,
+                    ...(this.#requestedGrants !== undefined && {
+                        requestedGrants: this.#requestedGrants,
+                    }),
                 };
                 if (!TOKEN_RE.test(state.requestSecret))
                     throw new ClaustrumConsumerError('invalid-state', 'invalid minted Claustrum enrollment secret');
@@ -682,28 +745,39 @@ export class ClaustrumEnrollmentManager {
                         requestSecretHash,
                     };
                     let proposed;
+                    let requestedGrantsStatus = state.requestedGrantsStatus;
                     try {
                         proposed = await this.#client.enrollPropose({
                             ...proposal,
                             ...(this.#displayName !== undefined && {
                                 displayName: this.#displayName,
                             }),
+                            ...(state.requestedGrants !== undefined && {
+                                requestedGrants: state.requestedGrants,
+                            }),
                         });
+                        if (state.requestedGrants !== undefined)
+                            requestedGrantsStatus = 'sent';
                     }
                     catch (error) {
-                        if (this.#displayName === undefined ||
+                        if ((this.#displayName === undefined &&
+                            state.requestedGrants === undefined) ||
                             !(error instanceof ClaustrumCredentialError) ||
                             error.code !== 'invalid_params')
                             throw error;
-                        // Locally validated names can only be refused by vaults that do
-                        // not support displayName. A refused proposal stores nothing, so
-                        // retry once with the same hash and let normal handling decide.
+                        // Both optional fields were validated locally. Older vaults reject
+                        // either field without storing a proposal, so retry the plain shape once.
                         proposed = await this.#client.enrollPropose(proposal);
+                        if (state.requestedGrants !== undefined)
+                            requestedGrantsStatus = 'dropped';
                     }
                     state = {
                         ...state,
                         requestId: proposed.requestId,
                         updatedAt: this.#now(),
+                        ...(requestedGrantsStatus !== undefined && {
+                            requestedGrantsStatus,
+                        }),
                     };
                     await writeStateAtomic(this.#paths.statePath, state, this.#ancestorOptions);
                 }
@@ -716,6 +790,7 @@ export class ClaustrumEnrollmentManager {
                             state: 'pending',
                             proposedName: state.proposedName,
                             retryCode: refusal.code,
+                            ...grantProposal(state),
                         };
                     }
                     // A vault without the ceremony cannot hold a request for this
@@ -772,6 +847,7 @@ export class ClaustrumEnrollmentManager {
                     proposedName: state.proposedName,
                     approvedName: outcome.name,
                     tokenGeneration: outcome.tokenGeneration,
+                    ...grantProposal(state),
                     updatedAt: this.#now(),
                 };
                 await writeStateAtomic(this.#paths.statePath, approved, this.#ancestorOptions);
@@ -787,6 +863,7 @@ export class ClaustrumEnrollmentManager {
                         proposedName: state.proposedName,
                         requestId,
                         retryCode: refusal.code,
+                        ...grantProposal(state),
                     };
                 }
                 return this.#block(state, refusal.code);

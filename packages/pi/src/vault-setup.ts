@@ -311,6 +311,9 @@ export class PiVaultSetup {
         client,
         paths: this.paths,
         proposedName: PI_ANTIGRAVITY_ENROLLMENT_NAME,
+        requestedGrants: [
+          { selector: { category: 'antigravity-native' }, operation: 'read' },
+        ],
         ...(this.#options.now && { now: this.#options.now }),
       })
       const current = await manager.status()

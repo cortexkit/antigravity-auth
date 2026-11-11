@@ -5,9 +5,9 @@ import { loadCommonAuthStoreModules } from '@cortexkit/antigravity-auth-core'
 
 const PIN = {
   package: '@cortexkit/common-auth',
-  version: '0.43.0',
+  version: '0.44.0',
   tarballSha256:
-    'f2c384c880b08859ac3f0cca3575cedfcdcd47e6e96dd8f72dc78af1fe6a7620',
+    '53be392a1605d4b1bb37573937e86c0d9b865baf70e464029265cc1d09d4fe90',
 } as const
 
 async function filesBelow(root: string, dir: string): Promise<string[]> {

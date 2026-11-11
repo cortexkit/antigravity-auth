@@ -64,10 +64,12 @@ type PollStep = 'pending' | 'approved' | 'denied'
 /** The vault's enrollment endpoint, answering polls from a script. */
 function enrollmentEndpoint(script: PollStep[]) {
   const calls = { proposals: 0, polls: 0, opened: 0, closed: 0 }
+  const requestedGrants: unknown[] = []
   const connect = async (): Promise<ClaustrumEnrollmentConnection> => {
     calls.opened++
     return {
-      enrollPropose: async () => {
+      enrollPropose: async (input) => {
+        requestedGrants.push(input.requestedGrants)
         calls.proposals++
         return { requestId: `request-${calls.proposals}` }
       },
@@ -88,7 +90,7 @@ function enrollmentEndpoint(script: PollStep[]) {
       },
     }
   }
-  return { connect, calls }
+  return { connect, calls, requestedGrants }
 }
 
 let claustrum: CommonAuthClaustrumModule
@@ -230,6 +232,9 @@ describe('Pi vault setup', () => {
     expect((await setup.connectStep()).state).toBe('pending')
     expect((await setup.connectStep()).state).toBe('approved')
     expect(endpoint.calls.proposals).toBe(1)
+    expect(endpoint.requestedGrants).toEqual([
+      [{ selector: { category: 'antigravity-native' }, operation: 'read' }],
+    ])
     expect(endpoint.calls.opened).toBe(2)
     expect(endpoint.calls.closed).toBe(2)
   })
