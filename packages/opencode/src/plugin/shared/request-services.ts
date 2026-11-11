@@ -53,8 +53,10 @@ import {
   type TokenBucketTracker,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import { hasVaultHost } from '../../common-auth-embedded/claustrum/host.js'
 import {
   askRouting,
+  type BillingRequestKind,
   type RoutingCandidate,
 } from '../../common-auth-embedded/routing-accessor/index.js'
 import {
@@ -115,6 +117,7 @@ import {
   createRequestCancellation,
   retainResponseLifetime,
 } from './request-cancellation'
+import { VaultBillingAttempt } from './vault-billing'
 import {
   hasVaultRoutingAccessor,
   observeVaultServed,
@@ -1109,6 +1112,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         }
       : undefined
     const isChildRequest = requestSessionIdentity.parentSessionId !== null
+    let physicalSendCount = 0
 
     if (accountManager.getAccountCount() === 0) {
       // Surface a real 401 with the Google error envelope instead of a
@@ -1942,6 +1946,47 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       }
       const selected = account
 
+      const sendPhysical = async (
+        url: string,
+        sendInit: RequestInit,
+        admission: RequestSendAdmission | undefined,
+        sendModel: string,
+        requestKind: BillingRequestKind,
+      ): Promise<Response> => {
+        const source =
+          credentials.domain === 'local'
+            ? 'local'
+            : hasVaultHost()
+              ? 'hosted'
+              : 'vault'
+        const message = `request-send source=${source} model=${sendModel} account=Account ${account.index + 1}`
+        if (source === 'local') log.info(message)
+        else (log.hostInfo ?? log.info)(message)
+        const attempt = ++physicalSendCount
+        const sessionId = requestSessionIdentity.sessionId
+        const billing =
+          admission && sessionId && hasVaultRoutingAccessor()
+            ? new VaultBillingAttempt(
+                sessionId,
+                admission,
+                requestKind,
+                sendModel,
+                attempt,
+                abortSignal,
+              )
+            : undefined
+        try {
+          const response = await transport(url, sendInit, {
+            signal: abortSignal,
+            onDebug: pushDebug,
+          })
+          return billing?.observe(response) ?? response
+        } catch (error) {
+          billing?.end(false)
+          throw error
+        }
+      }
+
       // Credentials for one auxiliary physical send (thinking warmup or cache
       // probe) built from a prepared request. Local: the selection's grant
       // must still be the row's current credential. Vault: a fresh admission
@@ -2023,10 +2068,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             warmupInit,
             projectId,
           )
-          const warmupResponse = await transport(warmupUrl, warmupSend.init, {
-            signal: abortSignal,
-            onDebug: pushDebug,
-          })
+          const warmupResponse = await sendPhysical(
+            warmupUrl,
+            warmupSend.init,
+            warmupSend.admission,
+            prepared.effectiveModel ?? model ?? 'unknown',
+            'prime',
+          )
           reportVault401(warmupSend.admission, warmupResponse.status)
           const transformed = await deadline.wait(() =>
             wire.transformResponse(
@@ -2073,13 +2121,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             { ...prepared.init, method: 'POST', body: bodyStr },
             prepared.projectId ?? '',
           )
-          const probeResponse = await transport(
+          const probeResponse = await sendPhysical(
             toUrlString(prepared.request),
             probeSend.init,
-            {
-              signal: abortSignal,
-              onDebug: pushDebug,
-            },
+            probeSend.admission,
+            prepared.effectiveModel ?? model ?? 'unknown',
+            'keep_warm',
           )
           reportVault401(probeSend.admission, probeResponse.status)
 
@@ -2284,10 +2331,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               `dispatching request via ${prepared.headerStyle} transport`,
             )
             physicalAttemptStarted = true
-            const response = await transport(
+            const response = await sendPhysical(
               toUrlString(prepared.request),
               prepared.init,
-              { signal: abortSignal, onDebug: pushDebug },
+              sendAdmission,
+              prepared.effectiveModel ?? model ?? 'unknown',
+              kind ?? 'primary',
             )
             if (response.ok) deadline.acceptHeaders()
             apiRequestCount++

@@ -640,6 +640,342 @@ const NON_STREAM_URL = modelUrl('gemini-3-flash', 'generateContent')
 const STREAM_URL = modelUrl('gemini-3-flash')
 const CLAUDE_URL = modelUrl('claude-sonnet-5-5-low', 'generateContent')
 
+describe('createRequestExecutor vault billing', () => {
+  const symbol = Symbol.for('cortexkit.routing')
+  const session = {
+    session: { sessionId: 'billing-session', parentSessionId: null },
+    kind: 'primary' as const,
+  }
+  // Terminal usage from request.test.ts's Gemini cached tool-call fixture.
+  const usageMetadata = {
+    promptTokenCount: 41880,
+    cachedContentTokenCount: 40682,
+    candidatesTokenCount: 25,
+    thoughtsTokenCount: 45,
+    totalTokenCount: 41950,
+  }
+  const terminal = (usage = true) => ({
+    response: {
+      candidates: [
+        { content: { parts: [{ text: 'hi' }] }, finishReason: 'STOP' },
+      ],
+      ...(usage ? { usageMetadata } : {}),
+    },
+  })
+  const sse = (usage = true) =>
+    new Response(`data: ${JSON.stringify(terminal(usage))}\n\n`, {
+      headers: { 'content-type': 'text/event-stream' },
+    })
+  const admission = (version = 1): RequestSendAdmission => ({
+    credentialId: 'credential-secret-abc',
+    accountIdentity: 'account-secret-def',
+    recordVersion: version,
+    accessToken: 'access-secret-ghi',
+    projectId: 'project-secret-jkl',
+    report401: async () => {},
+  })
+  async function withRouting(
+    run: (
+      reports: Array<Record<string, unknown>>,
+      sessions: string[],
+    ) => Promise<void>,
+    mode: 'present' | 'absent' | 'throws' | 'rejects' | 'pending' = 'present',
+  ) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, symbol)
+    const reports: Array<Record<string, unknown>> = []
+    const sessions: string[] = []
+    Object.defineProperty(globalThis, symbol, {
+      configurable: true,
+      value:
+        mode === 'absent'
+          ? undefined
+          : (id: string) => ({
+              report: (input: Record<string, unknown>) => {
+                if (input.kind !== 'billing') return
+                reports.push(input)
+                sessions.push(id)
+                if (mode === 'throws') throw new Error('accessor unavailable')
+                if (mode === 'rejects')
+                  return Promise.reject(new Error('accessor unavailable'))
+                if (mode === 'pending') return new Promise(() => {})
+              },
+            }),
+    })
+    try {
+      await run(reports, sessions)
+    } finally {
+      if (previous) Object.defineProperty(globalThis, symbol, previous)
+      else Reflect.deleteProperty(globalThis, symbol)
+    }
+  }
+
+  it('reports exactly one billing record with real Gemini usage for a vault send', async () =>
+    withRouting(async (reports, sessions) => {
+      const h = harness({ respond: async () => sse() })
+      const executor = createRequestExecutor(
+        vaultDeps(h, async () => admission()),
+      )
+      try {
+        const response = await executor.execute(
+          STREAM_URL,
+          CHAT_INIT(),
+          session,
+        )
+        expect(await response.text()).toContain('hi')
+        expect(reports).toHaveLength(1)
+        expect(sessions).toEqual(['billing-session'])
+        expect(reports[0]).toEqual({
+          kind: 'billing',
+          attempt_id: expect.stringMatching(/^[0-9a-f-]{36}$/),
+          request_kind: 'primary',
+          credential_id: 'credential-secret-abc',
+          account_id: 'account-secret-def',
+          provider: 'antigravity',
+          model: expect.stringContaining('gemini'),
+          outcome: 'completed',
+          status: 200,
+          attempt: 1,
+          charge_basis: 'subscription_included',
+          cache: { implicit: true },
+          usage: {
+            input: 1198,
+            cache_read: 40682,
+            output: 25,
+            reasoning: 45,
+            reasoning_included_in_output: false,
+          },
+        })
+      } finally {
+        await executor.dispose()
+      }
+    }))
+
+  it('gives a retried physical send a fresh attemptId and reports the original receipt', async () =>
+    withRouting(async (reports) => {
+      const h = harness({
+        respond: async (_call, index) =>
+          index === 0 ? new Response('expired', { status: 401 }) : sse(),
+      })
+      let admissions = 0
+      const executor = createRequestExecutor(
+        vaultDeps(h, async () => admission(++admissions)),
+      )
+      try {
+        await (await executor.execute(STREAM_URL, CHAT_INIT(), session)).text()
+        expect(h.calls).toHaveLength(2)
+        expect(reports).toHaveLength(2)
+        expect(
+          reports.map((report) => [
+            report.attempt,
+            report.status,
+            report.outcome,
+          ]),
+        ).toEqual([
+          [1, 401, 'failed'],
+          [2, 200, 'completed'],
+        ])
+        expect(reports[0]?.attempt_id).not.toBe(reports[1]?.attempt_id)
+        expect(reports[0]).not.toHaveProperty('usage')
+        expect(reports[1]?.usage).toEqual({
+          input: 1198,
+          cache_read: 40682,
+          output: 25,
+          reasoning: 45,
+          reasoning_included_in_output: false,
+        })
+      } finally {
+        await executor.dispose()
+      }
+    }))
+
+  it('does not invent usage from the transformer synthetic zeros', async () =>
+    withRouting(async (reports) => {
+      const h = harness({ respond: async () => sse(false) })
+      const executor = createRequestExecutor(
+        vaultDeps(h, async () => admission()),
+      )
+      try {
+        const text = await (
+          await executor.execute(STREAM_URL, CHAT_INIT(), session)
+        ).text()
+        expect(text).toContain('"promptTokenCount":0')
+        expect(reports).toHaveLength(1)
+        expect(reports[0]?.outcome).toBe('completed')
+        expect(reports[0]).not.toHaveProperty('usage')
+      } finally {
+        await executor.dispose()
+      }
+    }))
+
+  it('bills thinking warmup and main dispatch as separate physical sends', async () =>
+    withRouting(async (reports) => {
+      const h = harness({
+        config: { thinking_warmup: true },
+        respond: async () => sse(),
+      })
+      const executor = createRequestExecutor({
+        ...vaultDeps(h, async () => admission()),
+        wire: {
+          ...WIRE,
+          prepare: (...args) => ({
+            ...WIRE.prepare(...args),
+            needsSignedThinkingWarmup: true,
+            sessionId: 'warmup-session',
+          }),
+          buildThinkingWarmupBody: () => 'warmup',
+        },
+      })
+      try {
+        await (await executor.execute(STREAM_URL, CHAT_INIT(), session)).text()
+        expect(h.calls).toHaveLength(2)
+        expect(
+          reports.map((report) => [
+            report.request_kind,
+            report.attempt,
+            report.outcome,
+          ]),
+        ).toEqual([
+          ['prime', 1, 'completed'],
+          ['primary', 2, 'completed'],
+        ])
+        expect(reports[0]?.attempt_id).not.toBe(reports[1]?.attempt_id)
+      } finally {
+        await executor.dispose()
+      }
+    }))
+
+  it('local sends never report billing even with an accessor', async () =>
+    withRouting(async (reports) => {
+      const h = harness({ respond: async () => sse() })
+      const executor = createRequestExecutor(h.deps)
+      try {
+        await (await executor.execute(STREAM_URL, CHAT_INIT(), session)).text()
+        expect(h.calls).toHaveLength(1)
+        expect(reports).toEqual([])
+      } finally {
+        await executor.dispose()
+      }
+    }))
+
+  it('without an accessor a vault send retains the original response body', async () =>
+    withRouting(async (reports) => {
+      const original = sse()
+      const body = original.body
+      const h = harness({ respond: async () => original })
+      const executor = createRequestExecutor({
+        ...vaultDeps(h, async () => admission()),
+        wire: {
+          ...WIRE,
+          transformResponse: async (response) => {
+            expect(response.body).toBe(body)
+            return response
+          },
+        },
+      })
+      try {
+        await (await executor.execute(STREAM_URL, CHAT_INIT(), session)).text()
+        expect(h.calls).toHaveLength(1)
+        expect(reports).toEqual([])
+      } finally {
+        await executor.dispose()
+      }
+    }, 'absent'))
+
+  for (const mode of ['throws', 'rejects', 'pending'] as const) {
+    it(`accessor ${mode} never delays or changes response bytes`, async () =>
+      withRouting(async (reports) => {
+        const raw = `data: ${JSON.stringify(terminal())}\r\n\r\n`
+        const h = harness({
+          respond: async () =>
+            new Response(raw, {
+              headers: { 'content-type': 'text/event-stream' },
+            }),
+        })
+        const executor = createRequestExecutor({
+          ...vaultDeps(h, async () => admission()),
+          wire: { ...WIRE, transformResponse: async (response) => response },
+        })
+        try {
+          const response = await executor.execute(
+            STREAM_URL,
+            CHAT_INIT(),
+            session,
+          )
+          expect(reports).toEqual([])
+          expect(await response.text()).toBe(raw)
+          expect(reports).toHaveLength(1)
+        } finally {
+          await executor.dispose()
+        }
+      }, mode))
+  }
+
+  for (const source of ['hosted', 'vault', 'local'] as const) {
+    for (const gate of [true, false]) {
+      it(`logs source=${source} with debug_tui=${gate} without secrets`, async () =>
+        withRouting(async () => {
+          const previous = process.env.CORTEXKIT_VAULT_HOST
+          if (source === 'hosted') process.env.CORTEXKIT_VAULT_HOST = 'thalamus'
+          else delete process.env.CORTEXKIT_VAULT_HOST
+          const records: Array<{
+            level: string
+            message: string
+            extra?: Record<string, unknown>
+          }> = []
+          const h = harness({ respond: async () => sse() })
+          const deps =
+            source === 'local' ? h.deps : vaultDeps(h, async () => admission())
+          const logger = createLocationLogger({
+            sinkEnabled: () => gate,
+            sink: (record) => {
+              records.push(record)
+            },
+            level: 'info',
+          }).createLogger('request')
+          const executor = createRequestExecutor({ ...deps, logger })
+          try {
+            await (
+              await executor.execute(STREAM_URL, CHAT_INIT(), session)
+            ).text()
+            if (source === 'local' && !gate) {
+              expect(records).toEqual([])
+            } else {
+              const sends = records.filter((record) =>
+                record.message.startsWith('request-send '),
+              )
+              expect(sends).toHaveLength(1)
+              expect(sends[0]).toEqual({
+                service: 'antigravity.request',
+                level: 'info',
+                message: expect.stringMatching(
+                  new RegExp(
+                    `^request-send source=${source} model=gemini[^ ]+ account=Account 1$`,
+                  ),
+                ),
+                extra: undefined,
+              })
+              const text = JSON.stringify(sends)
+              for (const secret of [
+                'credential-secret-abc',
+                'account-secret-def',
+                'access-secret-ghi',
+                'project-secret-jkl',
+                'account-0@example.test',
+                'refresh-0',
+                'access-fresh',
+              ])
+                expect(text).not.toContain(secret)
+            }
+          } finally {
+            await executor.dispose()
+            if (previous === undefined) delete process.env.CORTEXKIT_VAULT_HOST
+            else process.env.CORTEXKIT_VAULT_HOST = previous
+          }
+        }))
+    }
+  }
+})
+
 function deadlineClock() {
   let now = 0
   const timers = new Map<() => void, number>()
@@ -7343,7 +7679,9 @@ describe('createRequestExecutor optional vault routing', () => {
           return answer()
         },
         report: (input: unknown) => {
-          state.reports.push(input)
+          // These assertions cover routing observations, not the separate billing records.
+          if ((input as { kind?: string }).kind !== 'billing')
+            state.reports.push(input)
         },
       }),
     })
@@ -7488,7 +7826,7 @@ describe('createRequestExecutor optional vault routing', () => {
       async () => ({ account_id: 'identity-1' }),
     ))
 
-  it('routing absent takes only two presence gates and passes the transport body untouched to the wire', async () => {
+  it('routing absent takes three presence gates including billing and passes the transport body untouched to the wire', async () => {
     const previous = Object.getOwnPropertyDescriptor(globalThis, symbol)
     let lookups = 0
     Object.defineProperty(globalThis, symbol, {
@@ -7520,7 +7858,7 @@ describe('createRequestExecutor optional vault routing', () => {
         session('absent'),
       )
       await response.text()
-      expect(lookups).toBe(2)
+      expect(lookups).toBe(3)
     } finally {
       await executor.dispose()
       if (previous) Object.defineProperty(globalThis, symbol, previous)

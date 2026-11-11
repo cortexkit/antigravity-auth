@@ -3,7 +3,7 @@
  *
  * Logging behavior:
  * - debug controls file logs only (via debug.ts)
- * - debug_tui controls the host log destination only
+ * - debug_tui controls the host log destination, except vault send attribution
  * - either sink can be enabled independently
  * - OPENCODE_ANTIGRAVITY_CONSOLE_LOG=1 → console output (independent of debug flags)
  * - operator.log_level filters the level at which log entries are emitted
@@ -51,6 +51,8 @@ const LOG_LEVEL_FROM_OPERATOR: Record<OperatorSettings['log_level'], LogLevel> =
 export interface Logger {
   debug(message: string, extra?: Record<string, unknown>): void
   info(message: string, extra?: Record<string, unknown>): void
+  /** Vault send attribution reaches the host even with debug_tui disabled. */
+  hostInfo?(message: string, extra?: Record<string, unknown>): void
   warn(message: string, extra?: Record<string, unknown>): void
   error(message: string, extra?: Record<string, unknown>): void
 }
@@ -94,10 +96,10 @@ export function createLocationLogger(
     ? (LOG_LEVEL_FROM_OPERATOR[options.level] ?? 'debug')
     : 'debug'
 
-  const emit = (record: LocationLogRecord): void => {
-    // Host destination: sent only while the caller's sinkEnabled policy
-    // returns true.
-    if (options.sink && options.sinkEnabled()) {
+  const emit = (record: LocationLogRecord, alwaysHost = false): void => {
+    // Vault send attribution is useful without diagnostic logging. Other
+    // records still follow the location's debug_tui policy.
+    if (options.sink && (alwaysHost || options.sinkEnabled())) {
       try {
         const pending = options.sink(record)
         if (isThenable(pending)) {
@@ -127,30 +129,38 @@ export function createLocationLogger(
 
   // The library scrubs records before forwarding them to the capture sink;
   // it owns no file buffer or timer. Each channel reads the current level.
-  const engine = createLoggerInstance({
-    level: () => configuredLevel,
-    extraSecretKeys: isProviderSecretKey,
-    extraValuePatterns: OAUTH_REDIRECT_VALUE_PATTERNS,
-    captureSink: ({ channel, level, message, data }) => {
-      const extra =
-        data !== null && typeof data === 'object' && !Array.isArray(data)
-          ? Object.fromEntries(Object.entries(data))
-          : undefined
-      emit({
-        service: channel,
-        level: level === 'trace' ? 'debug' : level,
-        message,
-        extra,
-      })
-    },
-  })
+  const createEngine = (alwaysHost: boolean) =>
+    createLoggerInstance({
+      level: () => configuredLevel,
+      extraSecretKeys: isProviderSecretKey,
+      extraValuePatterns: OAUTH_REDIRECT_VALUE_PATTERNS,
+      captureSink: ({ channel, level, message, data }) => {
+        const extra =
+          data !== null && typeof data === 'object' && !Array.isArray(data)
+            ? Object.fromEntries(Object.entries(data))
+            : undefined
+        emit(
+          {
+            service: channel,
+            level: level === 'trace' ? 'debug' : level,
+            message,
+            extra,
+          },
+          alwaysHost,
+        )
+      },
+    })
+  const engine = createEngine(false)
+  const hostEngine = createEngine(true)
 
   return {
     createLogger(module) {
       const channel = engine.createLogger(`antigravity.${module}`)
+      const hostChannel = hostEngine.createLogger(`antigravity.${module}`)
       return {
         debug: (message, extra) => channel.debug(message, extra),
         info: (message, extra) => channel.info(message, extra),
+        hostInfo: (message, extra) => hostChannel.info(message, extra),
         warn: (message, extra) => channel.warn(message, extra),
         error: (message, extra) => channel.error(message, extra),
       }
@@ -247,6 +257,10 @@ export function createLogger(module: string): Logger {
   return {
     debug: (message, extra) => log('debug', message, extra),
     info: (message, extra) => log('info', message, extra),
+    hostInfo: (message, extra) => {
+      channel ??= getLegacyLogger().createLogger(module)
+      channel.hostInfo?.(message, extra)
+    },
     warn: (message, extra) => log('warn', message, extra),
     error: (message, extra) => log('error', message, extra),
   }

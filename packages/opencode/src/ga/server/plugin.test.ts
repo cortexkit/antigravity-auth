@@ -1456,6 +1456,45 @@ describe('setup against a host context', () => {
     }
   }
 
+  it('sends vault attribution to host stderr with debug_tui off but keeps local INFO gated', async () => {
+    prepareRoot()
+    const log: string[] = []
+    const lines: string[] = []
+    const write = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      lines.push(String(chunk))
+      return true
+    })
+    try {
+      const factory = fakeServices(log)
+      const cleanup = await server.setupGaActivation(
+        fakeHost(locationDirectory('source-log'), log),
+        async (input) => {
+          const services = await factory(input)
+          return {
+            ...services,
+            start: async (input) => {
+              expect(input.runtime.config.config.debug_tui).toBe(false)
+              const logger = input.runtime.logger.createLogger('request')
+              logger.info(
+                'request-send source=local model=gemini-3-flash account=Account 1',
+              )
+              logger.hostInfo?.(
+                'request-send source=vault model=gemini-3-flash account=Account 1',
+              )
+              return services.start(input)
+            },
+          }
+        },
+      )
+      if (cleanup) cleanups.push(cleanup)
+      expect(lines.filter((line) => line.includes('request-send '))).toEqual([
+        '[antigravity] info antigravity.request: request-send source=vault model=gemini-3-flash account=Account 1\n',
+      ])
+    } finally {
+      write.mockRestore()
+    }
+  })
+
   async function hostRetry(hooks: HookCallbacks): Promise<SessionRetry> {
     const retry: SessionRetry = JSON.parse(
       '{"sessionID":"ses_prepared","agent":"build","model":{"id":"antigravity-gemini-3.8-flash","providerID":"google"},"attempt":1,"error":{},"decision":{"retry":true,"delay":1234}}',
