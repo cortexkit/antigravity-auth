@@ -156,6 +156,7 @@ export function createCommandMenu(options) {
                 store,
                 now,
                 ...(options.extraLocks ? { extraLocks: options.extraLocks } : {}),
+                ...(options.settings ? { settings: options.settings } : {}),
                 ...(options.accounts ? { accounts: options.accounts } : {}),
                 ...(options.quota ? { quota: options.quota } : {}),
                 ...(options.routing ? { routing: options.routing } : {}),

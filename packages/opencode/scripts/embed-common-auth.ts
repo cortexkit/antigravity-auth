@@ -17,8 +17,8 @@ export const producerVersion = '0.45.0'
 export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '52e245be19b36fc26b16a5c094e3416be35e147864385490b3ec30286d0b150b',
-  sri: 'sha512-utoAeh/DGHV5eJhqE2mPvWkCDRDvhOXYFbg2iJqbD2mDGc6+TuwFCVSzX829ijw5RSw+5JTfn1vsbHyHjgAKHg==',
+  sha256: '6bce60c53ccc4d174c14fd0252bb0b495146f882280bbbdc48b0b72cfe1f81ee',
+  sri: 'sha512-VdT3xkTvefhUCz5m4epzniatBeJLhoDV1iXScAQs2Mb8ebsagsg5cPynfa46clgoVT0yQww0kUTIUCzLNQmZZQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -361,18 +361,18 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'commands/builtins.d.ts',
-    4780,
-    '2eb3e45f6dd65ad428edaef54864d6b506aa837237958e392b95dacaca131bac',
+    5716,
+    'e2507c6b55b50cef01cd55b6f505cc0ed03b49cc98405f836254943d1c2d5c6c',
   ],
   [
     'commands/builtins.js',
-    26747,
-    '5817f3451022ce2f1b8f8ebb3b4918d2853b1de448b5365e134cf4d36c4c6063',
+    27175,
+    '6e390020659787f5d8d6bea02cea2dc7a5753c82c7d3e73af51e5b1951a07390',
   ],
   [
     'commands/index.d.ts',
-    1100,
-    '4be7eec728211b7ad707121b1f2bbe2c219574aaa4e1c5be3f8964b185d4377c',
+    1121,
+    '8d95eb112dcd35f8bb87b87b8947c856958b96ccc59cea36384bc79d027f9d94',
   ],
   [
     'commands/index.js',
@@ -381,13 +381,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'commands/menu.d.ts',
-    3181,
-    '8c86a3e45fbe63a17447419ba73f6d2e99b4a3154995acd741a908dc71269776',
+    3394,
+    '11ba1568a0b79f4c00d7ba747117c61b55669482798a4d81bf30c1a0b49cf104',
   ],
   [
     'commands/menu.js',
-    12322,
-    '910cf4b61bf407fa8580daadc86f17cde0b186351e20921a731c72486e7757fe',
+    12399,
+    '0673eadf319da33bc3b90d1883caebe1c203d60b331903715ff1d699d7784086',
   ],
   [
     'commands/model.d.ts',

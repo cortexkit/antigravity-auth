@@ -1,6 +1,6 @@
 import { type RedactionOptions } from '../logger/index.js';
 import type { PoolLockSpec, PoolStore } from '../store/index.js';
-import { type AccountsSectionOptions, type LimitsSectionOptions, type QuotaSectionOptions, type RoutingSectionOptions } from './builtins.js';
+import { type AccountsSectionOptions, type BuiltinSettingsPort, type LimitsSectionOptions, type QuotaSectionOptions, type RoutingSectionOptions } from './builtins.js';
 import type { CommandApplyRequest, CommandApplyResult, CommandDialogPayload, CommandInvocation, PluginExtraSection, PluginSection } from './model.js';
 import { type SeamLogger } from './seam.js';
 /** The four slots the library can build from a pool store. */
@@ -25,6 +25,11 @@ export interface CommandMenuOptions {
     replace?: Partial<Record<StoreSectionSlot, PluginSection>>;
     /** The plugin's legacy locks, passed to every store write the menu makes. */
     extraLocks?: readonly PoolLockSpec[];
+    /**
+     * Where the Routing and Limits sections read and write their settings. Omit
+     * it to use the store's own settings, as before.
+     */
+    settings?: BuiltinSettingsPort;
     accounts?: AccountsSectionOptions;
     quota?: QuotaSectionOptions;
     routing?: RoutingSectionOptions;

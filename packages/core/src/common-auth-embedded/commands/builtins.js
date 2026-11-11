@@ -65,15 +65,31 @@ function addedText(name, result) {
 function failureMessage(error) {
     return projectFailure(error).text;
 }
+/** The plugin's settings port, or one over the account store's own settings. */
+function settingsPort(options) {
+    if (options.settings)
+        return options.settings;
+    const { store, extraLocks } = options;
+    const locks = extraLocks ? { extraLocks } : {};
+    return {
+        async read() {
+            const read = await store.readSettings();
+            return read.status === 'error' ? {} : read.settings;
+        },
+        async update(mutator) {
+            await store.updateSettings(mutator, locks);
+        },
+    };
+}
 async function snapshot(options) {
     const { store } = options;
     const load = await store.read();
-    const read = await store.readSettings();
+    const settings = await settingsPort(options).read();
     const vault = await options.routing?.vaultOrder?.();
     return {
         load,
         rows: distinctRows(load),
-        settings: read.status === 'error' ? {} : read.settings,
+        settings,
         ...(vault ? { vault } : {}),
     };
 }
@@ -396,6 +412,7 @@ function vaultNames(vault) {
 function routingSection(options, snap) {
     const { store, extraLocks } = options;
     const locks = extraLocks ? { extraLocks } : {};
+    const port = settingsPort(options);
     const choices = [
         { value: 'ordered', label: 'Ordered (roster order)' },
         ...(options.routing?.orderedVariants ?? []),
@@ -428,10 +445,10 @@ function routingSection(options, snap) {
             ],
             run: async ({ values }) => {
                 const mode = String(values.mode);
-                await store.updateSettings((settings) => {
+                await port.update((settings) => {
                     settings.routing = { ...record(settings.routing), mode };
                     return undefined;
-                }, locks);
+                });
                 return `Routing mode set to ${choices.find((choice) => choice.value === mode)?.label ?? mode}.`;
             },
         },
@@ -495,13 +512,13 @@ function routingSection(options, snap) {
             run: async ({ values }) => {
                 const value = String(values.maxSameAccountWait);
                 const maxSameAccountWait = value === 'max' ? 'max' : Number(value);
-                await store.updateSettings((settings) => {
+                await port.update((settings) => {
                     settings.routing = {
                         ...record(settings.routing),
                         maxSameAccountWait,
                     };
                     return undefined;
-                }, locks);
+                });
                 return `${waitLabel} set to ${waitName(value)}.`;
             },
         });
@@ -541,8 +558,7 @@ function floorNames(options, snap) {
     return (label) => names.get(label) ?? label;
 }
 function limitsSection(options, snap) {
-    const { store, extraLocks } = options;
-    const locks = extraLocks ? { extraLocks } : {};
+    const port = settingsPort(options);
     const killswitch = record(snap.settings.killswitch);
     const enabled = killswitch.enabled === true;
     const floors = record(killswitch.accounts);
@@ -577,7 +593,7 @@ function limitsSection(options, snap) {
                             : {}),
                     })),
                     run: async ({ values }) => {
-                        await store.updateSettings((settings) => {
+                        await port.update((settings) => {
                             const next = record(settings.killswitch);
                             const accounts = record(next.accounts);
                             const mine = record(accounts[row.id]);
@@ -598,7 +614,7 @@ function limitsSection(options, snap) {
                                 delete next.accounts;
                             settings.killswitch = next;
                             return undefined;
-                        }, locks);
+                        });
                         return `Floors updated for ${name}.`;
                     },
                 },
@@ -628,13 +644,13 @@ function limitsSection(options, snap) {
                     ],
                     run: async ({ values }) => {
                         const on = values.enabled === true;
-                        await store.updateSettings((settings) => {
+                        await port.update((settings) => {
                             settings.killswitch = {
                                 ...record(settings.killswitch),
                                 enabled: on,
                             };
                             return undefined;
-                        }, locks);
+                        });
                         return `Killswitch ${on ? 'on' : 'off'}.`;
                     },
                 },

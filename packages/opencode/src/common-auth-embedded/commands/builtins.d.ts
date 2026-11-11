@@ -1,4 +1,4 @@
-import type { AddInput, PoolLockSpec, PoolRow, PoolStore, RemoveOptions } from '../store/index.js';
+import type { AddInput, PoolLockSpec, PoolRow, PoolSettings, PoolStore, RemoveOptions, SettingsMutator } from '../store/index.js';
 import type { CommandInvocation, KnobValues, MenuChoice, MenuKnob } from './model.js';
 import { type ResolvedSection } from './seam.js';
 /**
@@ -98,9 +98,28 @@ export interface LimitsSectionOptions {
      */
     labels?: readonly string[];
 }
+/**
+ * Where the Routing and Limits sections read and write the settings they show
+ * (`routing.mode`, `routing.maxSameAccountWait`, `killswitch.enabled`,
+ * `killswitch.accounts`). Without a port they use the account store's own
+ * settings through `readSettings` and `updateSettings`. A plugin that moved
+ * its settings to its own file (`./settings`) passes a port that translates
+ * this store-shaped view to that file.
+ */
+export interface BuiltinSettingsPort {
+    /** The current settings, in the store's settings shape. */
+    read(): Promise<PoolSettings>;
+    /**
+     * Apply one menu change. `mutator` gets a private copy in the store's shape
+     * and edits it in place or returns the whole next object, as with
+     * `updateSettings`. A refusal is thrown and shown as the action's failure.
+     */
+    update(mutator: SettingsMutator): Promise<void>;
+}
 export interface BuiltinOptions {
     store: PoolStore;
     extraLocks?: readonly PoolLockSpec[];
+    settings?: BuiltinSettingsPort;
     now: () => number;
     accounts?: AccountsSectionOptions;
     quota?: QuotaSectionOptions;
