@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Updated the embedded common-auth library to 0.45.0: a leftover lock temp file from a crashed process is now cleaned up the next time that lock is taken.
+
 ## [3.0.40] - 2026-11-11
 
 ### Added
