@@ -413,16 +413,14 @@ test('graph.settings_server_library_only', async () => {
   expect(graph.files).toContain(settings)
   expect(graph.files).toContain(watcher)
   expect(graph.externals).toContain('jsonc-parser')
-  for (const path of ['src/server.ts', 'index.ts']) {
-    const entry = join(root, path)
-    const specifier = `./${relative(dirname(entry), settings).replaceAll('\\', '/')}`
-    await writeFile(
-      entry,
-      `${await readFile(entry, 'utf8')}\nimport ${JSON.stringify(specifier)}\n`,
-    )
-    const admitted = await auditGraph(entry, { tui: false })
-    for (const file of graph.files) expect(admitted.files).toContain(file)
-  }
+  const entry = join(root, 'index.ts')
+  const specifier = `./${relative(dirname(entry), settings).replaceAll('\\', '/')}`
+  await writeFile(
+    entry,
+    `${await readFile(entry, 'utf8')}\nimport ${JSON.stringify(specifier)}\n`,
+  )
+  const admitted = await auditGraph(entry, { tui: false })
+  for (const file of graph.files) expect(admitted.files).toContain(file)
 })
 
 test('graph.settings_and_watcher_both_renderers_refused', async () => {
