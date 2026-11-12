@@ -28,6 +28,10 @@ import type {
 } from '@cortexkit/antigravity-auth-core/common-auth/claustrum'
 
 import {
+  PI_ACCOUNT_MODELS_REFUSAL,
+  type PiModelAccess,
+} from './model-access.ts'
+import {
   getPiAntigravityVaultDir,
   getPiAntigravityVaultModeFile,
   getPiAntigravityVaultRosterFile,
@@ -77,6 +81,11 @@ export interface PiVaultRequestPathOptions {
    * name the operator approved. Without it, the default name.
    */
   grantPrincipal?: () => string | Promise<string>
+  /**
+   * The per-account model lists (`account_models`). The serving vault
+   * account is checked by its route id before anything is sent.
+   */
+  accountModels?: Pick<PiModelAccess, 'refresh' | 'policy'>
 }
 
 /** Require current vault-mode settings before opening the account source; refuse local or unreadable settings. */
@@ -132,7 +141,7 @@ async function openCustody(
 export function createPiVaultSend(
   options: PiVaultRequestPathOptions,
 ): AntigravityVaultSend {
-  return async (dispatch, signal) => {
+  return async (dispatch, signal, modelId) => {
     const { record, source } = await openCustody(options)
     signal.throwIfAborted()
     let routes = source.routes()
@@ -155,6 +164,14 @@ export function createPiVaultSend(
       () => source.emptyRosterCause(),
       principal,
     )
+    if (options.accountModels) {
+      // Re-read the list so an edit made since the last request applies.
+      // A failed read throws, so nothing is sent on an unknown list.
+      await options.accountModels.refresh()
+      signal.throwIfAborted()
+      if (!options.accountModels.policy().allows(ref.routeId, modelId ?? ''))
+        throw new PiVaultSendError(PI_ACCOUNT_MODELS_REFUSAL)
+    }
     return source.send(ref, dispatch, { site: 'model', signal })
   }
 }
@@ -247,6 +264,8 @@ export interface PiVaultSeams {
   loadClaustrum?: () => Promise<CommonAuthClaustrumModule>
   /** Commands library loader for the menu (tests capture the renderer call). */
   loadCommands?: () => Promise<CommonAuthCommandsModule>
+  /** The user settings file holding `account_models`. */
+  settingsFile?: string
 }
 
 export interface PiVaultRuntime {

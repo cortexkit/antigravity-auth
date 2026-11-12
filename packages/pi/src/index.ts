@@ -26,6 +26,7 @@ import {
   registerPiAntigravityCommand,
 } from './commands.ts'
 import { rememberPackedRefresh } from './credential-cache.ts'
+import { createPiModelAccess, piModelAccessStatePath } from './model-access.ts'
 import { getPiAntigravityVaultDir } from './paths.ts'
 import {
   createCortexKitAntigravityVaultStream,
@@ -247,7 +248,15 @@ export async function registerCortexKitPiAntigravity(
       refreshRegistry?.()
     }
   })
-  const send = createPiVaultSend(vault.requestPath)
+  // Only vault accounts have a stable id (their roster route id), so only
+  // vault sends are checked against the per-account model lists.
+  const accountModels = createPiModelAccess({
+    statePath: piModelAccessStatePath(
+      seams.vaultDir ?? getPiAntigravityVaultDir(),
+    ),
+    ...(seams.settingsFile ? { file: seams.settingsFile } : {}),
+  })
+  const send = createPiVaultSend({ ...vault.requestPath, accountModels })
 
   const register = (mode: PiVaultModeRead) => {
     const local = mode.ok && mode.record.mode === 'local'
@@ -362,6 +371,7 @@ export async function registerCortexKitPiAntigravity(
     accountSections: createPiAntigravityAccountSections({
       setup: vault.setup,
       accounts: () => accounts,
+      models: accountModels,
     }),
     vaultSection: createPiVaultSection({
       setup: vault.setup,

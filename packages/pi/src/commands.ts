@@ -9,6 +9,8 @@
 import {
   ANTIGRAVITY_MENU_COMMAND,
   type AntigravityMenuSections,
+  accountModelsAction,
+  accountModelsText,
   type CommonAuthCommandsModule,
   createAntigravityCommandMenu,
   loadCommonAuthCommands,
@@ -20,6 +22,7 @@ import type {
 } from '@cortexkit/antigravity-auth-core/common-auth/commands'
 import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
 
+import type { PiModelAccess } from './model-access.ts'
 import {
   opaqueItemId,
   type PiVaultAccountChoice,
@@ -78,6 +81,27 @@ export type PiAntigravityAccountSections = AntigravityMenuSections
 export interface PiAntigravityAccountSectionsOptions {
   setup: () => Promise<PiVaultSetup>
   accounts: () => PiVaultAccountsPort
+  /** The vault accounts' model lists; without it none are shown or set. */
+  models?: Pick<
+    PiModelAccess,
+    'refresh' | 'list' | 'catalog' | 'notice' | 'update'
+  >
+}
+
+/**
+ * Re-read the model lists for a menu build. A list that can't be read is
+ * left out of the menu rather than shown as serving every model.
+ */
+async function readModelLists(
+  options: PiAntigravityAccountSectionsOptions,
+): Promise<boolean> {
+  if (!options.models) return false
+  try {
+    await options.models.refresh()
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** The vault account Pi sends with now, when custody can name one. */
@@ -157,15 +181,38 @@ export function createPiAntigravityAccountSections(
           }
         const { list, reach, problem } = await custodyAccounts(status, options)
         const serving = servingAccount(status, list)
-        const items: ItemDefinition[] = list.map((account) => ({
-          id: opaqueItemId(account.routeId),
-          label: vaultAccountName(list, account),
-          detail: account.declined
+        const models = (await readModelLists(options))
+          ? options.models
+          : undefined
+        const notice = models?.notice()
+        const items: ItemDefinition[] = list.map((account) => {
+          const state = account.declined
             ? VAULT_ACCOUNT_TURNED_OFF
             : account === serving
               ? VAULT_ACCOUNT_IN_USE
-              : VAULT_ACCOUNT_AVAILABLE,
-        }))
+              : VAULT_ACCOUNT_AVAILABLE
+          const label = vaultAccountName(list, account)
+          if (!models)
+            return { id: opaqueItemId(account.routeId), label, detail: state }
+          const current = models.list(account.routeId)
+          return {
+            id: opaqueItemId(account.routeId),
+            label,
+            detail: `${state} · ${accountModelsText(current)}`,
+            facts: { models: accountModelsText(current) },
+            actions: [
+              accountModelsAction({
+                catalog: models.catalog(),
+                current,
+                label,
+                write: async (next) => {
+                  await models.update(account.routeId, next)
+                  return 'applied'
+                },
+              }),
+            ],
+          }
+        })
         return {
           lines: [
             'Pi uses the vault for Antigravity, one account at a time. Choose an account, or turn accounts off and on, in the Vault section.',
@@ -185,6 +232,7 @@ export function createPiAntigravityAccountSections(
                   piGrantPrincipal(status.enrollment),
                 )
               : []),
+            ...(notice ? [notice] : []),
           ],
           items,
         }

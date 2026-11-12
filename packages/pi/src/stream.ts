@@ -520,6 +520,11 @@ export type AntigravityVaultSend = (
     signal?: AbortSignal,
   ) => Promise<Response>,
   signal: AbortSignal,
+  /**
+   * The request's model as Pi selected it, checked against the account's
+   * model list. The stream always passes it.
+   */
+  modelId?: string,
 ) => Promise<Response>
 
 type OpenAntigravityResponse = (
@@ -606,22 +611,26 @@ export function createCortexKitAntigravityVaultStream(
           sessionKey,
         })
         return deadline.open(() =>
-          send(async (credential, sendSignal) => {
-            selectedCredentials.add(credential.accessToken)
-            selectedProjectIds.add(credential.projectId)
-            try {
-              deadline.follow(sendSignal)
-              return await deadline.open(() =>
-                dispatchAntigravityRequest(prepared, credential, signal),
-              )
-            } catch (error) {
-              throw redactCredentialError(
-                error,
-                [...selectedCredentials],
-                [...selectedProjectIds],
-              )
-            }
-          }, signal),
+          send(
+            async (credential, sendSignal) => {
+              selectedCredentials.add(credential.accessToken)
+              selectedProjectIds.add(credential.projectId)
+              try {
+                deadline.follow(sendSignal)
+                return await deadline.open(() =>
+                  dispatchAntigravityRequest(prepared, credential, signal),
+                )
+              } catch (error) {
+                throw redactCredentialError(
+                  error,
+                  [...selectedCredentials],
+                  [...selectedProjectIds],
+                )
+              }
+            },
+            signal,
+            model.id,
+          ),
         )
       },
       preResponseClock,

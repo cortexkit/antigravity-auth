@@ -311,7 +311,7 @@ describe('Pi /antigravity menu', () => {
     trace('menu-open-finish')
     const accounts = section(payload, 'accounts')
     expect(accounts.items.map((item) => [item.label, item.detail])).toEqual([
-      ['Vault account 1', 'in use by Pi'],
+      ['Vault account 1', 'in use by Pi · All models'],
     ])
     expect(section(payload, 'routing').lines[0]).toContain(
       'with a fresh token and project from the vault for each send',
