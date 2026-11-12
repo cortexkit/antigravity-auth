@@ -3,6 +3,7 @@ import { reportRouting } from '../../common-auth-embedded/routing-accessor/index
 import {
   hasVaultRoutingAccessor,
   observeVaultServed,
+  observeVaultUpstream,
   reportVaultExhaustion,
   routingExhaustionFields,
   routingQuotaScope,
@@ -137,6 +138,43 @@ test('routing served: no report for thrown stream errors, SSE errors, cancellati
     Reflect.deleteProperty(globalThis, key)
     await removed.text()
     expect(reports).toEqual([])
+  }))
+
+test('routing upstream: an SSE reply completes at its terminal event, not at EOF', async () =>
+  bridge(async () => {
+    const sse = { 'content-type': 'text/event-stream' }
+    const stop =
+      'data: {"response":{"candidates":[{"finishReason":"STOP"}]}}\n\n'
+    // Cancelled right after the terminal event, as the streaming transformer does.
+    const finished = observeVaultUpstream(
+      new Response(`data: {"response":{}}\n\n${stop}data: {"late":1}\n\n`, {
+        headers: sse,
+      }),
+    )!
+    const reader = finished.response.body!.getReader()
+    await reader.read()
+    await reader.cancel()
+    expect(finished.completedSuccessfully()).toBe(true)
+
+    const cut = observeVaultUpstream(
+      new Response('data: {"response":{}}\n\n', { headers: sse }),
+    )!
+    await cut.response.text()
+    expect(cut.completedSuccessfully()).toBe(false)
+
+    const failedFirst = observeVaultUpstream(
+      new Response(`event: error\ndata: {}\n\n${stop}`, { headers: sse }),
+    )!
+    await failedFirst.response.text()
+    expect(failedFirst.completedSuccessfully()).toBe(false)
+
+    const json = observeVaultUpstream(
+      new Response('{"response":{}}', {
+        headers: { 'content-type': 'application/json' },
+      }),
+    )!
+    await json.response.text()
+    expect(json.completedSuccessfully()).toBe(true)
   }))
 
 test('routing quota scope maps every pool and known window to the accessor shape', () => {

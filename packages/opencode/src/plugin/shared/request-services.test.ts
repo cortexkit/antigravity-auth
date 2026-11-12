@@ -7871,11 +7871,7 @@ describe('createRequestExecutor optional vault routing', () => {
     }
   })
 
-  for (const failure of [
-    'wrapped-error',
-    'finish-before-eof',
-    'json-error',
-  ] as const) {
+  for (const failure of ['wrapped-error', 'json-error'] as const) {
     it(`routing never reports served when transformation hides ${failure}`, async () =>
       routing(async (state) => {
         const response =
@@ -7884,17 +7880,7 @@ describe('createRequestExecutor optional vault routing', () => {
                 headers: { 'content-type': 'application/json' },
               })
             : new Response(
-                failure === 'wrapped-error'
-                  ? 'data: {"response":{"candidates":[]},"error":{"message":"failed"}}\n\n'
-                  : new ReadableStream<Uint8Array>({
-                      start(controller) {
-                        controller.enqueue(
-                          new TextEncoder().encode(
-                            'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"hi"}]},"finishReason":"STOP"}]}}\n\n',
-                          ),
-                        )
-                      },
-                    }),
+                'data: {"response":{"candidates":[]},"error":{"message":"failed"}}\n\n',
                 { headers: { 'content-type': 'text/event-stream' } },
               )
         const h = harness({ respond: async () => response })
@@ -8478,4 +8464,274 @@ describe('createRequestExecutor optional vault routing', () => {
       )
     }
   })
+})
+
+/**
+ * The streaming transformer ends the reply right after the first event with a
+ * finish reason, without waiting for the upstream response to close. These
+ * cases run that real transformer behind the engine and check which replies
+ * routing hears about as served.
+ */
+describe('createRequestExecutor vault routing served report for streamed replies', () => {
+  const symbol = Symbol.for('cortexkit.routing')
+  const encoder = new TextEncoder()
+  const frame = (value: unknown) => `data: ${JSON.stringify(value)}\n\n`
+  const content = frame({
+    response: {
+      candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }],
+    },
+  })
+  const terminal = frame({
+    response: {
+      candidates: [
+        {
+          content: { role: 'model', parts: [{ text: ' there' }] },
+          finishReason: 'STOP',
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 3,
+        candidatesTokenCount: 2,
+        totalTokenCount: 5,
+      },
+    },
+  })
+  const servedReport = {
+    account_id: 'identity-0',
+    credential_id: 'credential-0',
+    outcome: 'served',
+    headers: { 'x-ratelimit-remaining': '9' },
+  }
+
+  /** An upstream SSE body that hands out one chunk per read, then ends as `end` says. */
+  function upstream(chunks: string[], end: 'close' | 'open' | Error = 'close') {
+    let next = 0
+    return new Response(
+      new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            const chunk = chunks[next++]
+            if (chunk !== undefined) controller.enqueue(encoder.encode(chunk))
+            else if (end === 'close') controller.close()
+            else if (end instanceof Error) controller.error(end)
+            // 'open' never enqueues again, like a server that keeps the response open.
+          },
+        },
+        { highWaterMark: 0 },
+      ),
+      {
+        headers: {
+          'content-type': 'text/event-stream',
+          'x-ratelimit-remaining': '9',
+        },
+      },
+    )
+  }
+
+  async function run(
+    respond: () => Response,
+    consume: (response: Response, abort: AbortController) => Promise<void> = (
+      response,
+    ) => response.text().then(() => {}),
+    url = STREAM_URL,
+  ) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, symbol)
+    const reports: unknown[] = []
+    const sessions: string[] = []
+    Object.defineProperty(globalThis, symbol, {
+      configurable: true,
+      value: (id: string) => ({
+        accountFor: async () => undefined,
+        report: (input: { kind?: string }) => {
+          // Billing records travel the same accessor; only routing outcomes matter here.
+          if (input.kind === 'billing') return
+          reports.push(input)
+          sessions.push(id)
+        },
+      }),
+    })
+    const abort = new AbortController()
+    const h = harness({ respond: async () => respond() })
+    const executor = createRequestExecutor(
+      vaultDeps(h, async (account) => ({
+        accountIdentity: `identity-${account.index}`,
+        credentialId: `credential-${account.index}`,
+        recordVersion: 1,
+        accessToken: `vault-token-${account.index}`,
+        projectId: 'vault-project',
+        report401: async () => {},
+      })),
+    )
+    try {
+      const response = await executor.execute(url, CHAT_INIT(abort.signal), {
+        session: { sessionId: 'stream-session', parentSessionId: null },
+        kind: 'primary',
+      })
+      await consume(response, abort)
+      // Let any late cancellation or report settle before reading the results.
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      return { reports, sessions }
+    } finally {
+      await executor.dispose()
+      if (previous) Object.defineProperty(globalThis, symbol, previous)
+      else Reflect.deleteProperty(globalThis, symbol)
+    }
+  }
+
+  const servedShapes: Array<[string, () => Response]> = [
+    [
+      'more upstream bytes follow the terminal frame',
+      () => upstream([content, terminal, content]),
+    ],
+    [
+      'the upstream response stays open after the terminal frame',
+      () => upstream([content, terminal], 'open'),
+    ],
+    [
+      'the upstream ends exactly at the terminal frame',
+      () => upstream([content, terminal]),
+    ],
+    [
+      'the terminal frame shares one chunk with the content before it',
+      () => upstream([content + terminal]),
+    ],
+    [
+      'the terminal event is the last line with no trailing newline',
+      () => upstream([content, terminal.trimEnd()]),
+    ],
+    [
+      // The transformer never forwards anything after the terminal frame, so
+      // a later error cannot change the reply the caller received.
+      'an error event arrives after the terminal frame',
+      () =>
+        upstream([
+          content,
+          `${terminal}event: error\ndata: {"error":{"message":"late"}}\n\n`,
+        ]),
+    ],
+  ]
+  for (const [shape, respond] of servedShapes) {
+    it(`reports served exactly once when ${shape}`, async () => {
+      const { reports, sessions } = await run(respond)
+      expect(reports).toEqual([servedReport])
+      expect(sessions).toEqual(['stream-session'])
+    })
+  }
+
+  it('still reports a non-streaming reply as served once', async () => {
+    const { reports, sessions } = await run(
+      () => okJson(),
+      undefined,
+      NON_STREAM_URL,
+    )
+    expect(reports).toEqual([
+      {
+        account_id: 'identity-0',
+        credential_id: 'credential-0',
+        outcome: 'served',
+        headers: {},
+      },
+    ])
+    expect(sessions).toEqual(['stream-session'])
+  })
+
+  const neverServed: Array<
+    [
+      string,
+      () => Response,
+      ((response: Response, abort: AbortController) => Promise<void>)?,
+    ]
+  > = [
+    [
+      'the consumer cancels before the terminal frame',
+      () => upstream([content, terminal], 'open'),
+      async (response) => {
+        const reader = response.body!.getReader()
+        await reader.read()
+        await reader.cancel()
+      },
+    ],
+    [
+      'the caller aborts before the terminal frame',
+      () => upstream([content, terminal], 'open'),
+      async (response, abort) => {
+        const reader = response.body!.getReader()
+        await reader.read()
+        abort.abort()
+        let done = false
+        while (!done)
+          done = (await reader.read().catch(() => ({ done: true }))).done
+      },
+    ],
+    [
+      'an error event precedes the terminal frame',
+      () => upstream([content, 'event: error\ndata: {}\n\n', terminal]),
+    ],
+    [
+      'a response.failed event precedes the terminal frame',
+      () =>
+        upstream([
+          content,
+          frame({ type: 'response.failed', response: { status: 'failed' } }),
+          terminal,
+        ]),
+    ],
+    [
+      'a wrapped error precedes the terminal frame',
+      () =>
+        upstream([
+          content,
+          frame({ response: { candidates: [] }, error: { message: 'x' } }),
+          terminal,
+        ]),
+    ],
+    [
+      'the terminal frame itself carries an error',
+      () =>
+        upstream([
+          content,
+          frame({
+            response: {
+              candidates: [
+                {
+                  content: { role: 'model', parts: [{ text: '!' }] },
+                  finishReason: 'STOP',
+                },
+              ],
+            },
+            error: { message: 'x' },
+          }),
+        ]),
+    ],
+    [
+      'the upstream read fails before the terminal frame',
+      () => upstream([content], new Error('connection reset')),
+      async (response) => {
+        await response.text().catch(() => {})
+      },
+    ],
+    [
+      'a malformed error event precedes the terminal frame',
+      () => upstream([content, 'data: {"error": not json\n\n', terminal]),
+    ],
+    [
+      'an unbounded event precedes the terminal frame',
+      () =>
+        upstream([
+          content,
+          `data: ${'x'.repeat(1024 * 1024 + 16)}`,
+          `\n\n${terminal}`,
+        ]),
+    ],
+    [
+      'the stream ends with no terminal frame',
+      () => upstream([content, content]),
+    ],
+  ]
+  for (const [shape, respond, consume] of neverServed) {
+    it(`never reports served when ${shape}`, async () => {
+      const { reports } = await run(respond, consume)
+      expect(reports).toEqual([])
+    })
+  }
 })

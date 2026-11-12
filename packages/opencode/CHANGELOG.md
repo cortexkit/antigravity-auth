@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- In routed vault setups such as Thalamus, each completed streamed reply is now reported to routing as served. Before, a streamed Gemini reply that finished normally was never reported, because the plugin ends the stream at the reply's finish event without waiting for the server to close it.
+
 ## [3.0.42] - 2026-11-12
 
 - In routed vault setups such as Thalamus, a request whose account routing refuses now sends nothing and ends with "Routing has no Antigravity account available for this request right now; try again later.", with routing's wait in `Retry-After`.

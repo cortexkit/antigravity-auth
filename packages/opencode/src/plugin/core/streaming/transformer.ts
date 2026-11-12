@@ -1,4 +1,5 @@
 import { processImageData } from '../../image-saver'
+import { responseHasFinishReason } from './terminal-event'
 import type {
   SignatureStore,
   StreamingCallbacks,
@@ -292,23 +293,6 @@ function responseHasToolCall(response: unknown): boolean {
   }
 
   return false
-}
-
-function responseHasFinishReason(response: unknown): boolean {
-  if (!response || typeof response !== 'object') return false
-  const resp = response as Record<string, unknown>
-
-  if (Array.isArray(resp.candidates)) {
-    return resp.candidates.some((candidate) => {
-      const cand = candidate as Record<string, unknown> | null
-      return (
-        typeof cand?.finishReason === 'string' && cand.finishReason.length > 0
-      )
-    })
-  }
-
-  const stopReason = resp.stopReason ?? resp.stop_reason
-  return typeof stopReason === 'string' && stopReason.length > 0
 }
 
 function transformSseLineWithMetadata(

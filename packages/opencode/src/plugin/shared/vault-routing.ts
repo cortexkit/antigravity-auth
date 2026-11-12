@@ -6,6 +6,7 @@ import {
   type RoutingCandidate,
   reportRouting,
 } from '../../common-auth-embedded/routing-accessor/index.js'
+import { isTerminalSseLine } from '../core/streaming/terminal-event'
 
 /** The bridge may arrive or disappear after plugin load; never cache its presence. */
 export function hasVaultRoutingAccessor(): boolean {
@@ -133,7 +134,15 @@ export interface VaultUpstreamObservation {
   completedSuccessfully(): boolean
 }
 
-/** transformAntigravityResponse can stop at a finish reason before upstream EOF, hiding a later error. */
+/**
+ * The streaming transformer ends the reply it forwards right after the first
+ * terminal event (a finish reason) and then cancels the upstream body, which
+ * the server may also keep open. Upstream EOF therefore cannot mark an SSE
+ * reply complete: it counts as completed once its terminal event arrives with
+ * no failure before it, and a stream that ends without one never completes.
+ * Bytes after the terminal event are never forwarded to the caller, so they
+ * are not inspected. A non-SSE body completes at a clean EOF.
+ */
 export function observeVaultUpstream(
   response: Response,
   signal?: AbortSignal | null,
@@ -142,9 +151,13 @@ export function observeVaultUpstream(
     return undefined
   let completed = false
   return {
-    response: observeBody(response, () => {
-      completed = !signal?.aborted
-    }),
+    response: observeBody(
+      response,
+      () => {
+        completed = !signal?.aborted
+      },
+      isTerminalSseLine,
+    ),
     completedSuccessfully: () => completed,
   }
 }
@@ -175,7 +188,16 @@ export function observeVaultServed(
   return observeBody(response, report)
 }
 
-function observeBody(response: Response, complete: () => void): Response {
+/**
+ * Passes the body through unchanged while watching it for failure events.
+ * `complete` runs at a clean EOF, or, for an SSE body when `terminal` is
+ * given, as soon as a terminal line arrives with no failure before it.
+ */
+function observeBody(
+  response: Response,
+  complete: () => void,
+  terminal?: (line: string) => boolean,
+): Response {
   if (!response.body) {
     complete()
     return response
@@ -183,11 +205,14 @@ function observeBody(response: Response, complete: () => void): Response {
   const sse = response.headers
     .get('content-type')
     ?.includes('text/event-stream')
+  const awaitsTerminal = sse && terminal !== undefined
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let pending = ''
   let failed = false
+  let terminated = false
   const inspect = (line: string) => {
+    if (terminated) return
     if (line.length > 1024 * 1024) {
       failed = true
       return
@@ -195,14 +220,18 @@ function observeBody(response: Response, complete: () => void): Response {
     if (line.startsWith('event:') && line.slice(6).trim() === 'error')
       failed = true
     if (
-      !line.startsWith('data:') ||
-      !/"(?:error|response.failed|failed)"/.test(line)
-    )
-      return
-    try {
-      failed ||= streamFailure(JSON.parse(line.slice(5)))
-    } catch {
-      failed = true
+      line.startsWith('data:') &&
+      /"(?:error|response.failed|failed)"/.test(line)
+    ) {
+      try {
+        failed ||= streamFailure(JSON.parse(line.slice(5)))
+      } catch {
+        failed = true
+      }
+    }
+    if (awaitsTerminal && !failed && terminal?.(line)) {
+      terminated = true
+      complete()
     }
   }
   const body = new ReadableStream<Uint8Array>(
@@ -219,12 +248,12 @@ function observeBody(response: Response, complete: () => void): Response {
                 failed = true
               }
             }
-            if (!failed) complete()
+            if (!failed && !awaitsTerminal) complete()
             controller.close()
             reader.releaseLock()
             return
           }
-          if (!failed) {
+          if (!failed && !terminated) {
             pending += decoder.decode(chunk.value, { stream: true })
             if (sse) {
               let newline = pending.indexOf('\n')
