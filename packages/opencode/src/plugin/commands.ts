@@ -24,7 +24,11 @@ import {
 import { isTuiConnected as defaultIsTuiConnected } from '../rpc/notifications'
 import type { NotifyKind, RpcNotificationPayload } from '../rpc/protocol'
 import type { AccountCommandOAuthService } from './account-command-oauth'
-import { diagnosticsMenuSection, operatorMenuSettings } from './command-apply'
+import {
+  diagnosticsMenuSection,
+  type MenuSettingsFile,
+  operatorMenuSettings,
+} from './command-apply'
 import type {
   OperatorSettings,
   OperatorSettingsController,
@@ -265,12 +269,18 @@ export async function createOpenCodeAntigravityMenu(options: {
   /** The Vault section (OpenCode vault custody setup). */
   readonly vault?: MenuPluginExtraSection
   readonly commands?: CommonAuthCommandsModule
+  /** The settings file's name, notices and move report. */
+  readonly settingsFile?: MenuSettingsFile
 }): Promise<ReturnType<typeof createAntigravityCommandMenu>> {
   return createAntigravityCommandMenu({
     source: 'repository',
     commands: options.commands ?? (await loadCommonAuthCommands()),
     accounts: options.accounts,
-    settings: operatorMenuSettings(options.settings, options.selectionStrategy),
+    settings: operatorMenuSettings(
+      options.settings,
+      options.selectionStrategy,
+      options.settingsFile,
+    ),
     diagnostics: diagnosticsMenuSection(options),
     ...(options.refreshQuota ? { refreshQuota: options.refreshQuota } : {}),
     ...(options.accountLimits ? { accountLimits: options.accountLimits } : {}),
@@ -428,7 +438,12 @@ export function createCustodyAwareRequestPath<S>(options: {
 export async function createOpenCodeVaultAntigravityMenu(
   options: Pick<
     Parameters<typeof createOpenCodeAntigravityMenu>[0],
-    'settings' | 'dump' | 'applyLogLevel' | 'commands' | 'vault'
+    | 'settings'
+    | 'dump'
+    | 'applyLogLevel'
+    | 'commands'
+    | 'vault'
+    | 'settingsFile'
   > & {
     readonly sections: Pick<AntigravityMenuSections, 'accounts' | 'quota'>
   },
@@ -439,7 +454,11 @@ export async function createOpenCodeVaultAntigravityMenu(
     sections: {
       ...options.sections,
       ...antigravitySettingsSections(
-        operatorMenuSettings(options.settings, () => 'vault'),
+        operatorMenuSettings(
+          options.settings,
+          () => 'vault',
+          options.settingsFile,
+        ),
       ),
     },
     diagnostics: diagnosticsMenuSection(options),

@@ -10,6 +10,7 @@ import {
   type AccountRepository,
   AccountRepositoryError,
   type AntigravityAccountLimitSource,
+  AntigravityMenuRefusal,
   type AntigravityMenuSettingsSource,
   type CommonAuthCommandsModule,
   sameRowRef,
@@ -27,6 +28,21 @@ type CommonAuthMenuOptions = Parameters<
 type MenuPluginSection = NonNullable<CommonAuthMenuOptions['cache']>
 
 /**
+ * What the menu shows about the settings file: which file the user edits,
+ * per-account floor notices for Limits, and status lines for Diagnostics.
+ * `ProjectSettings` from `settings/runtime.ts` provides it.
+ */
+export interface MenuSettingsFile {
+  configuredIn(): string
+  limitsNotices(): readonly string[]
+  diagnosticsNotices(): Promise<readonly string[]>
+  readonly moveReport: {
+    present(): Promise<boolean>
+    dismiss(): Promise<void>
+  }
+}
+
+/**
  * The location's operator settings as the shared menu's Routing and Limits
  * sections read and write them. Reads go to the live controller every
  * time; only the killswitch update method writes.
@@ -34,16 +50,20 @@ type MenuPluginSection = NonNullable<CommonAuthMenuOptions['cache']>
 export function operatorMenuSettings(
   settings: Pick<OperatorSettingsController, 'get' | 'update'>,
   selectionStrategy: () => 'sticky' | 'round-robin' | 'hybrid' | 'vault',
+  file?: Pick<MenuSettingsFile, 'configuredIn' | 'limitsNotices'>,
 ): AntigravityMenuSettingsSource {
   return {
     read() {
       const current = settings.get()
+      const notices = file?.limitsNotices() ?? []
       return {
         selectionStrategy: selectionStrategy(),
         killswitch: {
           enabled: current.killswitch.enabled,
           minimumRemainingPercent: current.killswitch.minimum_remaining_percent,
         },
+        ...(file ? { configuredIn: file.configuredIn() } : {}),
+        ...(notices.length > 0 ? { notices } : {}),
       }
     },
     updateKillswitch: (next) =>
@@ -65,16 +85,25 @@ export function diagnosticsMenuSection(options: {
   readonly settings: Pick<OperatorSettingsController, 'get' | 'update'>
   readonly dump: { isEnabled(): boolean; setEnabled(enabled: boolean): void }
   readonly applyLogLevel: (level: OperatorSettings['log_level']) => void
+  /** Settings file status; read on every section build. */
+  readonly settingsFile?: Pick<
+    MenuSettingsFile,
+    'diagnosticsNotices' | 'moveReport'
+  >
 }): MenuPluginSection {
   return {
     title: 'Diagnostics',
-    build() {
+    async build() {
       const level = options.settings.get().log_level
       const dumping = options.dump.isEnabled()
+      const notices = (await options.settingsFile?.diagnosticsNotices()) ?? []
+      const moveReport = options.settingsFile?.moveReport
+      const hasReport = (await moveReport?.present()) ?? false
       return {
         lines: [
           `Gemini request dump: ${dumping ? 'on' : 'off'}`,
           `Log level: ${level}`,
+          ...notices,
         ],
         actions: [
           {
@@ -110,13 +139,31 @@ export function diagnosticsMenuSection(options: {
                   text: 'Choose a log level',
                   code: 'invalid-input',
                 }
-              await options.settings.update((draft) => {
-                draft.log_level = next
-              })
+              try {
+                await options.settings.update((draft) => {
+                  draft.log_level = next
+                })
+              } catch (error) {
+                if (error instanceof AntigravityMenuRefusal)
+                  return { ok: false, text: error.text, code: error.code }
+                throw error
+              }
               options.applyLogLevel(next)
               return `Log level set to ${next}`
             },
           },
+          ...(hasReport && moveReport
+            ? [
+                {
+                  id: 'dismiss-settings-move-report',
+                  label: 'Dismiss the settings move report',
+                  run: async () => {
+                    await moveReport.dismiss()
+                    return 'Settings move report dismissed'
+                  },
+                },
+              ]
+            : []),
         ],
       }
     },
@@ -151,10 +198,18 @@ const STALE_FAILURES = new Set(['attribution', 'unknown-row', 'id-removed'])
  */
 export function createStoreAccountLimits(input: {
   readonly repository: Pick<AccountRepository, 'read' | 'updateMetadata'>
-  readonly settings: Pick<OperatorSettingsController, 'get' | 'update'>
+  readonly settings: Pick<
+    OperatorSettingsController,
+    'get' | 'update' | 'floorKeying'
+  >
 }): AntigravityAccountLimitSource {
+  // The shared settings file keys a floor by the row id, which a menu
+  // reference already carries; only antigravity.json needs the stored token.
+  const stable = () => input.settings.floorKeying?.() === 'stable'
   return {
     async read(ref) {
+      if (stable())
+        return input.settings.get().killswitch.accounts?.[ref.id] ?? null
       const read = await input.repository.read()
       if (read.status !== 'ready') return null
       const row = read.rows.find((candidate) => sameRowRef(candidate.ref, ref))
@@ -169,12 +224,20 @@ export function createStoreAccountLimits(input: {
     async write(ref, minimumRemainingPercent) {
       try {
         await input.repository.updateMetadata(ref, async (_current, row) => {
-          const token = row.credential?.refreshToken
-          // A row without a stored credential has no floor key; nothing is
-          // written and the menu reports the action as failed.
-          if (token === undefined)
-            throw new Error('The account holds no stored credential')
-          const key = accountKeyForRefreshToken(token)
+          let key: string
+          if (stable()) {
+            // The metadata update has already refused a replaced, removed
+            // or re-identified credential, so this row is the one the menu
+            // showed and its id names the account the floor belongs to.
+            key = row.ref.id
+          } else {
+            const token = row.credential?.refreshToken
+            // A row without a stored credential has no floor key; nothing is
+            // written and the menu reports the action as failed.
+            if (token === undefined)
+              throw new Error('The account holds no stored credential')
+            key = accountKeyForRefreshToken(token)
+          }
           await input.settings.update((draft) => {
             const accounts = { ...(draft.killswitch.accounts ?? {}) }
             if (minimumRemainingPercent === null) delete accounts[key]

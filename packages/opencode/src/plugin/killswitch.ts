@@ -29,7 +29,19 @@ export interface KillswitchAccountSnapshot {
   email?: string
   cachedQuota?: Partial<Record<QuotaGroup, QuotaGroupSummary>>
   cachedQuotaUpdatedAt?: number
+  /** A local store row's id; the stable key of its per-account floor. */
+  ref?: { readonly id: string }
+  /** A vault roster row's route id; the stable key of its per-account floor. */
+  route?: { readonly routeId: string }
 }
+
+/**
+ * How per-account floors are keyed. The shared settings file keys them by
+ * the stable account id (local row id or vault route id). A separate
+ * install keeps reading `antigravity.json`, whose floors are keyed by a
+ * hash of the refresh token, or by roster position for a row without one.
+ */
+export type FloorKeying = 'stable' | 'refresh-token-hash'
 
 export interface KillswitchDecision {
   allowed: boolean
@@ -54,6 +66,8 @@ export interface KillswitchEvaluateOptions {
    * the family-max behavior.
    */
   model?: string | null
+  /** Defaults to `refresh-token-hash`, the keying of `antigravity.json`. */
+  floorKeying?: FloorKeying
 }
 
 const DEFAULT_CACHE_TTL_MS = 5 * 60 * 1000
@@ -105,6 +119,17 @@ export function accountKeyForRefreshToken(refreshToken: string): string {
   return createHash('sha256').update(refreshToken).digest('hex').slice(0, 12)
 }
 
+/** The key of an account's per-account floor, if it can have one. */
+export function floorKeyForAccount(
+  account: KillswitchAccountSnapshot,
+  keying: FloorKeying = 'refresh-token-hash',
+): string | undefined {
+  if (keying === 'stable') return account.route?.routeId ?? account.ref?.id
+  return account.refreshToken
+    ? accountKeyForRefreshToken(account.refreshToken)
+    : `idx-${account.index}`
+}
+
 /**
  * Determine whether `account` is allowed under the operator killswitch.
  *
@@ -138,11 +163,11 @@ export function evaluateKillswitchForAccount(
     }
   }
 
-  const accountKey = account.refreshToken
-    ? accountKeyForRefreshToken(account.refreshToken)
-    : `idx-${account.index}`
+  const accountKey = floorKeyForAccount(account, options.floorKeying)
   const thresholdPercent =
-    settings.killswitch.accounts?.[accountKey] ??
+    (accountKey === undefined
+      ? undefined
+      : settings.killswitch.accounts?.[accountKey]) ??
     settings.killswitch.minimum_remaining_percent
 
   const now = options.now ?? Date.now()
@@ -237,6 +262,7 @@ export function summarizeKillswitchOutcomes(
       settings,
       options,
     )
+    // Summaries are logged, so they never carry a stable account id.
     const accountKey = account.refreshToken
       ? accountKeyForRefreshToken(account.refreshToken)
       : `idx-${account.index}`
@@ -264,6 +290,7 @@ export function throwIfAllKilled(input: {
   cacheTtlMs?: number
   /** Optional model to scope per-account evaluation to a single quota group. */
   quotaModel?: string | null
+  floorKeying?: FloorKeying
 }): void {
   const { family, model, accounts, settings, quotaModel } = input
   if (!settings.killswitch.enabled) return
@@ -271,6 +298,7 @@ export function throwIfAllKilled(input: {
     ...(input.now !== undefined ? { now: input.now } : {}),
     ...(input.cacheTtlMs !== undefined ? { cacheTtlMs: input.cacheTtlMs } : {}),
     ...(quotaModel !== undefined ? { model: quotaModel } : {}),
+    ...(input.floorKeying ? { floorKeying: input.floorKeying } : {}),
   }
   const summaries = summarizeKillswitchOutcomes(
     accounts,

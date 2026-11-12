@@ -495,7 +495,10 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
    * Live operator settings: routing overrides and the killswitch, which
    * excludes accounts whose remaining quota is below a threshold.
    */
-  readonly operatorSettings?: Pick<OperatorSettingsController, 'get'>
+  readonly operatorSettings?: Pick<
+    OperatorSettingsController,
+    'get' | 'floorKeying'
+  >
   /**
    * Raw HTTP/1.1 AGY sender for content requests. The engine
    * transforms the request first, then passes the prepared URL, init and
@@ -1261,6 +1264,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       // eligible. Missing or stale quota counts as eligible, so a cold
       // start cannot block every account.
       const operatorKillswitch = operatorSettings?.get().killswitch
+      const floorKeying = operatorSettings?.floorKeying?.()
       const eligibleIndexes = operatorKillswitch?.enabled
         ? new Set(
             accountManager
@@ -1273,7 +1277,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     killswitch: operatorKillswitch,
                     log_level: 'info',
                   },
-                  { now: Date.now(), model },
+                  {
+                    now: Date.now(),
+                    model,
+                    ...(floorKeying ? { floorKeying } : {}),
+                  },
                 )
                 return decision.allowed
               })
@@ -1299,6 +1307,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               log_level: 'info',
             },
             quotaModel: model,
+            ...(floorKeying ? { floorKeying } : {}),
           })
         } catch (error) {
           if (error instanceof AntigravityKillswitchError) {

@@ -1096,7 +1096,7 @@ export function buildGaMenu(snapshot: GaSnapshot, now: number): MenuModel {
                 hybrid:
                   'Choose available accounts using health and quota signals.',
               }[settings.selectionStrategy],
-              'Configured in antigravity.json: account_selection_strategy',
+              'Configured in antigravity-auth.jsonc: account_selection_strategy',
             ],
       items: [],
       actions: [],

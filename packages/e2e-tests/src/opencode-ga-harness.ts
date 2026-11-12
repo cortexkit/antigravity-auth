@@ -2293,9 +2293,13 @@ export async function verifyGaOwnershipConfig(paths: GaPaths): Promise<void> {
   const loader = pathToFileURL(
     resolve('packages/opencode/src/plugin/config/index.ts'),
   ).href
-  const source = `import { loadConfig, getUserConfigPath, getProjectConfigPath } from ${JSON.stringify(loader)}
+  const snapshot = pathToFileURL(
+    resolve('packages/opencode/src/settings/runtime.ts'),
+  ).href
+  const source = `import { getUserConfigPath, getProjectConfigPath } from ${JSON.stringify(loader)}
+import { loadSettingsSnapshot } from ${JSON.stringify(snapshot)}
 const directory = ${JSON.stringify(paths.project)}
-const config = loadConfig(directory)
+const { config } = await loadSettingsSnapshot(directory)
 console.log(JSON.stringify({ user: getUserConfigPath(), project: getProjectConfigPath(directory), background_quota_refresh: config.background_quota_refresh, proactive_token_refresh: config.proactive_token_refresh, environment: Object.fromEntries(['HOME', 'XDG_CONFIG_HOME', 'OPENCODE_CONFIG_DIR', 'OPENCODE_DB'].map(key => [key, process.env[key]])) }))`
   const env = gaChildEnvironment(paths, process.env)
   const result = await startOwnedCommand(process.execPath, ['--eval', source], {

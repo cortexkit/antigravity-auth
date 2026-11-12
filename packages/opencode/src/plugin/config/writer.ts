@@ -9,9 +9,13 @@
  *      user one — so a multi-workspace OpenCode install gets per-project
  *      overrides. When no project config exists, the user config is the
  *      fallback.
- *   2. Holds the same fenced file lock used for the account pool
- *      so two menu actions fired in quick succession
- *      cannot race.
+ *   2. Holds the `antigravity-operator` lock beside the target file, so
+ *      two menu actions fired in quick succession cannot race and the
+ *      one-time settings move never copies a half-applied change. The
+ *      lock is common-auth's `withLock`, whose lock file record
+ *      (`{ ownerId, expiresAt }`, exclusive create) is the one older
+ *      versions' fenced lock writes, so each waits for the other and
+ *      neither evicts a live holder.
  *   3. Serializes through `writeJsonAtomic` — staged tmp + rename —
  *      so a crash mid-write leaves the previous file intact.
  *   4. Preserves every other top-level field the user may have set
@@ -24,17 +28,23 @@
  */
 
 import { existsSync, readFileSync } from 'node:fs'
-import { dirname } from 'node:path'
 
+import { writeJsonAtomic } from '@cortexkit/antigravity-auth-core'
 import {
-  acquireFencedFileLock,
-  writeJsonAtomic,
-} from '@cortexkit/antigravity-auth-core'
-import { z } from 'zod'
+  LockContentionError,
+  withLock,
+} from '@cortexkit/antigravity-auth-core/common-auth/fs'
 import type { OperatorSettings } from './operator-settings-schema'
 import { OperatorSettingsSchema } from './operator-settings-schema'
 
 export type { OperatorSettings } from './operator-settings-schema'
+
+/** Shared with older versions and with the settings move; never rename it. */
+export const OPERATOR_LOCK_NAME = 'antigravity-operator'
+/** The lease older versions used; a holder that stops renewing expires after it. */
+const OPERATOR_LOCK_TTL_MS = 5_000
+/** How long a write waits for another writer or the settings move. */
+const OPERATOR_LOCK_WAIT_MS = 5_000
 
 export interface WriteOperatorConfigOptions {
   projectConfigPath: string
@@ -63,24 +73,27 @@ export async function writeOperatorConfigAt(
 ): Promise<void> {
   const operator = OperatorSettingsSchema.parse(settings)
 
-  const lock = await acquireFencedFileLock({
-    path: target,
-    name: 'antigravity-operator',
-    ttlMs: 5_000,
-    renew: false,
-  })
-  if (!lock) {
-    throw new Error(
-      `Could not acquire operator-config lock at ${target} (already held by another writer).`,
-    )
-  }
-
   try {
-    const existing = readExistingConfig(target)
-    const merged = mergeOperator(existing, operator)
-    await writeJsonAtomic(target, merged)
-  } finally {
-    await lock.release().catch(() => {})
+    await withLock(
+      target,
+      {
+        name: OPERATOR_LOCK_NAME,
+        ttlMs: OPERATOR_LOCK_TTL_MS,
+        timeoutMs: OPERATOR_LOCK_WAIT_MS,
+        renew: true,
+      },
+      async () => {
+        const existing = readExistingConfig(target)
+        const merged = mergeOperator(existing, operator)
+        await writeJsonAtomic(target, merged)
+      },
+    )
+  } catch (error) {
+    if (error instanceof LockContentionError)
+      throw new Error(
+        `Could not acquire operator-config lock at ${target} (already held by another writer).`,
+      )
+    throw error
   }
 }
 
@@ -113,6 +126,3 @@ function mergeOperator(
   next.operator = operator
   return next
 }
-
-void z
-void dirname

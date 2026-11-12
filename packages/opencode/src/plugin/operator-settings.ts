@@ -30,6 +30,7 @@ import {
   OperatorSettingsSchema,
 } from './config/operator-settings-schema'
 import { writeOperatorConfig, writeOperatorConfigAt } from './config/writer'
+import type { FloorKeying } from './killswitch'
 
 // Loaded operator slices may be incomplete (older config files, partial
 // user edits); the merge-with-defaults step below fills any gaps.
@@ -57,6 +58,11 @@ export interface OperatorSettingsController {
   get(): OperatorSettings
   update(mutator: (draft: OperatorSettings) => void): Promise<void>
   dispose(): Promise<void>
+  /**
+   * How `killswitch.accounts` is keyed. Absent means the token-hash keying
+   * of `antigravity.json`; the shared settings file keys by stable id.
+   */
+  floorKeying?(): FloorKeying
 }
 
 export function createOperatorSettingsController(

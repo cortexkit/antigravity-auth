@@ -66,6 +66,29 @@ export interface AntigravityMenuSettings {
     readonly enabled: boolean
     readonly minimumRemainingPercent: number
   }
+  /**
+   * The settings file name the Routing section names; defaults to the
+   * shared `antigravity-auth.jsonc`. A separate install still reads its
+   * settings from `antigravity.json`.
+   */
+  readonly configuredIn?: string
+  /** Extra lines for the Limits section, such as floors the settings move could not keep. */
+  readonly notices?: readonly string[]
+}
+
+/**
+ * A settings write the host refused with fixed text. Menu actions show the
+ * text and code instead of failing, and the text never carries an error
+ * message.
+ */
+export class AntigravityMenuRefusal extends Error {
+  override readonly name = 'AntigravityMenuRefusal'
+  constructor(
+    readonly text: string,
+    readonly code: string,
+  ) {
+    super(text)
+  }
 }
 
 /**
@@ -292,6 +315,8 @@ function failure(text: string, code: string): ActionOutcome {
 const STALE_KINDS = new Set(['attribution', 'unknown-row', 'id-removed'])
 
 function staleOrRethrow(error: unknown): ActionOutcome {
+  if (error instanceof AntigravityMenuRefusal)
+    return failure(error.text, error.code)
   const kind =
     typeof error === 'object' &&
     error !== null &&
@@ -592,7 +617,8 @@ function routingSection(options: {
   return {
     title: 'Routing',
     async build() {
-      const strategy = (await options.settings.read()).selectionStrategy
+      const settings = await options.settings.read()
+      const strategy = settings.selectionStrategy
       const explanations = {
         sticky: 'Keep the current account until it is unavailable.',
         'round-robin': 'Rotate among available accounts for each request.',
@@ -606,7 +632,7 @@ function routingSection(options: {
             : [
                 `Account selection strategy: ${strategy}`,
                 explanations[strategy],
-                'Configured in antigravity.json: account_selection_strategy',
+                `Configured in ${settings.configuredIn ?? 'antigravity-auth.jsonc'}: account_selection_strategy`,
               ],
       }
     },
@@ -619,11 +645,13 @@ function limitsSection(options: {
   return {
     title: 'Limits',
     async build() {
-      const current = (await options.settings.read()).killswitch
+      const settings = await options.settings.read()
+      const current = settings.killswitch
       return {
         lines: [
           `Quota killswitch: ${onOff(current.enabled)}`,
           `Stop using an account below: ${current.minimumRemainingPercent}% remaining`,
+          ...(settings.notices ?? []),
         ],
         actions: [
           {
@@ -647,16 +675,22 @@ function limitsSection(options: {
             ],
             run: async ({ values }) => {
               const latest = (await options.settings.read()).killswitch
-              await options.settings.updateKillswitch({
-                enabled:
-                  typeof values.enabled === 'boolean'
-                    ? values.enabled
-                    : latest.enabled,
-                minimumRemainingPercent:
-                  typeof values.minimumRemainingPercent === 'number'
-                    ? values.minimumRemainingPercent
-                    : latest.minimumRemainingPercent,
-              })
+              try {
+                await options.settings.updateKillswitch({
+                  enabled:
+                    typeof values.enabled === 'boolean'
+                      ? values.enabled
+                      : latest.enabled,
+                  minimumRemainingPercent:
+                    typeof values.minimumRemainingPercent === 'number'
+                      ? values.minimumRemainingPercent
+                      : latest.minimumRemainingPercent,
+                })
+              } catch (error) {
+                if (error instanceof AntigravityMenuRefusal)
+                  return failure(error.text, error.code)
+                throw error
+              }
               return 'Limits updated'
             },
           },

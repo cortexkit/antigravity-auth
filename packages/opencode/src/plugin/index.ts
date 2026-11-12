@@ -23,6 +23,11 @@ import {
 import { drainNotifications, pushNotification } from '../rpc/notifications'
 import { getRpcDir } from '../rpc/rpc-dir'
 import { startRpcServer } from '../rpc/rpc-server'
+import { type FloorKeyTable, floorKeyTableFromRows } from '../settings/legacy'
+import {
+  openCodeSettingsPaths,
+  processSettingsRuntimes,
+} from '../settings/runtime'
 import {
   buildSidebarMachineStateFromAccounts,
   drainSidebarWrites,
@@ -185,7 +190,31 @@ export const createAntigravityPlugin =
       options.dependencies,
     )
     const { client, directory } = input as PluginContext
-    const config = loadConfig(directory)
+    // Settings come from antigravity-auth.jsonc once it exists, otherwise
+    // from antigravity.json until the background move publishes it. The
+    // move needs the local account rows to re-key per-account floors; they
+    // are supplied once the account store is known below.
+    let settingsFloorKeys: (() => Promise<FloorKeyTable | null>) | undefined
+    const settingsLease = processSettingsRuntimes.acquire({
+      ...(await openCodeSettingsPaths(directory)),
+      log: createLogger('settings'),
+      floorKeys: async () => (await settingsFloorKeys?.()) ?? null,
+    })
+    const projectSettings = await settingsLease.runtime.openProject(directory, {
+      config: () => loadConfig(directory),
+      // Operator settings back the /antigravity menu's Limits and
+      // Diagnostics. Before the move they load from and write to the
+      // project or user antigravity.json through the operator writer.
+      operator: () =>
+        createOperatorSettingsController({
+          projectConfigPath: join(directory, '.opencode', 'antigravity.json'),
+          // getUserConfigPath() already returns the full file path including
+          // 'antigravity.json' — do NOT join again or the path double-nests
+          // into <dir>/antigravity.json/antigravity.json.
+          userConfigPath: getUserConfigPath(),
+        }),
+    })
+    const config = projectSettings.config
     initRuntimeConfig(config)
     initializeDebug(config)
     initLogger(client)
@@ -525,20 +554,21 @@ export const createAntigravityPlugin =
       lifecycle.register(vaultQuotaPoller, 'producer')
     }
 
-    // Operator settings controller backs the /antigravity-* slash commands.
-    // The controller loads existing persisted settings at first read, mutates
-    // runtime config immediately, and serializes through the fenced-lock
-    // writer so a crash mid-write cannot corrupt the file.
+    // Operator settings back the /antigravity menu: the killswitch, its
+    // per-account floors and the log level. A settings change from another
+    // process or a menu write reapplies the log level.
     const operatorSettings: OperatorSettingsController =
-      createOperatorSettingsController({
-        projectConfigPath: join(directory, '.opencode', 'antigravity.json'),
-        // getUserConfigPath() already returns the full file path including
-        // 'antigravity.json' — do NOT join again or the path double-nests
-        // into <dir>/antigravity.json/antigravity.json.
-        userConfigPath: getUserConfigPath(),
-      })
+      projectSettings.operator
     setRuntimeLogLevel(operatorSettings.get().log_level)
-    lifecycle.register({ dispose: () => operatorSettings.dispose() })
+    projectSettings.onChange(() =>
+      setRuntimeLogLevel(operatorSettings.get().log_level),
+    )
+    lifecycle.register({
+      dispose: async () => {
+        await projectSettings.release()
+        await settingsLease.release()
+      },
+    })
 
     const sessionRecovery = createSessionRecoveryHook(
       { client, directory },
@@ -630,6 +660,7 @@ export const createAntigravityPlugin =
       unavailableVaultMenu ??= createOpenCodeVaultAntigravityMenu({
         commands: commandsModule,
         settings: operatorSettings,
+        settingsFile: projectSettings,
         dump: {
           isEnabled: isGeminiDumpEnabled,
           setEnabled: setGeminiDumpEnabled,
@@ -667,6 +698,7 @@ export const createAntigravityPlugin =
             menu: createOpenCodeVaultAntigravityMenu({
               commands: commandsModule,
               settings: operatorSettings,
+              settingsFile: projectSettings,
               dump: {
                 isEnabled: isGeminiDumpEnabled,
                 setEnabled: setGeminiDumpEnabled,
@@ -728,6 +760,7 @@ export const createAntigravityPlugin =
             commands: commandsModule,
             accounts: opening.repository,
             settings: operatorSettings,
+            settingsFile: projectSettings,
             dump: {
               isEnabled: isGeminiDumpEnabled,
               setEnabled: setGeminiDumpEnabled,
@@ -749,6 +782,9 @@ export const createAntigravityPlugin =
       client,
       push: pushNotification,
       open: async (sessionId) => {
+        // A menu shows the settings file as it is now, including a file
+        // created or moved since the last refresh.
+        await projectSettings.refresh().catch(() => {})
         const current = await currentMenu()
         if (current.kind === 'unavailable') return current
         return {
@@ -887,6 +923,15 @@ export const createAntigravityPlugin =
           fetchImpl: dependencies.fetchImpl,
         }),
     })
+    // The settings move re-keys old per-account floors from token hashes to
+    // the local row ids; the rows are read before the move takes any lock.
+    settingsFloorKeys = async () => {
+      const opening = await authLoader.accountStore()
+      if (opening.status !== 'ready') return null
+      const read = await opening.repository.read()
+      return read.status === 'ready' ? floorKeyTableFromRows(read.rows) : null
+    }
+    settingsLease.runtime.startMove()
     const accountOAuth = createAccountCommandOAuthService({
       // Wire the OAuth primitives through the dependency seam (rather
       // than the concrete imports above) so injected overrides from

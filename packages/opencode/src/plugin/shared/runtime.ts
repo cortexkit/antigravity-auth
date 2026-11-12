@@ -41,13 +41,20 @@
  * This module never reads account storage or builds a host client.
  */
 
+import { join } from 'node:path'
 import type {
   AccountMetadataV3,
   FetchAccountQuota,
 } from '@cortexkit/antigravity-auth-core'
 import { VAULT_ACCOUNT_REMEDY } from '@cortexkit/antigravity-auth-core'
 import type { acquireFencedFileLock } from '@cortexkit/antigravity-auth-core/file-lock'
-
+import type { FloorKeyTable } from '../../settings/legacy.ts'
+import {
+  openCodeSettingsPaths,
+  type ProjectSettings,
+  processSettingsRuntimes,
+  type SettingsRuntimeRegistry,
+} from '../../settings/runtime.ts'
 import {
   drainSidebarWrites,
   type SidebarMachineState,
@@ -64,7 +71,12 @@ import {
   type LocationSignatureCache,
   type SignatureProcessState,
 } from '../cache.ts'
-import { createLocationConfig, type LocationConfig } from '../config/index.ts'
+import {
+  createLocationConfig,
+  getProjectConfigPath,
+  getUserConfigPath,
+  type LocationConfig,
+} from '../config/index.ts'
 import { createLocationDebug, type LocationDebug } from '../debug.ts'
 import { createGeminiDumpState, type GeminiDumpState } from '../gemini-dump.ts'
 import { createLocationLogger, type LocationLogger } from '../logger.ts'
@@ -293,6 +305,17 @@ export interface LocationRuntimeOptions {
    */
   operatorSettingsRegistry?: OperatorSettingsRegistry
   /**
+   * Table of settings runtimes, one per settings file. Defaults to the one
+   * the whole process shares; tests pass an isolated one.
+   */
+  settingsRuntimes?: SettingsRuntimeRegistry
+  /**
+   * The local account rows' floor keys, so the one-time settings move can
+   * re-key old per-account floors to row ids. Without it those floors are
+   * reported as not moved.
+   */
+  settingsFloorKeys?: () => Promise<FloorKeyTable | null>
+  /**
    * Thinking-signature cache state. Defaults to the one the whole process
    * shares; tests pass an isolated one.
    */
@@ -311,6 +334,8 @@ export interface LocationRuntime {
   readonly debug: LocationDebug
   readonly dump: GeminiDumpState
   readonly operatorSettings: LocationOperatorSettings
+  /** The location's settings file status, for menus. */
+  readonly settings: ProjectSettings
   readonly signatures: LocationSignatureCache
   readonly quotaManager: QuotaManager
   /** `null` when the `background_quota_refresh` config option is off. */
@@ -389,25 +414,59 @@ async function buildLocationRuntime(
     sinkEnabled: () => config?.config.debug_tui === true,
   })
   const log = logger.createLogger('runtime')
-  config = createLocationConfig(options.directory, {
-    logger: logger.createLogger('config'),
+  // Every location of the process shares one settings runtime per settings
+  // file: one handle, one watcher and one background move. Before the move,
+  // and for a separate install, the location reads its antigravity.json
+  // files as before.
+  const settingsLease = (
+    options.settingsRuntimes ?? processSettingsRuntimes
+  ).acquire({
+    ...(await openCodeSettingsPaths(options.directory)),
+    log: logger.createLogger('settings'),
+    ...(options.settingsFloorKeys
+      ? { floorKeys: options.settingsFloorKeys }
+      : {}),
   })
+  scope.add({ dispose: () => settingsLease.release() }, 'consumer')
+  let legacyConfig: LocationConfig | undefined
+  const settings = await settingsLease.runtime.openProject(options.directory, {
+    config: () => {
+      legacyConfig = createLocationConfig(options.directory, {
+        logger: logger.createLogger('config'),
+      })
+      return legacyConfig.config
+    },
+    operator: () =>
+      acquireLocationOperatorSettings({
+        projectConfigPath: getProjectConfigPath(options.directory),
+        userConfigPath: getUserConfigPath(),
+        ...(options.operatorSettingsRegistry
+          ? { registry: options.operatorSettingsRegistry }
+          : {}),
+      }),
+  })
+  scope.add({ dispose: () => settings.release() }, 'consumer')
+  config = {
+    directory: options.directory,
+    config: settings.config,
+    keepThinking: settings.config.keep_thinking,
+    projectConfigPath:
+      legacyConfig?.projectConfigPath ??
+      join(options.directory, '.cortexkit', 'antigravity-auth.jsonc'),
+    userConfigPath:
+      legacyConfig?.userConfigPath ?? settings.operator.sourcePath(),
+  }
+  settingsLease.runtime.startMove()
 
   const debug = createLocationDebug(config.config)
   scope.add({ dispose: () => debug.close() }, 'consumer')
 
-  const operatorSettings = acquireLocationOperatorSettings({
-    projectConfigPath: config.projectConfigPath,
-    userConfigPath: config.userConfigPath,
-    ...(options.operatorSettingsRegistry
-      ? { registry: options.operatorSettingsRegistry }
-      : {}),
-  })
-  scope.add(operatorSettings, 'consumer')
+  const operatorSettings: LocationOperatorSettings = settings.operator
   const applyOperatorSettings = (): void => {
     logger.setLevel(operatorSettings.get().log_level)
   }
   applyOperatorSettings()
+  settings.onChange(applyOperatorSettings)
 
   const signatureOptions = {
     keepThinking: config.keepThinking,
@@ -558,6 +617,7 @@ async function buildLocationRuntime(
     debug,
     dump,
     operatorSettings,
+    settings,
     signatures,
     quotaManager,
     backgroundQuotaRefresh,

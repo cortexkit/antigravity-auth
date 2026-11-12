@@ -90,6 +90,7 @@ import {
   type GaLocalLogin,
   type GaPoolLoginAttempt,
 } from '../ga/server/pool-login.ts'
+import { floorKeyTableFromRows } from '../settings/legacy'
 import type {
   SidebarAccountRedactionInput,
   SidebarRoutingEntry,
@@ -674,7 +675,11 @@ export function createGaLocationMenu(input: {
     Pick<AccountRepository, 'updateMetadata'>
   readonly runtime: Pick<
     LocationRuntime,
-    'operatorSettings' | 'dump' | 'applyOperatorSettings' | 'config'
+    | 'operatorSettings'
+    | 'dump'
+    | 'applyOperatorSettings'
+    | 'config'
+    | 'settings'
   >
   readonly refreshQuota?: AntigravityRepositoryMenuOptions['refreshQuota']
   readonly reauthorize?: AntigravityRepositoryMenuOptions['reauthorize']
@@ -690,11 +695,13 @@ export function createGaLocationMenu(input: {
     settings: operatorMenuSettings(
       runtime.operatorSettings,
       () => runtime.config.config.account_selection_strategy,
+      runtime.settings,
     ),
     diagnostics: diagnosticsMenuSection({
       settings: runtime.operatorSettings,
       dump: runtime.dump,
       applyLogLevel: () => runtime.applyOperatorSettings(),
+      settingsFile: runtime.settings,
     }),
     accountLimits: createStoreAccountLimits({
       repository: input.repository,
@@ -748,6 +755,8 @@ export function createGaMenuCommandService(input: {
   readonly notify: GaRpcActivation['notify']
   readonly isConnected: GaRpcActivation['isConnected']
   readonly afterApply?: () => Promise<void>
+  /** Runs before the menu opens, so it shows the settings file as it is now. */
+  readonly beforeOpen?: () => Promise<void>
 }): GaMenuCommandService {
   return {
     async apply({ request, scope, signal }) {
@@ -774,6 +783,7 @@ export function createGaMenuCommandService(input: {
     },
     async open({ scope, signal }) {
       if (signal.aborted) throw abortError(signal)
+      await input.beforeOpen?.().catch(() => {})
       const payload = await input.menu.open(
         scopeInvocation(scope, input.notify),
       )
@@ -2032,6 +2042,7 @@ async function createGaVaultLocationServices(input: {
       const settings = operatorMenuSettings(
         location.operatorSettings,
         () => 'vault',
+        location.settings,
       )
       const menu = createAntigravityCommandMenu({
         source: 'sections',
@@ -2044,6 +2055,7 @@ async function createGaVaultLocationServices(input: {
           settings: location.operatorSettings,
           dump: location.dump,
           applyLogLevel: () => location.applyOperatorSettings(),
+          settingsFile: location.settings,
         }),
         extras: [custody.menuSection()],
       })
@@ -2073,6 +2085,7 @@ async function createGaVaultLocationServices(input: {
           isConnected: start.isConnected,
           afterApply: () =>
             input.afterApply ? input.afterApply() : started.refreshAccounts(),
+          beforeOpen: () => location.settings.refresh(),
         }),
       }
     },
@@ -2252,6 +2265,18 @@ export function createGaLocationServicesFactory(
       })
       const previousMayRun = collaborators.mayRun
       runtime = {
+        // The one-time settings move re-keys old per-account floors to the
+        // local row ids; a location without a local store reports them.
+        settingsFloorKeys: async () => {
+          try {
+            const read = await (await getRepository()).read()
+            return read.status === 'ready'
+              ? floorKeyTableFromRows(read.rows)
+              : null
+          } catch {
+            return null
+          }
+        },
         ...collaborators,
         mayRun: async () =>
           !closing &&
@@ -2356,6 +2381,7 @@ export function createGaLocationServicesFactory(
         const settings = operatorMenuSettings(
           location.operatorSettings,
           () => location.config.config.account_selection_strategy,
+          location.settings,
         )
         const recoveryMenu = createAntigravityCommandMenu({
           source: 'sections',
@@ -2390,6 +2416,7 @@ export function createGaLocationServicesFactory(
             settings: location.operatorSettings,
             dump: location.dump,
             applyLogLevel: () => location.applyOperatorSettings(),
+            settingsFile: location.settings,
           }),
           ...(custody ? { extras: [custody.menuSection()] } : {}),
         })
@@ -2421,6 +2448,7 @@ export function createGaLocationServicesFactory(
             menu: recoveryMenu,
             notify: input.notify,
             isConnected: input.isConnected,
+            beforeOpen: () => location.settings.refresh(),
           }),
         }
         const local = (): Promise<Serving> => {
@@ -2591,6 +2619,7 @@ export function createGaLocationServicesFactory(
                   notify: input.notify,
                   isConnected: input.isConnected,
                   afterApply: () => refreshSelectedSource(),
+                  beforeOpen: () => location.settings.refresh(),
                 }),
                 execute: started.execute,
               }
