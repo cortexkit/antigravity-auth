@@ -14,6 +14,7 @@ import { networkInterfaces } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { gzipSync } from 'node:zlib'
+import { writeUserSettings } from '../../../test/support/user-settings.ts'
 
 import {
   createPublicCommandInspector,
@@ -261,7 +262,6 @@ async function seedEnrollment() {
 function pluginSource(recorder: string, observations: string): string {
   return `import { appendFileSync } from 'node:fs'
 import { createAntigravityPlugin } from ${JSON.stringify(join(ROOT, 'packages/opencode/src/plugin/index.ts'))}
-import { writeUserSettings } from '../../../test/support/user-settings.ts'
 const observe = (event) => appendFileSync(${JSON.stringify(observations)}, JSON.stringify({pid: process.pid, ...event}) + '\\n')
 const nativeFetch = globalThis.fetch
 const loopback = (input) => { const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url); return url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]' }
