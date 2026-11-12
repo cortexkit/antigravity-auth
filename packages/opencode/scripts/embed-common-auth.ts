@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.45.0.tgz'
-export const producerVersion = '0.45.0'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.47.0.tgz'
+export const producerVersion = '0.47.0'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: 'acd923e2f5cc0e236c9be96491ffb9726848127b30d9a73e0172d3109b85ef6b',
-  sri: 'sha512-bvf/ZMXqcDwIqLliUnSfTGH1waLo9p4TH5yRYDwI4Ux4ni16tNAeO6qYQuNVl9+rR8u/Ya7dgi0ZBA4xDnUCeg==',
+  sha256: 'd63db46804ab591a9a71909fba3d97206aaea8a2723404bb776442331a6624b9',
+  sri: 'sha512-fHM1hhVcaIS0m9rmX528zF8euEVm5ac1WtDjbjW/vRdlYZs0kbssg91C9paOLdOvHc8Hrr1ijGXYtSY5LAdspQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -481,8 +481,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/refresh-file-lock.js',
-    53316,
-    '6930a34883f8d795c4f64ceafb03ec42b49132e99dd1b0b0c32dce6273634dbd',
+    53498,
+    '0ba013556cedf94cd643de80d3a8383c0cbd0db425940c67bf516056fc6bba9d',
   ],
   [
     'fs/with-lock.d.ts',
@@ -1385,15 +1385,15 @@ const routingAccessorCanonical: readonly CanonicalEntry[] = [
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.d.ts',
     output: 'routing-accessor/index.d.ts',
-    bytes: 5573,
-    hash: '2175d74fc07473fa02ddd401fc069938a89fdf6d22706afcd9d3ae5225f49708',
+    bytes: 6865,
+    hash: 'cf8d2822144127093d3dfeef927d120b8c0c1e95a24524c064fc33fb0a058f58',
   },
   {
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.js',
     output: 'routing-accessor/index.js',
-    bytes: 14506,
-    hash: 'f3adc02d9b528c4ea8345d61e4cc04d1ab43899056931cc57eae67ddcb601b80',
+    bytes: 16004,
+    hash: '613827aa708d94ce326d7c7f09cb949528934da34d87536828a8272f3eccca8a',
   },
 ]
 
@@ -1532,7 +1532,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    'c892d2419030123182068a70227d1fe74fb7d646e4780cc3f0257a31b54761ad'
+    'f074d4385c12d063be76031937bbb18c98a4166e064eaf2e338e6f1d662b43c4'
   )
     throw new Error('publication: manifest bytes')
 }
