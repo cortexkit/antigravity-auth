@@ -1,0 +1,297 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "$schema": {
+      "type": "string"
+    },
+    "quiet_mode": {
+      "type": "boolean"
+    },
+    "toast_scope": {
+      "enum": [
+        "root_only",
+        "all"
+      ]
+    },
+    "debug": {
+      "type": "boolean"
+    },
+    "debug_tui": {
+      "type": "boolean"
+    },
+    "log_dir": {
+      "type": "string"
+    },
+    "keep_thinking": {
+      "type": "boolean"
+    },
+    "thinking_warmup": {
+      "type": "boolean"
+    },
+    "cache_warmup_on_switch": {
+      "type": "boolean"
+    },
+    "session_recovery": {
+      "type": "boolean"
+    },
+    "auto_resume": {
+      "type": "boolean"
+    },
+    "resume_text": {
+      "type": "string"
+    },
+    "signature_cache": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "memory_ttl_seconds": {
+          "type": "number",
+          "minimum": 60,
+          "maximum": 86400
+        },
+        "disk_ttl_seconds": {
+          "type": "number",
+          "minimum": 3600,
+          "maximum": 604800
+        },
+        "write_interval_seconds": {
+          "type": "number",
+          "minimum": 10,
+          "maximum": 600
+        }
+      },
+      "additionalProperties": false
+    },
+    "empty_response_max_attempts": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 10
+    },
+    "empty_response_retry_delay_ms": {
+      "type": "number",
+      "minimum": 500,
+      "maximum": 10000
+    },
+    "claude_tool_hardening": {
+      "type": "boolean"
+    },
+    "claude_prompt_auto_caching": {
+      "type": "boolean"
+    },
+    "proactive_token_refresh": {
+      "type": "boolean"
+    },
+    "proactive_refresh_buffer_seconds": {
+      "type": "number",
+      "minimum": 60,
+      "maximum": 7200
+    },
+    "proactive_refresh_check_interval_seconds": {
+      "type": "number",
+      "minimum": 30,
+      "maximum": 1800
+    },
+    "max_rate_limit_wait_seconds": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 3600
+    },
+    "account_selection_strategy": {
+      "enum": [
+        "sticky",
+        "round-robin",
+        "hybrid"
+      ]
+    },
+    "pid_offset_enabled": {
+      "type": "boolean"
+    },
+    "switch_on_first_rate_limit": {
+      "type": "boolean"
+    },
+    "max_account_switches": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 500
+    },
+    "scheduling_mode": {
+      "enum": [
+        "cache_first",
+        "balance",
+        "performance_first"
+      ]
+    },
+    "max_cache_first_wait_seconds": {
+      "type": "number",
+      "minimum": 5,
+      "maximum": 300
+    },
+    "failure_ttl_seconds": {
+      "type": "number",
+      "minimum": 60,
+      "maximum": 7200
+    },
+    "default_retry_after_seconds": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 300
+    },
+    "request_jitter_max_ms": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 5000
+    },
+    "switch_account_delay_ms": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 10000
+    },
+    "soft_quota_threshold_percent": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 100
+    },
+    "quota_refresh_interval_minutes": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 120
+    },
+    "soft_quota_cache_ttl": {
+      "enum": [
+        "auto",
+        "minutes"
+      ]
+    },
+    "soft_quota_cache_ttl_minutes": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 120
+    },
+    "proactive_rotation_threshold_percent": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "health_score": {
+      "type": "object",
+      "properties": {
+        "initial": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "success_reward": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "rate_limit_penalty": {
+          "type": "number",
+          "minimum": -50,
+          "maximum": 0
+        },
+        "failure_penalty": {
+          "type": "number",
+          "minimum": -100,
+          "maximum": 0
+        },
+        "recovery_rate_per_hour": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 20
+        },
+        "min_usable": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "max_score": {
+          "type": "number",
+          "minimum": 50,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "token_bucket": {
+      "type": "object",
+      "properties": {
+        "max_tokens": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000
+        },
+        "regeneration_rate_per_minute": {
+          "type": "number",
+          "minimum": 0.1,
+          "maximum": 60
+        },
+        "initial_tokens": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 1000
+        }
+      },
+      "additionalProperties": false
+    },
+    "background_quota_refresh": {
+      "type": "boolean"
+    },
+    "background_quota_refresh_interval_minutes": {
+      "type": "number",
+      "minimum": 1,
+      "maximum": 60
+    },
+    "auto_update": {
+      "type": "boolean"
+    },
+    "killswitch": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "minimum_remaining_percent": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "accounts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "log_level": {
+      "enum": [
+        "error",
+        "warn",
+        "info",
+        "debug",
+        "trace"
+      ]
+    },
+    "account_models": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}
