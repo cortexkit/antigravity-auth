@@ -178,6 +178,7 @@ describe('shared request engine import graph', () => {
         'askRouting',
         'type BillingRequestKind',
         'type RoutingCandidate',
+        'type RoutingRefusal',
       ],
       './vault-billing': ['VaultBillingAttempt'],
       './vault-routing': [
