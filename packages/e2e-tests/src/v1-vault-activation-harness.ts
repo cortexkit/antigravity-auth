@@ -261,6 +261,7 @@ async function seedEnrollment() {
 function pluginSource(recorder: string, observations: string): string {
   return `import { appendFileSync } from 'node:fs'
 import { createAntigravityPlugin } from ${JSON.stringify(join(ROOT, 'packages/opencode/src/plugin/index.ts'))}
+import { writeUserSettings } from '../../../test/support/user-settings.ts'
 const observe = (event) => appendFileSync(${JSON.stringify(observations)}, JSON.stringify({pid: process.pid, ...event}) + '\\n')
 const nativeFetch = globalThis.fetch
 const loopback = (input) => { const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url); return url.hostname === '127.0.0.1' || url.hostname === 'localhost' || url.hostname === '[::1]' }
@@ -487,15 +488,19 @@ export async function runNativeActivation(
         },
       })
     }
-    await writeJson(join(project, '.opencode/antigravity.json'), {
-      quiet_mode: true,
-      auto_update: false,
-      background_quota_refresh: false,
-      quota_refresh_interval_minutes: 0,
-      proactive_token_refresh: false,
-      session_recovery: false,
-      cache_warmup_on_switch: false,
-    })
+    // These settings are user-only, so they go in the user settings file.
+    writeUserSettings(
+      {
+        quiet_mode: true,
+        auto_update: false,
+        background_quota_refresh: false,
+        quota_refresh_interval_minutes: 0,
+        proactive_token_refresh: false,
+        session_recovery: false,
+        cache_warmup_on_switch: false,
+      },
+      { file: join(profile, 'config', 'cortexkit', 'antigravity-auth.jsonc') },
+    )
     const pluginFile = join(profile, 'native-plugin.ts')
     await writeFile(
       pluginFile,

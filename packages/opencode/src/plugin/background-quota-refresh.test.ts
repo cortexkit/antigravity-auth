@@ -10,7 +10,7 @@ function quotaAccountIdentity(refreshToken: string): string {
 }
 
 import type { AccountMetadataV3 } from '@cortexkit/antigravity-auth-core'
-
+import { writeUserSettings } from '../../../../test/support/user-settings.ts'
 import {
   readSidebarState,
   SIDEBAR_STATE_ENV,
@@ -1990,10 +1990,8 @@ describe('BackgroundQuotaRefresh wiring through createAntigravityPlugin', () => 
     vaultPollerCreatedCb?: (p: BackgroundVaultQuotaRefresh) => void,
   ) {
     mkdirSync(join(directory, '.opencode'), { recursive: true })
-    await Bun.write(
-      join(directory, '.opencode', 'antigravity.json'),
-      JSON.stringify(config),
-    )
+    // These settings are user-only, so they go in the user settings file.
+    writeUserSettings(config)
     const client = makeMinimalClient()
     const input = makePluginInput(client, directory)
     return createAntigravityPlugin('google', {

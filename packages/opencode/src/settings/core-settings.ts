@@ -10,4 +10,4 @@ export {
   type ModelAccessIssue,
   type ModelAccessPolicy,
   RETIRED_SETTINGS,
-} from '@cortexkit/antigravity-auth-core'
+} from '@cortexkit/antigravity-auth-core/settings'

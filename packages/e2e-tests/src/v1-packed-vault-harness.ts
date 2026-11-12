@@ -14,6 +14,7 @@ import { networkInterfaces } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { gzipSync } from 'node:zlib'
+import { writeUserSettings } from '../../../test/support/user-settings.ts'
 import { createPublicCommandInspector } from '../../core/src/__fixtures__/public-command-processes.test.ts'
 import { measureNativeJob } from './fixtures/opencode-ga-host/native-job.ts'
 import {
@@ -540,15 +541,19 @@ export async function runPackedVault(): Promise<PackedVaultReceipt> {
         },
       })
     }
-    json(join(project, '.opencode/antigravity.json'), {
-      quiet_mode: true,
-      auto_update: false,
-      background_quota_refresh: false,
-      quota_refresh_interval_minutes: 0,
-      proactive_token_refresh: false,
-      session_recovery: false,
-      cache_warmup_on_switch: false,
-    })
+    // These settings are user-only, so they go in the user settings file.
+    writeUserSettings(
+      {
+        quiet_mode: true,
+        auto_update: false,
+        background_quota_refresh: false,
+        quota_refresh_interval_minutes: 0,
+        proactive_token_refresh: false,
+        session_recovery: false,
+        cache_warmup_on_switch: false,
+      },
+      { file: join(paths.config, 'cortexkit', 'antigravity-auth.jsonc') },
+    )
     json(join(config, 'opencode.json'), {
       plugin: [receipt.loading.configuredPlugin],
       enabled_providers: ['google'],

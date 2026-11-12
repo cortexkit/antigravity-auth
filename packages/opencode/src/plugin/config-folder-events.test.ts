@@ -35,6 +35,7 @@ import {
   loadCommonAuthStoreModules,
   readAccountStoreBinding,
 } from '@cortexkit/antigravity-auth-core'
+import { writeUserSettings } from '../../../../test/support/user-settings.ts'
 import type { GaHostContext, GaServingServices } from '../ga/server/index.ts'
 import { setupGaActivation } from '../ga/server/index.ts'
 import {
@@ -393,15 +394,17 @@ it('a vault-mode OpenCode 2 start and its roster polls cause no file events in t
   // Debug logging and the signature disk cache are on, at their defaults.
   const directory = join(root, 'project')
   mkdirSync(join(directory, '.opencode'), { recursive: true, mode: 0o700 })
-  writeFileSync(
-    join(directory, '.opencode', 'antigravity.json'),
-    JSON.stringify({
+  // These settings are user-only, so they go in the user settings file,
+  // which lives outside the watched OpenCode config folder.
+  writeUserSettings(
+    {
       debug: true,
       keep_thinking: true,
       background_quota_refresh: false,
       proactive_token_refresh: false,
       auto_update: false,
-    }),
+    },
+    { file: join(root, 'config', 'cortexkit', 'antigravity-auth.jsonc') },
   )
 
   const watched = watchFolder(configDir())
@@ -493,15 +496,17 @@ it('a local-mode OpenCode 2 start, request and quota check cause no file events 
 
   const directory = join(root, 'project')
   mkdirSync(join(directory, '.opencode'), { recursive: true, mode: 0o700 })
-  writeFileSync(
-    join(directory, '.opencode', 'antigravity.json'),
-    JSON.stringify({
+  // These settings are user-only, so they go in the user settings file,
+  // which lives outside the watched OpenCode config folder.
+  writeUserSettings(
+    {
       debug: true,
       keep_thinking: true,
       background_quota_refresh: false,
       proactive_token_refresh: false,
       auto_update: false,
-    }),
+    },
+    { file: join(root, 'config', 'cortexkit', 'antigravity-auth.jsonc') },
   )
   const watched = watchFolder(configDir())
   cleanups.push(watched.close)

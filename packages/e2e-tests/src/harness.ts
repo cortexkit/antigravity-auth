@@ -17,6 +17,7 @@
 
 import { mkdirSync, rmSync } from 'node:fs'
 import { isAbsolute, join, relative, sep } from 'node:path'
+import { writeUserSettings } from '../../../test/support/user-settings.ts'
 import type { PluginDependencyOverrides } from '../../opencode/src/plugin/dependencies'
 import {
   createAntigravityPlugin,
@@ -101,29 +102,33 @@ export async function createE2eHarness(
     async createPlugin(pluginOptions = {}) {
       const directory = join(testRoot, `plugin-${plugins.length}`)
       mkdirSync(directory, { recursive: true })
-      // Write a project-level config that disables background quota
-      // refresh + auto-update so the plugin doesn't fire network calls
-      // outside the fetch-interceptor we control.
+      // Disable background quota refresh + auto-update so the plugin
+      // doesn't fire network calls outside the fetch-interceptor we
+      // control. These settings are user-only: the user settings file
+      // carries them, and the project antigravity.json carries them for a
+      // test that makes the install separate with its own config folder.
+      const settings = {
+        quiet_mode: true,
+        session_recovery: false,
+        proactive_token_refresh: false,
+        cache_warmup_on_switch: false,
+        account_selection_strategy: 'sticky',
+        scheduling_mode: 'balance',
+        switch_on_first_rate_limit: false,
+        switch_account_delay_ms: 100,
+        max_account_switches: 1,
+        soft_quota_threshold_percent: 100,
+        quota_refresh_interval_minutes: 0,
+        proactive_rotation_threshold_percent: 0,
+        background_quota_refresh: false,
+        auto_update: false,
+        // Allow per-test overrides (e.g. enabling background_quota_refresh).
+        ...(pluginOptions.configOverrides ?? {}),
+      }
+      writeUserSettings(settings)
       await Bun.write(
         `${directory}/.opencode/antigravity.json`,
-        JSON.stringify({
-          quiet_mode: true,
-          session_recovery: false,
-          proactive_token_refresh: false,
-          cache_warmup_on_switch: false,
-          account_selection_strategy: 'sticky',
-          scheduling_mode: 'balance',
-          switch_on_first_rate_limit: false,
-          switch_account_delay_ms: 100,
-          max_account_switches: 1,
-          soft_quota_threshold_percent: 100,
-          quota_refresh_interval_minutes: 0,
-          proactive_rotation_threshold_percent: 0,
-          background_quota_refresh: false,
-          auto_update: false,
-          // Allow per-test overrides (e.g. enabling background_quota_refresh).
-          ...(pluginOptions.configOverrides ?? {}),
-        }),
+        JSON.stringify(settings),
       )
       const client = createFakeClient(pluginOptions.clientOverrides)
       const dependencies: PluginDependencyOverrides = {
