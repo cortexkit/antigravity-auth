@@ -360,7 +360,7 @@ it('still refuses an ancestor that exits during revalidation of a live candidate
   )
 
   expect(parentReads).toBe(2)
-  expect(readAncestryDiagnostic(messages)).toEqual({
+  expect(readAncestryDiagnostic<AncestryDiagnostic>(messages)).toEqual({
     phase: 'revalidation',
     candidate: serializeIdentity(child),
     expected: serializeIdentity(parent),
