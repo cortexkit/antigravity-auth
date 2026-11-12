@@ -642,7 +642,11 @@ export function createSettingsRuntime(
       await initial.catch(() => {})
       let config: AntigravityConfig | undefined
       await enqueue(async () => {
-        if (mode === 'shared') config = await resolveProjectConfig(project)
+        if (mode !== 'shared') return
+        // Another location may still hold this runtime; re-read the user
+        // file so the new location starts from its current values.
+        await refreshAll()
+        config = await resolveProjectConfig(project)
       })
       const entry: ProjectEntry = {
         project,
