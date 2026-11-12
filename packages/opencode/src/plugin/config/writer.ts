@@ -12,10 +12,11 @@
  *   2. Holds the `antigravity-operator` lock beside the target file, so
  *      two menu actions fired in quick succession cannot race and the
  *      one-time settings move never copies a half-applied change. The
- *      lock is common-auth's `withLock`, whose lock file record
- *      (`{ ownerId, expiresAt }`, exclusive create) is the one older
- *      versions' fenced lock writes, so each waits for the other and
- *      neither evicts a live holder.
+ *      lock is the shared auth library's `withLock`. Its lock file holds
+ *      `{ ownerId, expiresAt }`, created exclusively, which is the same
+ *      record older versions' lock (`acquireFencedFileLock` in core)
+ *      writes, so each waits for the other and neither evicts a live
+ *      holder.
  *   3. Serializes through `writeJsonAtomic` — staged tmp + rename —
  *      so a crash mid-write leaves the previous file intact.
  *   4. Preserves every other top-level field the user may have set
