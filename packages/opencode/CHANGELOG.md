@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- In routed vault setups such as Thalamus, a request whose account routing refuses now sends nothing and ends with "Routing has no Antigravity account available for this request right now; try again later.", with routing's wait in `Retry-After`.
+- Under the hood, embedded common-auth is now published 0.47.0: a lock release waits until its lock file is gone, and account routing can return a refusal when the caller opts in.
+
 ## [3.0.41] - 2026-11-12
 
 - Settings now live in `antigravity-auth.jsonc` in the shared CortexKit config folder (`~/.config/cortexkit/` by default). The first start copies `antigravity.json` there once, leaves the old file unchanged and writes `antigravity.json.MOVED_READPLEASE` beside it. Menu changes are saved to the new file and keep its comments. An OpenCode install with its own config folder or its own vault folder keeps using `antigravity.json`.
