@@ -135,6 +135,12 @@ const FIRST_RETRY_DELAY_MS = 1000
 // Re-probe within an hour even when no quota refresh has revealed a new allowance.
 const MODEL_UNAVAILABLE_TTL_MS = 60 * 60 * 1000
 
+// Routing is asked once, when a session is first placed, and its answer holds
+// for the whole session, so a slow answer that misses the deadline is costly
+// while the wait itself is rare. Use the routing accessor's 2 s ceiling, well
+// above routing's normal admission time.
+const ROUTING_ASK_DEADLINE_MS = 2000
+
 /** Raw Antigravity sender: the core CLI transport or a test double. */
 export type RequestTransport = (
   url: string,
@@ -1517,7 +1523,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 provider: 'antigravity',
                 modelId: model,
                 candidates,
-                deadlineMs: Math.min(500, deadline.remainingMs()),
+                deadlineMs: Math.min(
+                  ROUTING_ASK_DEADLINE_MS,
+                  deadline.remainingMs(),
+                ),
               }),
             )
             checkAborted()

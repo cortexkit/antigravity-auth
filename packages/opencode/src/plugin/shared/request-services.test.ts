@@ -7745,7 +7745,7 @@ describe('createRequestExecutor optional vault routing', () => {
           expect(state.asks).toEqual([
             [
               { provider: 'antigravity', modelId: 'gemini-3-flash' },
-              { deadlineMs: 500 },
+              { deadlineMs: 2000 },
             ],
           ])
           expect(
