@@ -1465,6 +1465,7 @@ export class AccountManager {
     softQuotaThresholdPercent: number,
     softQuotaCacheTtlMs: number,
     identity?: AccountSessionIdentity,
+    excludeIndexes?: ReadonlySet<number>,
   ): ManagedAccount | null {
     return this.selection.proactivelyRotateForFamily(
       family,
@@ -1472,6 +1473,7 @@ export class AccountManager {
       softQuotaThresholdPercent,
       softQuotaCacheTtlMs,
       identity,
+      excludeIndexes,
     )
   }
 

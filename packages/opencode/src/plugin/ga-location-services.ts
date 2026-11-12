@@ -106,6 +106,7 @@ import {
 } from './accounts.ts'
 import {
   createStoreAccountLimits,
+  createStoreAccountModels,
   diagnosticsMenuSection,
   operatorMenuSettings,
 } from './command-apply.ts'
@@ -706,6 +707,11 @@ export function createGaLocationMenu(input: {
     accountLimits: createStoreAccountLimits({
       repository: input.repository,
       settings: runtime.operatorSettings,
+    }),
+    accountModels: createStoreAccountModels({
+      repository: input.repository,
+      settings: runtime.settings,
+      writable: () => runtime.settings.mode() === 'shared',
     }),
     ...(input.refreshQuota ? { refreshQuota: input.refreshQuota } : {}),
     ...(input.reauthorize ? { reauthorize: input.reauthorize } : {}),
@@ -1607,6 +1613,7 @@ function gaEngineCollaborators(input: {
     config: runtime.config.config,
     sessions: new AgySessionRegistry(runtime.directory),
     operatorSettings: runtime.operatorSettings,
+    modelAccess: () => runtime.settings.modelAccess(),
     transport: (
       url: string,
       init?: RequestInit,
@@ -2048,7 +2055,10 @@ async function createGaVaultLocationServices(input: {
         source: 'sections',
         commands: await loadCommonAuthCommands(),
         sections: {
-          ...createVaultAccountMenuSections(pool, selectorOf, checkQuota),
+          ...createVaultAccountMenuSections(pool, selectorOf, checkQuota, {
+            settings: location.settings,
+            writable: () => location.settings.mode() === 'shared',
+          }),
           ...antigravitySettingsSections(settings),
         },
         diagnostics: diagnosticsMenuSection({

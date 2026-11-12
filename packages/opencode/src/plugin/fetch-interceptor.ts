@@ -91,6 +91,11 @@ export interface FetchInterceptorContext {
    */
   readonly operatorSettings?: OperatorSettingsController
   /**
+   * The per-account model lists in force (`account_models`), read on every
+   * selection pass. Omitted, every account serves every model.
+   */
+  readonly modelAccess?: RequestServicesDeps<ManagedAccount>['modelAccess']
+  /**
    * Transport adapter used for Antigravity HTTPS requests. Defaults to
    * the production `fetchWithAgyCliTransport` when omitted; tests inject
    * a deterministic stub so the e2e workspace can route calls at a mock
@@ -215,6 +220,7 @@ function openCode1EngineCollaborators(
     | 'config'
     | 'agySessionRegistry'
     | 'operatorSettings'
+    | 'modelAccess'
     | 'onRouting'
   > & { transport: AgyTransport },
 ): Omit<
@@ -226,6 +232,7 @@ function openCode1EngineCollaborators(
     config: common.config,
     sessions: common.agySessionRegistry,
     operatorSettings: common.operatorSettings,
+    ...(common.modelAccess ? { modelAccess: common.modelAccess } : {}),
     transport: common.transport,
     wire: {
       prepare: prepareAntigravityRequest,
@@ -431,6 +438,7 @@ export interface VaultFetchInterceptorContext
     | 'config'
     | 'agySessionRegistry'
     | 'operatorSettings'
+    | 'modelAccess'
     | 'agyTransport'
     | 'fetchImpl'
     | 'onRouting'

@@ -263,6 +263,7 @@ export async function createOpenCodeAntigravityMenu(options: {
   readonly applyLogLevel: (level: OperatorSettings['log_level']) => void
   readonly refreshQuota?: AntigravityRepositoryMenuOptions['refreshQuota']
   readonly accountLimits?: AntigravityRepositoryMenuOptions['accountLimits']
+  readonly accountModels?: AntigravityRepositoryMenuOptions['accountModels']
   readonly login?: AntigravityRepositoryMenuOptions['login']
   /** The OAuth add flow, shown as the Sign in section. */
   readonly signIn?: Pick<AccountCommandOAuthService, 'start' | 'finish'>
@@ -284,6 +285,7 @@ export async function createOpenCodeAntigravityMenu(options: {
     diagnostics: diagnosticsMenuSection(options),
     ...(options.refreshQuota ? { refreshQuota: options.refreshQuota } : {}),
     ...(options.accountLimits ? { accountLimits: options.accountLimits } : {}),
+    ...(options.accountModels ? { accountModels: options.accountModels } : {}),
     ...(options.login ? { login: options.login } : {}),
     extras: [
       ...(options.signIn ? [signInMenuSection(options.signIn)] : []),

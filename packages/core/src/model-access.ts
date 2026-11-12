@@ -45,6 +45,35 @@ const KNOWN_MODELS = new Set(
   getAntigravityOpencodeModelIds().map(canonicalModelId),
 )
 
+/**
+ * The models a list can name, as canonical ids in catalog order: one per
+ * model, with its thinking tiers and aliases folded in.
+ */
+export function knownModelIds(): readonly string[] {
+  return [...KNOWN_MODELS]
+}
+
+/**
+ * A list as a menu writes it: canonical, known and without repeats. An empty
+ * list, or one that names no model Antigravity serves, is refused: either
+ * would turn the account off for every model.
+ */
+export function normalizeAccountModelList(
+  models: readonly string[],
+):
+  | { readonly ok: true; readonly models: readonly string[] }
+  | { readonly ok: false; readonly reason: 'empty-list' | 'unknown-only' } {
+  if (models.length === 0) return { ok: false, reason: 'empty-list' }
+  const known = [
+    ...new Set(
+      models.map(canonicalModelId).filter((model) => KNOWN_MODELS.has(model)),
+    ),
+  ]
+  return known.length === 0
+    ? { ok: false, reason: 'unknown-only' }
+    : { ok: true, models: known }
+}
+
 function isAccountModels(
   value: unknown,
   issues: ModelAccessIssue[],

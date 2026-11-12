@@ -2618,6 +2618,11 @@ type NativeGoogleErrorOptions =
       reason: 'model_unavailable'
       /** No account has the model, so there is no quota reset to wait for. */
       resetAfterMs?: never
+      /**
+       * The setting that removed every account from this request, when the
+       * refusal comes from configuration rather than upstream evidence.
+       */
+      setting?: 'account_models'
     }
   | { status: 401; reason: 'missing_access_token' }
   | { status: 502; reason: 'empty_response' }
@@ -2636,6 +2641,12 @@ const NATIVE_GOOGLE_ERROR_MESSAGES = {
   empty_response:
     'Antigravity returned an empty response after the internal retry attempts.',
 } satisfies Record<NativeGoogleErrorOptions['reason'], string>
+
+/** One clause naming the setting behind a refusal; free of status digits. */
+const NATIVE_GOOGLE_ERROR_SETTING_CLAUSES = {
+  account_models:
+    'The account_models setting limits which accounts may serve it; change it in /antigravity → Accounts.',
+} as const
 
 function formatQuotaResetWait(seconds: bigint): string {
   const hours = seconds / 3600n
@@ -2660,7 +2671,13 @@ export function createNativeGoogleErrorResponse(
   options: NativeGoogleErrorOptions,
 ): Response {
   const headers = new Headers({ 'Content-Type': 'application/json' })
-  const message = NATIVE_GOOGLE_ERROR_MESSAGES[options.reason]
+  const setting =
+    options.reason === 'model_unavailable' && options.setting
+      ? NATIVE_GOOGLE_ERROR_SETTING_CLAUSES[options.setting]
+      : undefined
+  const message = setting
+    ? `${NATIVE_GOOGLE_ERROR_MESSAGES[options.reason]} ${setting}`
+    : NATIVE_GOOGLE_ERROR_MESSAGES[options.reason]
   const status =
     options.status === 412
       ? 'FAILED_PRECONDITION'

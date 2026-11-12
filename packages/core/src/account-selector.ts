@@ -1304,12 +1304,14 @@ export class AccountSelector<A extends SelectableAccount> {
     softQuotaThresholdPercent: number,
     softQuotaCacheTtlMs: number,
     identity?: AccountSessionIdentity,
+    excludeIndexes?: ReadonlySet<number>,
   ): A | null {
     const currentIndex = this.getActiveIndex(family, identity)
 
     const candidates = this.preferAccountOutsideParent(
       this.accounts.filter((acc) => {
         if (acc.enabled === false) return false
+        if (excludeIndexes?.has(acc.index)) return false
         if (
           acc.accountIneligible === true ||
           acc.verificationRequired === true

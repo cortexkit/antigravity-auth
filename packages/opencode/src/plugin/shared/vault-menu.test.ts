@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { VAULT_ACCOUNT_REMEDY } from '@cortexkit/antigravity-auth-core'
+import {
+  ACCOUNT_MODELS_REFUSAL_TEXT,
+  VAULT_ACCOUNT_REMEDY,
+} from '@cortexkit/antigravity-auth-core'
 import { createVaultAccountMenuSections } from './vault-menu'
 import {
   createVaultAccountPool,
@@ -139,5 +142,91 @@ describe('vault menu projection', () => {
     expect(quota.lines).toEqual([])
     expect(quota.actions).toEqual([])
     expect(checks).toBe(0)
+  })
+})
+
+describe('vault account model lists', () => {
+  it("shows each vault account's list and writes it under the route id", async () => {
+    const pool = fixture()
+    await pool.sync()
+    const writes: Array<[string, readonly string[] | null]> = []
+    let lists: Record<string, readonly string[]> = {}
+    const sections = createVaultAccountMenuSections(
+      pool,
+      () => 'opaque-choice',
+      undefined,
+      {
+        settings: {
+          accountModels: () => lists,
+          updateAccountModels: async (key, models) => {
+            writes.push([key, models])
+            lists = models === null ? {} : { [key]: models }
+          },
+        },
+        writable: () => true,
+      },
+    )
+    const invocation = { notify: () => {} }
+    const before = await sections.accounts.build(invocation)
+    const item = before.items?.[0]
+    expect(item?.detail).toBe('served from the vault · All models')
+    const action = item?.actions?.find((entry) => entry.id === 'models')
+    expect(action?.label).toBe('Models')
+    const values = Object.fromEntries(
+      (action?.knobs ?? []).map((knob) => [knob.id, false]),
+    )
+    const set = await action?.run({
+      values: { ...values, 'gemini-4-carbon': true },
+      invocation,
+    })
+    expect(set).toBe('Account 1 serves gemini-4-carbon')
+    expect(writes).toEqual([['synthetic-route', ['gemini-4-carbon']]])
+    const after = await sections.accounts.build(invocation)
+    expect(after.items?.[0]?.detail).toBe(
+      'served from the vault · gemini-4-carbon',
+    )
+    // The route id is the key, but it is never shown.
+    expect(JSON.stringify(after)).not.toContain('synthetic-route')
+    const cleared = await after.items?.[0]?.actions
+      ?.find((entry) => entry.id === 'models')
+      ?.run({ values: { ...values, 'all-models': true }, invocation })
+    expect(cleared).toBe('Account 1 serves all models')
+    expect(writes.at(-1)).toEqual(['synthetic-route', null])
+    await pool.sync()
+  })
+
+  it('refuses an empty list with fixed text and writes nothing', async () => {
+    const pool = fixture()
+    await pool.sync()
+    const writes: unknown[] = []
+    const sections = createVaultAccountMenuSections(
+      pool,
+      () => 'opaque-choice',
+      undefined,
+      {
+        settings: {
+          accountModels: () => ({}),
+          updateAccountModels: async (...args) => {
+            writes.push(args)
+          },
+        },
+        writable: () => true,
+      },
+    )
+    const invocation = { notify: () => {} }
+    const built = await sections.accounts.build(invocation)
+    const action = built.items?.[0]?.actions?.find(
+      (entry) => entry.id === 'models',
+    )
+    const values = Object.fromEntries(
+      (action?.knobs ?? []).map((knob) => [knob.id, false]),
+    )
+    expect(await action?.run({ values, invocation })).toEqual({
+      ok: false,
+      text: ACCOUNT_MODELS_REFUSAL_TEXT['empty-list'],
+      code: 'invalid-input',
+    })
+    expect(writes).toEqual([])
+    await pool.sync()
   })
 })

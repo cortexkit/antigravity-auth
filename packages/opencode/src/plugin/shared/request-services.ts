@@ -63,6 +63,7 @@ import {
   ANTIGRAVITY_ENDPOINT_DAILY,
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
 } from '../../constants'
+import type { ModelAccessPolicy } from '../../settings/core-settings'
 import type { AntigravityConfig } from '../config'
 import type { LocationDebug } from '../debug'
 import { AntigravityKillswitchError } from '../errors'
@@ -500,6 +501,14 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
     'get' | 'floorKeying'
   >
   /**
+   * The per-account model lists (`account_models`) in force, read without
+   * I/O on every selection pass. An account its list forbids for the
+   * request's model is never chosen, warmed or retried for that model. It is
+   * not rate-limited or cooled down: nothing about the account is marked.
+   * Omitted, every account serves every model.
+   */
+  readonly modelAccess?: () => Pick<ModelAccessPolicy, 'allows'>
+  /**
    * Raw HTTP/1.1 AGY sender for content requests. The engine
    * transforms the request first, then passes the prepared URL, init and
    * the caller's AbortSignal to it.
@@ -825,6 +834,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     credentials,
     sessions: agySessionRegistry,
     operatorSettings,
+    modelAccess,
     transport: defaultTransport,
     wire,
     debug,
@@ -888,6 +898,26 @@ export function createRequestExecutor<A extends RequestAccountRow>(
   }
   const tierOf = (account: A) =>
     JSON.stringify([account.capturedTierId, account.capturedPaidTierId])
+  /**
+   * Indexes of the accounts whose `account_models` list forbids `model`.
+   * Lists are keyed by the account's stable id: the vault roster route id or
+   * the local store row id. A row with neither (a pool-file account) has no
+   * list, so only a deny-all policy excludes it. The policy canonicalizes the
+   * model itself, so tier suffixes and aliases are matched as the model they
+   * resolve to.
+   */
+  const modelAccessExcluded = (
+    model: string | null | undefined,
+  ): Set<number> | undefined => {
+    const policy = modelAccess?.()
+    if (!policy) return undefined
+    const excluded = new Set<number>()
+    for (const row of accountManager.getAccounts()) {
+      if (!policy.allows(row.route?.routeId ?? row.ref?.id, model ?? ''))
+        excluded.add(row.index)
+    }
+    return excluded.size > 0 ? excluded : undefined
+  }
   const dropModel = (key: string | A, model: string, cause: string) => {
     const entries = unavailableModels.get(key)
     const entry = entries?.get(model)
@@ -1259,16 +1289,57 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         config.quota_refresh_interval_minutes,
       )
 
+      // Per-account model lists (`account_models`): an account whose list
+      // forbids this model is out of this selection pass before anything
+      // else looks at it. It is not a rate limit or cooldown, so nothing is
+      // marked and no wait estimate counts it as coming back.
+      const allowlistExcluded = modelAccessExcluded(model)
+      if (allowlistExcluded) {
+        const serviceable = accountManager
+          .getAccounts()
+          .filter(
+            (entry) =>
+              entry.enabled !== false &&
+              !entry.accountIneligible &&
+              !entry.verificationRequired,
+          )
+        if (
+          serviceable.length > 0 &&
+          serviceable.every((entry) => allowlistExcluded.has(entry.index))
+        ) {
+          // Account details stay out of this log line and the refusal.
+          pushDebug(
+            `model-access: all ${serviceable.length} serviceable account(s) excluded`,
+          )
+          log.warn('model-access-all-excluded', {
+            family,
+            model,
+            accounts: serviceable.length,
+          })
+          return createNativeGoogleErrorResponse({
+            status: 412,
+            reason: 'model_unavailable',
+            setting: 'account_models',
+          })
+        }
+      }
+      const permittedAccounts = allowlistExcluded
+        ? accountManager
+            .getAccounts()
+            .filter((entry) => !allowlistExcluded.has(entry.index))
+        : accountManager.getAccounts()
+
       // Operator killswitch: an account whose cached remaining quota for
       // this model's quota group is below the configured floor is not
       // eligible. Missing or stale quota counts as eligible, so a cold
-      // start cannot block every account.
+      // start cannot block every account. Only the accounts the model lists
+      // permit are evaluated, so all permitted accounts below their floor
+      // end in the operator refusal.
       const operatorKillswitch = operatorSettings?.get().killswitch
       const floorKeying = operatorSettings?.floorKeying?.()
       const eligibleIndexes = operatorKillswitch?.enabled
         ? new Set(
-            accountManager
-              .getAccounts()
+            permittedAccounts
               .filter((entry) => {
                 const decision = evaluateKillswitchForAccount(
                   entry,
@@ -1292,13 +1363,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       if (
         eligibleIndexes !== null &&
         eligibleIndexes.size === 0 &&
-        accountCount > 0
+        permittedAccounts.length > 0
       ) {
         try {
           throwIfAllKilled({
             family,
             model: model ?? 'unknown',
-            accounts: accountManager.getAccounts(),
+            accounts: permittedAccounts,
             settings: {
               killswitch: operatorKillswitch ?? {
                 enabled: false,
@@ -1351,6 +1422,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               entry.enabled !== false &&
               !entry.accountIneligible &&
               !entry.verificationRequired &&
+              !allowlistExcluded?.has(entry.index) &&
               (eligibleIndexes === null || eligibleIndexes.has(entry.index)),
           )
         if (
@@ -1376,9 +1448,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       }
 
       const excludedIndexes =
-        unavailableIndexes.size === 0
+        unavailableIndexes.size === 0 && !allowlistExcluded
           ? killedIndexes
-          : new Set([...(killedIndexes ?? []), ...unavailableIndexes])
+          : new Set([
+              ...(killedIndexes ?? []),
+              ...unavailableIndexes,
+              ...(allowlistExcluded ?? []),
+            ])
 
       const routingPresent =
         credentials.domain === 'vault' && hasVaultRoutingAccessor()
@@ -1445,7 +1521,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               }),
             )
             checkAborted()
-            if (answer && answer.candidate.index !== account.index) {
+            if (
+              answer &&
+              answer.candidate.index !== account.index &&
+              !excludedIndexes?.has(answer.candidate.index)
+            ) {
               // Re-run the selector to validate routing's choice and update the session's selected account.
               account =
                 accountManager.getCurrentOrNextForFamily(
@@ -1469,7 +1549,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         }
       }
 
-      // The selected account must be inside the eligibility mask.
+      // The selected account must be inside the eligibility mask and
+      // permitted by its model list.
+      if (account && allowlistExcluded?.has(account.index)) {
+        pushDebug(`model-access-excluded idx=${account.index}`)
+        account = null
+      }
       if (
         account &&
         eligibleIndexes !== null &&
@@ -2858,6 +2943,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   config.soft_quota_threshold_percent,
                   softQuotaCacheTtlMs,
                   accountSessionIdentity,
+                  // Never pre-switch to an account this pass excluded, such
+                  // as one whose model list forbids this model.
+                  excludedIndexes,
                 )
                 if (rotated) {
                   const remaining =

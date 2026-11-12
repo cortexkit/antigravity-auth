@@ -10,12 +10,19 @@ import {
   type AccountRepository,
   AccountRepositoryError,
   type AntigravityAccountLimitSource,
+  type AntigravityAccountModelList,
+  type AntigravityAccountModelSource,
   AntigravityMenuRefusal,
   type AntigravityMenuSettingsSource,
   type CommonAuthCommandsModule,
   sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
 
+import {
+  type AccountModels,
+  canonicalModelId,
+  knownModelIds,
+} from '../settings/core-settings'
 import {
   accountKeyForRefreshToken,
   type OperatorSettings,
@@ -244,6 +251,68 @@ export function createStoreAccountLimits(input: {
             else accounts[key] = minimumRemainingPercent
             draft.killswitch.accounts = accounts
           })
+          return { kind: 'keep' }
+        })
+      } catch (error) {
+        if (
+          error instanceof AccountRepositoryError &&
+          STALE_FAILURES.has(error.failure.kind)
+        )
+          return 'stale'
+        throw error
+      }
+      return 'applied'
+    },
+  }
+}
+
+/**
+ * The per-account model lists (`account_models`) as the settings runtime
+ * keeps them: `ProjectSettings` from `settings/runtime.ts` provides it.
+ */
+export interface AccountModelSettings {
+  accountModels(): AccountModels | 'deny-all' | undefined
+  updateAccountModels(
+    accountKey: string,
+    models: readonly string[] | null,
+  ): Promise<void>
+}
+
+/** One account's list as the menu shows it, by base model name. */
+export function accountModelList(
+  settings: Pick<AccountModelSettings, 'accountModels'>,
+  accountKey: string | undefined,
+): AntigravityAccountModelList {
+  const lists = settings.accountModels()
+  if (lists === 'deny-all') return 'deny-all'
+  const list =
+    lists && accountKey !== undefined && Object.hasOwn(lists, accountKey)
+      ? lists[accountKey]
+      : undefined
+  return list ? [...new Set(list.map(canonicalModelId))] : null
+}
+
+/**
+ * Per-account model lists for a location whose accounts are in its local
+ * account store, keyed by the row id. A write runs inside the repository's
+ * fenced metadata update for the exact captured reference, as a floor write
+ * does, so a replaced, re-identified or removed credential is refused
+ * (`stale`) before the settings file is written.
+ */
+export function createStoreAccountModels(input: {
+  readonly repository: Pick<AccountRepository, 'updateMetadata'>
+  readonly settings: AccountModelSettings
+  /** Whether the shared settings file is in use, so lists can be written. */
+  readonly writable: () => boolean
+}): AntigravityAccountModelSource {
+  return {
+    catalog: knownModelIds(),
+    writable: input.writable,
+    read: (ref) => accountModelList(input.settings, ref.id),
+    async write(ref, models) {
+      try {
+        await input.repository.updateMetadata(ref, async (_current, row) => {
+          await input.settings.updateAccountModels(row.ref.id, models)
           return { kind: 'keep' }
         })
       } catch (error) {

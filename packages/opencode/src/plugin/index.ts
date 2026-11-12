@@ -52,7 +52,10 @@ import {
   applyAntigravityProviderCatalog,
   registerAntigravityCommands,
 } from './catalog'
-import { createStoreAccountLimits } from './command-apply'
+import {
+  createStoreAccountLimits,
+  createStoreAccountModels,
+} from './command-apply'
 import { projectCommandAccountRows } from './command-data'
 import {
   ANTIGRAVITY_MENU_COMMAND,
@@ -732,6 +735,10 @@ export const createAntigravityPlugin =
                     },
                     () => sidebarPublisher.publish(),
                   ),
+                {
+                  settings: projectSettings,
+                  writable: () => projectSettings.mode() === 'shared',
+                },
               ),
             }),
           }
@@ -769,6 +776,11 @@ export const createAntigravityPlugin =
             accountLimits: createStoreAccountLimits({
               repository: opening.repository,
               settings: operatorSettings,
+            }),
+            accountModels: createStoreAccountModels({
+              repository: opening.repository,
+              settings: projectSettings,
+              writable: () => projectSettings.mode() === 'shared',
             }),
             refreshQuota: (refs) => checkStoreQuota(opening.repository, refs),
             signIn: accountOAuth,
@@ -886,6 +898,7 @@ export const createAntigravityPlugin =
           config,
           agySessionRegistry: sessionRegistry,
           operatorSettings,
+          modelAccess: () => projectSettings.modelAccess(),
           agyTransport: dependencies.agyTransport,
           fetchImpl: dependencies.fetchImpl,
           source,
@@ -919,6 +932,7 @@ export const createAntigravityPlugin =
           getAuth,
           agySessionRegistry: sessionRegistry,
           operatorSettings,
+          modelAccess: () => projectSettings.modelAccess(),
           agyTransport: dependencies.agyTransport,
           fetchImpl: dependencies.fetchImpl,
         }),

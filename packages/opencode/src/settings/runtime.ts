@@ -20,7 +20,10 @@
 import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
-import { AntigravityMenuRefusal } from '@cortexkit/antigravity-auth-core'
+import {
+  ACCOUNT_MODELS_REFUSAL_TEXT,
+  AntigravityMenuRefusal,
+} from '@cortexkit/antigravity-auth-core'
 import {
   type moveSettingsOnce,
   openSettings,
@@ -52,6 +55,7 @@ import {
   ANTIGRAVITY_SETTINGS,
   compileModelAccess,
   type ModelAccessPolicy,
+  normalizeAccountModelList,
 } from './core-settings'
 import {
   type FloorKeyTable,
@@ -194,6 +198,24 @@ export interface ProjectSettings {
   configuredIn(): string
   /** The per-account model policy in force, resolved in memory. */
   modelAccess(): ModelAccessPolicy
+  /**
+   * The per-account model lists in force, for the menu: a key maps to its
+   * list and a missing key serves every model; `deny-all` means the setting
+   * can't be used and nothing earlier is known. Undefined while this install
+   * does not read the shared settings file.
+   */
+  accountModels(): AccountModels | 'deny-all' | undefined
+  /**
+   * Sets (or, with null, removes) one account's list in the user file,
+   * keeping its comments. The key is the account's stable id. Refuses with
+   * `AntigravityMenuRefusal` and fixed text when nothing can be saved: the
+   * shared file is not in use, the list is empty or names no known model, or
+   * the library refuses the edit.
+   */
+  updateAccountModels(
+    accountKey: string,
+    models: readonly string[] | null,
+  ): Promise<void>
   /** Lines for the Limits section. */
   limitsNotices(): readonly string[]
   /** Lines for the Diagnostics section; reads files, so call it from menus only. */
@@ -535,6 +557,44 @@ export function createSettingsRuntime(
     await enqueue(refreshAll)
   }
 
+  const updateAccountModels = async (
+    accountKey: string,
+    models: readonly string[] | null,
+  ): Promise<void> => {
+    if (mode !== 'shared' || !handle)
+      throw new AntigravityMenuRefusal(
+        ACCOUNT_MODELS_REFUSAL_TEXT.unavailable,
+        'settings-unavailable',
+      )
+    let edit: SettingsEdit
+    if (models === null) {
+      edit = { setting: 'account_models', path: [accountKey], remove: true }
+    } else {
+      const list = normalizeAccountModelList(models)
+      if (!list.ok)
+        throw new AntigravityMenuRefusal(
+          ACCOUNT_MODELS_REFUSAL_TEXT[list.reason],
+          'invalid-input',
+        )
+      edit = {
+        setting: 'account_models',
+        path: [accountKey],
+        value: [...list.models],
+      }
+    }
+    try {
+      await handle.update([edit], { host: 'opencode' })
+    } catch (error) {
+      if (error instanceof SettingsRefusal)
+        throw new AntigravityMenuRefusal(
+          refusalText(error.code, file),
+          error.code,
+        )
+      throw error
+    }
+    await enqueue(refreshAll)
+  }
+
   const legacyOperator = (entry: ProjectEntry) =>
     (entry.legacyOperator ??= entry.legacy.operator())
 
@@ -689,6 +749,9 @@ export function createSettingsRuntime(
         configuredIn: () =>
           mode === 'shared' ? fileName : basename(legacyUserFile),
         modelAccess: () => policy,
+        accountModels: () =>
+          mode === 'shared' ? protection?.accountModels : undefined,
+        updateAccountModels,
         limitsNotices: limits,
         diagnosticsNotices: () => diagnostics(entry),
         moveReport: {

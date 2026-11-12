@@ -161,6 +161,11 @@ export interface AntigravityRepositoryMenuOptions
    */
   readonly accountLimits?: AntigravityAccountLimitSource
   /**
+   * Per-account model lists the host keeps. Without it the account items
+   * show no model list and offer no Models action.
+   */
+  readonly accountModels?: AntigravityAccountModelSource
+  /**
    * The host's re-authentication of one account: a fresh sign-in that
    * replaces exactly the credential named by the captured reference. It may
    * finish later (a browser sign-in); it reports through the invocation.
@@ -404,6 +409,118 @@ function floorAction(
   }
 }
 
+/**
+ * Fixed text for a model-list write that is refused before anything is
+ * saved. None of it carries a status code, an account id or an email.
+ */
+export const ACCOUNT_MODELS_REFUSAL_TEXT = {
+  'empty-list':
+    'Choose at least one model, or All models. To stop using the account, disable it instead. Nothing was changed.',
+  'unknown-only':
+    'None of those models is one Antigravity serves, so nothing was changed.',
+  unavailable:
+    'Account models are set in antigravity-auth.jsonc, which this install does not use, so nothing was changed.',
+} as const
+
+/**
+ * An account's model list as the menu shows it: `null` when the account
+ * serves every model, `deny-all` when the setting can't be used and nothing
+ * earlier is known, otherwise the list's model names.
+ */
+export type AntigravityAccountModelList = readonly string[] | null | 'deny-all'
+
+/** The detail text of an account's model list. */
+export function accountModelsText(list: AntigravityAccountModelList): string {
+  if (list === null) return 'All models'
+  if (list === 'deny-all') return 'No models until account_models is fixed'
+  return list.join(', ')
+}
+
+/**
+ * The per-account model lists a host keeps (`account_models`). The menu
+ * hands `read` and `write` the exact credential reference captured for the
+ * item; the host keys the list by that account's stable id, which is never
+ * shown. `write` answers `stale` (or throws the repository's attribution
+ * failure) when that credential is no longer the row's current one, and
+ * throws `AntigravityMenuRefusal` with fixed text when nothing can be saved.
+ */
+export interface AntigravityAccountModelSource {
+  /** The models a list may name, as the menu offers them. */
+  readonly catalog: readonly string[]
+  /** Whether lists can be written now; otherwise they are only shown. */
+  writable(): boolean
+  read(
+    ref: RowRef,
+  ): AntigravityAccountModelList | Promise<AntigravityAccountModelList>
+  /** Sets the list; null returns the account to serving every model. */
+  write(
+    ref: RowRef,
+    models: readonly string[] | null,
+  ): Promise<'applied' | 'stale'>
+}
+
+const ALL_MODELS_KNOB = 'all-models'
+
+/**
+ * The "Models" action of one account: an "All models" switch and one switch
+ * per catalog model. Every host builds it the same way; `write` is the
+ * host's own, keyed by the account's stable id.
+ */
+export function accountModelsAction(input: {
+  readonly catalog: readonly string[]
+  readonly current: AntigravityAccountModelList
+  readonly label: string
+  write(models: readonly string[] | null): Promise<'applied' | 'stale'>
+}): ActionDefinition {
+  const current = input.current
+  const listed = new Set(Array.isArray(current) ? current : [])
+  return {
+    id: 'models',
+    label: 'Models',
+    description:
+      "Choose the models this account serves. A restricted account won't serve other models, even when it's the last account with quota.",
+    knobs: [
+      {
+        kind: 'toggle',
+        id: ALL_MODELS_KNOB,
+        label: 'All models',
+        value: current === null,
+      },
+      ...input.catalog.map((model) => ({
+        kind: 'toggle' as const,
+        id: model,
+        label: model,
+        value: current === null || listed.has(model),
+      })),
+    ],
+    run: async ({ values }) => {
+      const models =
+        values[ALL_MODELS_KNOB] === true
+          ? null
+          : input.catalog.filter((model) => values[model] === true)
+      if (models !== null && models.length === 0)
+        return failure(
+          ACCOUNT_MODELS_REFUSAL_TEXT['empty-list'],
+          'invalid-input',
+        )
+      let outcome: 'applied' | 'stale'
+      try {
+        outcome = await input.write(models)
+      } catch (error) {
+        return staleOrRethrow(error)
+      }
+      if (outcome === 'stale')
+        return failure(
+          'That account changed since the menu was opened; nothing was changed.',
+          'stale-account',
+        )
+      return models === null
+        ? `${input.label} serves all models`
+        : `${input.label} serves ${accountModelsText(models)}`
+    },
+  }
+}
+
 function accountsSection(
   options: AntigravityRepositoryMenuOptions,
   ids: ItemIds,
@@ -436,8 +553,14 @@ function accountsSection(
       const floors = limitSource
         ? await Promise.all(read.rows.map((row) => limitSource.read(row.ref)))
         : []
+      const modelSource = options.accountModels
+      const modelLists = modelSource
+        ? await Promise.all(read.rows.map((row) => modelSource.read(row.ref)))
+        : []
+      const modelsWritable = modelSource?.writable() ?? false
       const items: ItemDefinition[] = read.rows.map((row, position) => {
         const floor = floors[position] ?? null
+        const models = modelSource ? (modelLists[position] ?? null) : undefined
         const ref = row.ref
         const active = isActive(read, ref)
         const actions: ActionDefinition[] = [
@@ -517,6 +640,16 @@ function accountsSection(
           ...(limitSource
             ? [floorAction(limitSource, ref, position, floor)]
             : []),
+          ...(modelSource && modelsWritable && models !== undefined
+            ? [
+                accountModelsAction({
+                  catalog: modelSource.catalog,
+                  current: models,
+                  label: `Account ${position + 1}`,
+                  write: (next) => modelSource.write(ref, next),
+                }),
+              ]
+            : []),
           ...(options.reauthorize
             ? [reauthorizeAction(options.reauthorize, ref)]
             : []),
@@ -524,11 +657,14 @@ function accountsSection(
         return {
           id: ids.idFor(ref),
           label: `Account ${position + 1}`,
-          detail: `${statusOf(row, at)}${active ? ' · active' : ''}${floor !== null ? ` · floor ${floor}%` : ''}`,
+          detail: `${statusOf(row, at)}${active ? ' · active' : ''}${floor !== null ? ` · floor ${floor}%` : ''}${models !== undefined ? ` · ${accountModelsText(models)}` : ''}`,
           facts: {
             status: statusOf(row, at),
             active,
             ...(floor !== null ? { quotaFloorPercent: floor } : {}),
+            ...(models !== undefined
+              ? { models: accountModelsText(models) }
+              : {}),
           },
           actions,
         }

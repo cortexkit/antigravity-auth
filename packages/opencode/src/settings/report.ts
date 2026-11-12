@@ -8,10 +8,7 @@
 import { mkdir, readFile, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 import { writeJsonAtomic } from '@cortexkit/antigravity-auth-core'
-import type {
-  ReportEntry,
-  SettingsRefusalCode,
-} from '@cortexkit/antigravity-auth-core/common-auth/settings'
+import type { ReportEntry } from '@cortexkit/antigravity-auth-core/common-auth/settings'
 
 import { pluginStateDir } from '../runtime-paths'
 import { RETIRED_SETTINGS } from './core-settings'
@@ -130,19 +127,6 @@ export function describeReportEntry(entry: ReportEntry): string {
 
 /**
  * Fixed menu text for a refused settings write. It names the file, never the
- * error, so nothing from a failure reaches the menu.
+ * error, so nothing from a failure reaches the menu. Pi shows the same words.
  */
-export function refusalText(code: SettingsRefusalCode, file: string): string {
-  switch (code) {
-    case 'settings-unparseable':
-      return `The settings file couldn't be read, so nothing was changed. Fix or remove ${file}.`
-    case 'settings-newer-version':
-      return `The settings file is from a newer version of antigravity-auth, so nothing was changed. Update antigravity-auth or edit ${file} by hand.`
-    case 'settings-invalid-value':
-      return `That value can't be saved in the settings file, so nothing was changed. Check ${file}.`
-    case 'settings-busy':
-      return 'The settings file is being changed by another process, so nothing was changed. Try again.'
-    case 'settings-unavailable':
-      return `The settings file can't be written, so nothing was changed. Check that ${dirname(file)} is writable.`
-  }
-}
+export { settingsRefusalText as refusalText } from './core-settings'

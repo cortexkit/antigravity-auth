@@ -18,6 +18,8 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  ACCOUNT_MODELS_REFUSAL_TEXT,
+  AntigravityMenuRefusal,
   createAccountRepositoryFactory,
   initializeFreshAccountStore,
   loadCommonAuthStoreModules,
@@ -28,7 +30,10 @@ import type { RpcNotificationPayload } from '../rpc/protocol'
 import { createProtectionStore } from '../settings/protection'
 import { createSettingsRuntime } from '../settings/runtime'
 import { registerAntigravityCommands } from './catalog'
-import { createStoreAccountLimits } from './command-apply'
+import {
+  createStoreAccountLimits,
+  createStoreAccountModels,
+} from './command-apply'
 import {
   createAccountTargets,
   createAntigravityCommandExecuteBefore,
@@ -541,6 +546,11 @@ describe('createStoreAccountLimits on the shared settings file', () => {
         repository,
         settings: project.operator,
       }),
+      accountModels: createStoreAccountModels({
+        repository,
+        settings: project,
+        writable: () => project.mode() === 'shared',
+      }),
     })
     return {
       file,
@@ -637,6 +647,131 @@ describe('createStoreAccountLimits on the shared settings file', () => {
         text: `The settings file is from a newer version of antigravity-auth, so nothing was changed. Update antigravity-auth or edit ${store.file} by hand.`,
       })
       expect(readFileSync(store.file, 'utf8')).toBe('{ "schema_version": 2 }\n')
+    } finally {
+      await store.cleanup()
+    }
+  })
+
+  /** Every Models switch off, so a test turns on exactly the ones it names. */
+  function modelValues(
+    item: { actions: Array<{ id: string; knobs: Array<{ id: string }> }> },
+    on: Record<string, boolean>,
+  ): Record<string, boolean> {
+    const knobs =
+      item.actions.find((action) => action.id === 'models')?.knobs ?? []
+    return {
+      ...Object.fromEntries(knobs.map((knob) => [knob.id, false])),
+      ...on,
+    }
+  }
+
+  it('shows, sets and clears an account model list by row id, keeping comments', async () => {
+    const store = await storeWithSharedSettings(
+      '// models\n{\n  "schema_version": 1\n}\n',
+    )
+    try {
+      const invocation = { notify: () => undefined }
+      const accounts = async () =>
+        (await store.menu.open(invocation)).menu.sections.find(
+          (section) => section.id === 'accounts',
+        )?.items[0]
+      const shown = await accounts()
+      expect(shown?.detail).toContain('All models')
+      expect(shown?.facts).toMatchObject({ models: 'All models' })
+      expect(shown?.actions.map((action) => action.id)).toContain('models')
+      if (!shown) throw new Error('no account item')
+
+      const set = await store.menu.apply(
+        {
+          command: 'antigravity',
+          sectionId: 'accounts',
+          itemId: shown.id,
+          actionId: 'models',
+          values: modelValues(shown, {
+            'gemini-4-carbon': true,
+            'claude-sonnet-5-5': true,
+          }),
+        },
+        invocation,
+      )
+      expect(set).toMatchObject({
+        ok: true,
+        text: 'Account 1 serves gemini-4-carbon, claude-sonnet-5-5',
+      })
+      const written = readFileSync(store.file, 'utf8')
+      expect(written).toContain('// models')
+      expect(written).toContain(store.ref.id)
+      expect(store.project.accountModels()).toEqual({
+        [store.ref.id]: ['gemini-4-carbon', 'claude-sonnet-5-5'],
+      })
+      const access = store.project.modelAccess()
+      expect(access.allows(store.ref.id, 'gemini-4-carbon-high')).toBe(true)
+      expect(access.allows(store.ref.id, 'gemini-4-argon')).toBe(false)
+
+      const listed = await accounts()
+      expect(listed?.detail).toContain('gemini-4-carbon, claude-sonnet-5-5')
+      // The row id is the key in the file but never reaches the menu.
+      expect(JSON.stringify(listed)).not.toContain(store.ref.id)
+      if (!listed) throw new Error('no account item')
+
+      const cleared = await store.menu.apply(
+        {
+          command: 'antigravity',
+          sectionId: 'accounts',
+          itemId: listed.id,
+          actionId: 'models',
+          values: modelValues(listed, { 'all-models': true }),
+        },
+        invocation,
+      )
+      expect(cleared).toMatchObject({
+        ok: true,
+        text: 'Account 1 serves all models',
+      })
+      expect(store.project.accountModels()).toEqual({})
+      expect(readFileSync(store.file, 'utf8')).toContain('// models')
+      expect((await accounts())?.detail).toContain('All models')
+    } finally {
+      await store.cleanup()
+    }
+  })
+
+  it('refuses an empty or unknown-only model list with fixed text and writes nothing', async () => {
+    const original = '// models\n{\n  "schema_version": 1\n}\n'
+    const store = await storeWithSharedSettings(original)
+    try {
+      const invocation = { notify: () => undefined }
+      const item = (await store.menu.open(invocation)).menu.sections.find(
+        (section) => section.id === 'accounts',
+      )?.items[0]
+      if (!item) throw new Error('no account item')
+      const empty = await store.menu.apply(
+        {
+          command: 'antigravity',
+          sectionId: 'accounts',
+          itemId: item.id,
+          actionId: 'models',
+          values: modelValues(item, {}),
+        },
+        invocation,
+      )
+      expect(empty).toMatchObject({
+        ok: false,
+        code: 'invalid-input',
+        text: ACCOUNT_MODELS_REFUSAL_TEXT['empty-list'],
+      })
+      const unknown = await store.project
+        .updateAccountModels(store.ref.id, ['not-a-model', 'retired-route'])
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        )
+      expect(unknown).toBeInstanceOf(AntigravityMenuRefusal)
+      expect((unknown as AntigravityMenuRefusal).text).toBe(
+        ACCOUNT_MODELS_REFUSAL_TEXT['unknown-only'],
+      )
+      expect(readFileSync(store.file, 'utf8')).toBe(original)
+      expect(store.project.accountModels()).toEqual({})
     } finally {
       await store.cleanup()
     }

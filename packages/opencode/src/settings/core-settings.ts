@@ -11,8 +11,10 @@ export {
   compileModelAccess,
   createProtectionStore,
   type Floors,
+  knownModelIds,
   type ModelAccessIssue,
   type ModelAccessPolicy,
+  normalizeAccountModelList,
   PROTECTION_STATE_FILE_NAME,
   type ProtectionInputs,
   type ProtectionSource,
@@ -20,5 +22,6 @@ export {
   RETIRED_SETTINGS,
   type ResolvedProtection,
   resolveProtection,
+  settingsRefusalText,
   unusableAt,
 } from '@cortexkit/antigravity-auth-core/settings'

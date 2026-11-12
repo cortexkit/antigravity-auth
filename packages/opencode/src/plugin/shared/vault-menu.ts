@@ -1,20 +1,35 @@
 import {
   type AntigravityMenuSections,
   type AntigravityQuotaCheckReport,
+  accountModelsAction,
+  accountModelsText,
   formatAntigravityQuota,
   quotaCheckOutcome,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import { knownModelIds } from '../../settings/core-settings'
+import { type AccountModelSettings, accountModelList } from '../command-apply'
 import type {
   VaultAccountPool,
   VaultAccountRow,
 } from './vault-request-credentials'
+
+/**
+ * The vault accounts' model lists (`account_models`), keyed by each roster
+ * row's route id. The id is written by the Models action and never shown.
+ */
+export interface VaultAccountModels {
+  readonly settings: AccountModelSettings
+  /** Whether the shared settings file is in use, so lists can be written. */
+  readonly writable: () => boolean
+}
 
 /** Show accounts and quotas from the same vault account pool that selects request routes. */
 export function createVaultAccountMenuSections(
   pool: Pick<VaultAccountPool, 'selector' | 'syncForDisplay'>,
   selectorOf: (row: VaultAccountRow) => string,
   checkQuota?: (signal: AbortSignal) => Promise<AntigravityQuotaCheckReport>,
+  models?: VaultAccountModels,
 ): Pick<AntigravityMenuSections, 'accounts' | 'quota'> {
   return {
     accounts: {
@@ -28,11 +43,35 @@ export function createVaultAccountMenuSections(
               ? VAULT_ACCOUNT_REMEDY
               : `${rows.length} ${rows.length === 1 ? 'account' : 'accounts'} served from the vault`,
           ],
-          items: rows.map((row, position) => ({
-            id: selectorOf(row),
-            label: `Account ${position + 1}`,
-            detail: 'served from the vault',
-          })),
+          items: rows.map((row, position) => {
+            if (!models)
+              return {
+                id: selectorOf(row),
+                label: `Account ${position + 1}`,
+                detail: 'served from the vault',
+              }
+            const routeId = row.route.routeId
+            const list = accountModelList(models.settings, routeId)
+            return {
+              id: selectorOf(row),
+              label: `Account ${position + 1}`,
+              detail: `served from the vault · ${accountModelsText(list)}`,
+              facts: { models: accountModelsText(list) },
+              actions: models.writable()
+                ? [
+                    accountModelsAction({
+                      catalog: knownModelIds(),
+                      current: list,
+                      label: `Account ${position + 1}`,
+                      write: async (next) => {
+                        await models.settings.updateAccountModels(routeId, next)
+                        return 'applied'
+                      },
+                    }),
+                  ]
+                : [],
+            }
+          }),
         }
       },
     },

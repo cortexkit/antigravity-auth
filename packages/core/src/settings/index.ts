@@ -3,3 +3,4 @@
 export * from '../model-access.ts'
 export * from './definition.ts'
 export * from './protection.ts'
+export * from './refusal-text.ts'
