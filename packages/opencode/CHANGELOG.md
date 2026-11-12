@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.0.42] - 2026-11-12
+
 - In routed vault setups such as Thalamus, a request whose account routing refuses now sends nothing and ends with "Routing has no Antigravity account available for this request right now; try again later.", with routing's wait in `Retry-After`.
 - Under the hood, embedded common-auth is now published 0.47.0: a lock release waits until its lock file is gone, and account routing can return a refusal when the caller opts in.
 
