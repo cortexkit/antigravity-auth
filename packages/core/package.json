@@ -33,6 +33,10 @@
       "types": "./dist/fetch-timeout.d.ts",
       "import": "./dist/fetch-timeout.js"
     },
+    "./settings": {
+      "types": "./dist/settings/index.d.ts",
+      "import": "./dist/settings/index.js"
+    },
     "./common-auth/store": {
       "types": "./dist/common-auth-embedded/store/index.d.ts",
       "import": "./dist/common-auth-embedded/store/index.js"

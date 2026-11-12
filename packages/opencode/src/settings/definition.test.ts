@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import { ANTIGRAVITY_SETTINGS } from '@cortexkit/antigravity-auth-core'
 import { settingsJsonSchema } from '@cortexkit/antigravity-auth-core/common-auth/settings'
+import { ANTIGRAVITY_SETTINGS } from '@cortexkit/antigravity-auth-core/settings'
 import {
   AntigravityConfigSchema,
   DEFAULT_CONFIG,

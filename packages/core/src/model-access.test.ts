@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { canonicalModelId, compileModelAccess } from './model-access.ts'
+import {
+  canonicalModelId,
+  compileModelAccess,
+} from '@cortexkit/antigravity-auth-core/settings'
 
 describe('model access', () => {
   it('canonicalizes public tiers and prefixes without stripping GPT wire suffixes', () => {

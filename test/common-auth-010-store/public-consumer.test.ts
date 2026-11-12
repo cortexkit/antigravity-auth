@@ -134,6 +134,7 @@ beforeAll(async () => {
     CLAUSTRUM_CLIENT,
     '@cortexkit/subc-client',
     '@cortexkit/private-files',
+    'jsonc-parser',
     'xdg-basedir',
     'zod',
   ])
@@ -233,6 +234,60 @@ describe('packed core common-auth bindings', () => {
   )
 
   it(
+    'imports the package root without loading the settings embedding',
+    async () => {
+      const settings = join(installed, 'dist/common-auth-embedded/settings')
+      const parked = `${settings}.parked`
+      const output = await runConsumer(`
+      import { renameSync } from 'node:fs'
+      renameSync(${JSON.stringify(settings)}, ${JSON.stringify(parked)})
+      try {
+        const core = await import('${corePackage}')
+        const store = await core.loadCommonAuthStore()
+        console.log(JSON.stringify({
+          rootLoaded: true,
+          storeLoaded: typeof store.openPoolStore,
+        }))
+      } finally {
+        renameSync(${JSON.stringify(parked)}, ${JSON.stringify(settings)})
+      }
+    `)
+      expect(JSON.parse(output.trim())).toEqual({
+        rootLoaded: true,
+        storeLoaded: 'function',
+      })
+    },
+    PROBE_TIMEOUT_MS,
+  )
+
+  it(
+    'loads the settings declaration and model-access policy from their subpath',
+    async () => {
+      const output = await runConsumer(`
+      const settings = await import('${corePackage}/settings')
+      const policy = settings.compileModelAccess({ local: ['gemini-4-carbon'] })
+      console.log(JSON.stringify({
+        plugin: settings.ANTIGRAVITY_SETTINGS.plugin,
+        frozen: Object.isFrozen(settings.ANTIGRAVITY_SETTINGS.settings),
+        retired: settings.RETIRED_SETTINGS,
+        canonical: settings.canonicalModelId('antigravity-gemini-4-carbon-high'),
+        allowed: policy.allows('local', 'gemini-4-carbon-low'),
+        denied: policy.allows('local', 'gemini-4-argon'),
+      }))
+    `)
+      expect(JSON.parse(output.trim())).toEqual({
+        plugin: 'antigravity-auth',
+        frozen: true,
+        retired: ['tool_id_recovery', 'max_backoff_seconds'],
+        canonical: 'gemini-4-carbon',
+        allowed: true,
+        denied: false,
+      })
+    },
+    PROBE_TIMEOUT_MS,
+  )
+
+  it(
     'builds the shared /antigravity menu in sections mode from the packed root',
     async () => {
       // The mode a host without account rows (Pi) uses: four host sections run
@@ -295,6 +350,24 @@ import {
   createAntigravityCommandMenu,
   loadCommonAuthCommands,
 } from '${corePackage}'
+import {
+  ANTIGRAVITY_SETTINGS,
+  RETIRED_SETTINGS,
+  canonicalModelId,
+  compileModelAccess,
+  type AccountModels,
+  type ModelAccessIssue,
+  type ModelAccessOptions,
+  type ModelAccessPolicy,
+} from '${corePackage}/settings'
+
+const accountModels: AccountModels = { local: ['gemini-4-carbon'] }
+const options: ModelAccessOptions = { lastApplied: accountModels }
+export const policy: ModelAccessPolicy = compileModelAccess(accountModels, options)
+export const issues: readonly ModelAccessIssue[] = policy.issues
+export const declaration = ANTIGRAVITY_SETTINGS
+export const retired = RETIRED_SETTINGS
+export const canonical: string = canonicalModelId('gemini-4-carbon-high')
 
 const modules: CommonAuthStoreModules = await loadCommonAuthStoreModules()
 const open: (...args: Parameters<typeof modules.store.openPoolStore>) => PoolStore =
