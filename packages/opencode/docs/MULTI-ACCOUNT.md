@@ -18,7 +18,7 @@ Do not delete account files as a reset for `invalid_grant`, rate limits, or a fa
 
 ## Account selection
 
-Set `account_selection_strategy` in `antigravity.json`:
+Set `account_selection_strategy` in `antigravity-auth.jsonc` (see [Plugin configuration](CONFIGURATION.md#plugin-configuration)):
 
 | Strategy | Behavior |
 | --- | --- |
@@ -40,18 +40,20 @@ Each cached quota entry carries `{ remainingFraction, resetTime }` per quota gro
 
 - **Refresh:** the quota manager refreshes opportunistically after successful requests according to `quota_refresh_interval_minutes` (default `30`, `0` disables that cadence).
 - **TTL:** `soft_quota_cache_ttl_minutes = "auto"` resolves to `max(2 × refresh_interval, 10)` minutes.
-- **Soft threshold (opt-in):** `soft_quota_threshold_percent` defaults to `100` (off). Set `"soft_quota_threshold_percent": 80` in `antigravity.json` to skip accounts at 80% usage and keep a 20% reserve. Existing explicit thresholds are preserved, and a single-account pool remains exempt. Set the threshold back to `100` to disable the filter; it is not a `/antigravity` menu setting.
+- **Soft threshold (opt-in):** `soft_quota_threshold_percent` defaults to `100` (off). Set `"soft_quota_threshold_percent": 80` in `antigravity-auth.jsonc` to skip accounts at 80% usage and keep a 20% reserve. Existing explicit thresholds are preserved, and a single-account pool remains exempt. Set the threshold back to `100` to disable the filter; it is not a `/antigravity` menu setting.
 - **Stale/missing fail-open:** readings older than TTL, or never refreshed, are unknown and allowed through the soft check so cold starts cannot deadlock.
 - **All exhausted:** wait for eligible quota/reset/cooldown. `max_rate_limit_wait_seconds` (default `300`, `0` removes the cap) is one cumulative budget for a continuous period with no eligible account, shared by rate-limit and soft-quota waits. Each sleep is capped at the remaining budget; selecting an eligible account resets it. A proposed wait above the full cap still fails fast, and an exhausted budget ends with a native error rather than inventing success.
 - **Proactive rotation:** below `proactive_rotation_threshold_percent` remaining (default `20`), the next request selects a warm-cache account.
 
 ## Operator killswitch
 
-`/antigravity` → Limits configures OpenCode's operator exclusion layer:
+`/antigravity` → Limits configures OpenCode's operator exclusion layer, stored in the `killswitch` setting of `antigravity-auth.jsonc`. The killswitch and its floors are user-only: a project file can't set them, and Diagnostics names one that tries.
 
-- `operator.killswitch.enabled` defaults to `false`.
+- `killswitch.enabled` defaults to `false`.
 - `minimum_remaining_percent` defaults to `5`; accounts whose fresh cached remaining quota is below the floor are excluded. Quota equal to the floor is allowed.
-- `accounts` supplies per-account floors, keyed by `sha256(refreshToken).slice(0,12)`, not raw credentials. Raw tokens must not appear in config, sidebar, RPC, or apply responses.
+- `accounts` supplies per-account floors, keyed by the account's internal id: the local store's row id, or the vault roster's route id. The Limits menu writes the id; it is never a credential. A replaced login keeps its row's floor, and a floor write for a login replaced since the menu opened is refused. Raw tokens must not appear in config, sidebar, RPC, or apply responses.
+- A separate install that still reads `antigravity.json` keeps the old `operator.killswitch` keys there: per-account floors keyed by `sha256(refreshToken).slice(0,12)`, or by roster position for vault accounts.
+- If the per-account floors can't be read, they never fall back to none: the last applied floors stay in force, or with none known, every account uses the global floor.
 - Stale/missing cache fails open (default freshness TTL `5min`) so a cold start can obtain a real reading.
 - If every account is excluded, `AntigravityKillswitchError` carries a per-account summary rather than a synthetic success body.
 

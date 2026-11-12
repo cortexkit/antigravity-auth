@@ -59,17 +59,37 @@ Do not reuse this singular `plugin`/`tui.json` recipe for GA; [OpenCode 2](OPENC
 
 ## Plugin configuration
 
-Create `~/.config/opencode/antigravity.json` (or `.opencode/antigravity.json` in project root):
+Settings live in one JSONC file in the CortexKit settings folder: `~/.config/cortexkit/antigravity-auth.jsonc` (`$XDG_CONFIG_HOME/cortexkit/antigravity-auth.jsonc` when `XDG_CONFIG_HOME` is set, on every OS; `%APPDATA%\cortexkit\antigravity-auth.jsonc` on Windows otherwise). Set `OPENCODE_ANTIGRAVITY_AUTH_SETTINGS_FILE` to an absolute path to use a different file; an empty or relative value is ignored.
 
-```json
+```jsonc
+// antigravity-auth settings. Edit by hand or from /antigravity; comments are kept.
 {
-  "$schema": "https://raw.githubusercontent.com/cortexkit/antigravity-auth/main/packages/opencode/assets/antigravity.schema.json"
+  "$schema": "https://raw.githubusercontent.com/cortexkit/antigravity-auth/main/packages/opencode/assets/antigravity-auth.schema.json",
+  "schema_version": 1
 }
 ```
 
-Most settings have sensible defaults — only configure what you need.
+Most settings have sensible defaults — only configure what you need. The [settings declaration](../../core/src/settings/definition.ts) is authoritative; the [generated JSON Schema](../assets/antigravity-auth.schema.json) supplies editor validation. The `/antigravity` menu writes this file and keeps your comments, key order and unknown keys.
 
-Project settings override user settings. `OPENCODE_CONFIG_DIR` overrides the user configuration directory; otherwise it follows `XDG_CONFIG_HOME/opencode` (default `~/.config/opencode`). The [Zod schema](../src/plugin/config/schema.ts) is authoritative; the [generated JSON Schema](../assets/antigravity.schema.json) supplies editor validation.
+- **Project file.** `<project>/.cortexkit/antigravity-auth.jsonc` can set only `quiet_mode`, `toast_scope`, `session_recovery`, `claude_tool_hardening` and `claude_prompt_auto_caching`. Every other setting sends traffic, writes files, chooses accounts or protects quota, so only the user file can set it. The plugin never writes a project file. While a project has no `.cortexkit/antigravity-auth.jsonc`, its old `.opencode/antigravity.json` is read the same way. In either file, a user-only setting (including the killswitch, its per-account floors and the log level) is ignored, and `/antigravity` Diagnostics names it.
+- **Invalid values are skipped.** A value outside its bounds or of the wrong type is skipped and its default applies; `/antigravity` Diagnostics names it. Earlier versions clamped some out-of-range values instead. A file that can't be parsed keeps its last readable values while OpenCode runs, and the menu refuses to write it.
+- **Protection settings never widen.** The per-account floors (`killswitch.accounts`) and `account_models` never fall back to "no restriction". If the file can't supply them, the last applied values stay in force; at start the plugin uses the values it last applied, kept in `~/.local/state/cortexkit/antigravity-auth/settings-protection.json`. With nothing kept, every account uses the global floor, and no account with a model list serves.
+- **Per-account floors** in `killswitch.accounts` are keyed by an internal account id that the Limits menu writes for you. Set them from the menu rather than by hand.
+
+### Moving from `antigravity.json`
+
+Earlier versions read `antigravity.json` in OpenCode's config folder (`OPENCODE_CONFIG_DIR`, otherwise `XDG_CONFIG_HOME/opencode`, default `~/.config/opencode`) and `.opencode/antigravity.json` in the project. The first start of this version copies the user `antigravity.json` into `antigravity-auth.jsonc` once, in the background:
+
+- The move waits while an older antigravity-auth is still running. Until it happens, the old file stays in force and Diagnostics says why. Restart OpenCode after updating.
+- `antigravity.json` is left unchanged, with an `antigravity.json.MOVED_READPLEASE` note beside it. After the move it is no longer read, and changes made to it or by an older version are not picked up. Downgrading loses changes made after the move.
+- Values the old version ignored are not copied: a file that failed validation contributed only its `operator` block, as before. `operator.killswitch` becomes `killswitch` and `operator.log_level` becomes `log_level`. `soft_quota_cache_ttl_minutes: "auto"` becomes `"soft_quota_cache_ttl": "auto"`, and a number becomes `"soft_quota_cache_ttl": "minutes"` plus that `soft_quota_cache_ttl_minutes`.
+- `tool_id_recovery` and `max_backoff_seconds` are retired: they had no effect and are not copied.
+- Per-account floors move to the account's id. A floor for an account no longer in the store, one whose login is stored twice, or one set by roster position (`idx-N`, vault accounts) is not copied; Diagnostics and Limits list each one. Set it again from Limits.
+- Diagnostics shows what was not copied until you dismiss the report.
+- If `antigravity-auth.jsonc` already existed (for example, created by hand), nothing is copied. Diagnostics then names the settings still only in `antigravity.json`; copy them across by hand.
+- **Separate installs keep `antigravity.json`.** When `OPENCODE_ANTIGRAVITY_AUTH_VAULT_DIR` is set, or `OPENCODE_CONFIG_DIR` names a folder other than `XDG_CONFIG_HOME/opencode` (default `~/.config/opencode`), and `OPENCODE_ANTIGRAVITY_AUTH_SETTINGS_FILE` is unset, the install keeps reading and writing its `antigravity.json` files exactly as before and nothing moves. Set `OPENCODE_ANTIGRAVITY_AUTH_SETTINGS_FILE` to opt it into a settings file.
+
+The sidebar's preferences stay in `tui-preferences.jsonc`.
 
 ---
 
@@ -266,19 +286,20 @@ The [schema](../src/plugin/config/schema.ts) is the source of truth for complete
 | `max_cache_first_wait_seconds` | `60` | Wait cap for cache-first scheduling |
 | `failure_ttl_seconds` | `3600` | Failure-count reset window |
 | `default_retry_after_seconds` | `60` | Retry delay fallback |
-| `max_backoff_seconds` | `60` | Exponential backoff cap |
 | `request_jitter_max_ms` | `0` | Spread concurrent requests |
 | `switch_account_delay_ms` | `500` | Delay before switching accounts |
 | `soft_quota_threshold_percent` | `100` (off) | Opt in to a reserve with a lower usage threshold, for example `80` to keep 20% remaining |
 | `quota_refresh_interval_minutes` | `30` | Opportunistic quota refresh cadence; `0` disables |
-| `soft_quota_cache_ttl_minutes` | `auto` | `max(2 × refresh, 10)` minutes or an explicit TTL |
+| `soft_quota_cache_ttl` | `auto` | `auto` uses `max(2 × refresh, 10)` minutes; `minutes` uses `soft_quota_cache_ttl_minutes` |
+| `soft_quota_cache_ttl_minutes` | `60` | Explicit TTL (1-120) when `soft_quota_cache_ttl` is `minutes` |
 | `proactive_rotation_threshold_percent` | `20` | Remaining quota trigger; `OPENCODE_ANTIGRAVITY_PROACTIVE_ROTATION_THRESHOLD` |
-| `operator.killswitch.enabled` | `false` | Hard exclusion switch |
-| `operator.killswitch.minimum_remaining_percent` | `5` | Global remaining-quota floor |
-| `operator.killswitch.accounts` | unset | Per-account floors, keyed by a short token hash, never a raw token |
-| `operator.log_level` | `info` | `error`, `warn`, `info`, `debug`, `trace`; mutable via Diagnostics |
+| `killswitch.enabled` | `false` | Hard exclusion switch |
+| `killswitch.minimum_remaining_percent` | `5` | Global remaining-quota floor |
+| `killswitch.accounts` | `{}` | Per-account floors, keyed by an internal account id the Limits menu writes |
+| `log_level` | `info` | `error`, `warn`, `info`, `debug`, `trace`; mutable via Diagnostics |
+| `account_models` | `{}` | Reserved for per-account model lists; not applied to requests yet |
 
-The soft quota reserve is off by default. Set `"soft_quota_threshold_percent": 80` in `antigravity.json` to opt in; existing explicit values are preserved. Set it to `100` to turn the reserve off. This setting is not available in the `/antigravity` menu; Limits controls the separate operator killswitch.
+The soft quota reserve is off by default. Set `"soft_quota_threshold_percent": 80` in `antigravity-auth.jsonc` to opt in; existing explicit values are preserved. Set it to `100` to turn the reserve off. This setting is not available in the `/antigravity` menu; Limits controls the separate operator killswitch.
 
 Use `OPENCODE_ANTIGRAVITY_QUIET=1`, `OPENCODE_ANTIGRAVITY_DEBUG=1`, and `OPENCODE_ANTIGRAVITY_LOG_DIR=/secure/path` for quiet mode, file logging, and log location respectively. Account strategy and PID offset also have `OPENCODE_ANTIGRAVITY_ACCOUNT_SELECTION_STRATEGY` and `OPENCODE_ANTIGRAVITY_PID_OFFSET_ENABLED` overrides. See [account and quota semantics](MULTI-ACCOUNT.md) rather than treating thresholds as live entitlement guarantees.
 
@@ -291,7 +312,9 @@ OpenCode watches its config folder (`~/.config/opencode`, or `OPENCODE_CONFIG_DI
 | Account store (`antigravity-accounts.json.store.pointer.json` and its `…generation/` folder), vault files (`antigravity-auth-vault/`) | The runtime folder: `~/.local/state/cortexkit/antigravity-auth/opencode/` for the config folder `~/.config/opencode`. Any other config folder gets `~/.local/state/cortexkit/antigravity-auth/opencode-<16 hex digits>/`, whose `config-dir.json` names the config folder it belongs to. |
 | Signature cache | `~/.local/state/cortexkit/antigravity-auth/antigravity-signature-cache.json`, one per state folder, shared by every config folder |
 | Debug logs | `~/.local/state/cortexkit/antigravity-auth/logs/`, unless `OPENCODE_ANTIGRAVITY_LOG_DIR` or `log_dir` names a folder (the variable wins) |
-| `antigravity.json`, `tui-preferences.jsonc`, account-store forwarding pointer and kept old store | OpenCode's config folder |
+| Settings (`antigravity-auth.jsonc`) | `~/.config/cortexkit/` (see [Plugin configuration](#plugin-configuration)) |
+| Last applied protection settings (`settings-protection.json`) and the settings move report (`settings-move-report.json`) | `~/.local/state/cortexkit/antigravity-auth/` |
+| `antigravity.json` (old settings, still read by separate installs), `tui-preferences.jsonc`, account-store forwarding pointer and kept old store | OpenCode's config folder |
 
 `~/.local/state` means `$XDG_STATE_HOME` when that is set, on every OS; on Windows it is `%USERPROFILE%\.local\state`. Runtime folders are private to your user: `0700` folders and `0600` files, or an owner-only ACL on Windows. Pi's files do not move.
 
@@ -357,7 +380,7 @@ Until you do, an older version finds the enrollment state without its token: it 
 | --- | --- | --- |
 | Local account store | In the runtime folder after the move; `antigravity-accounts.json.store.pointer.json` selects the sibling `antigravity-accounts.json.store.<id>.generation/` directory | Owner-only `config.json` / `state.json`, journals, protected backups/transfers; see [where the files live](#where-the-files-live) for deferral and downgrade rules |
 | Legacy pool | `$OPENCODE_CONFIG_DIR/antigravity-accounts.json` (default `~/.config/opencode/…`) | Migration input / successful V4 rollback output, not the active writer |
-| Plugin config | Project `.opencode/antigravity.json`, then user config | Zod-validated settings |
+| Plugin config | Project `.cortexkit/antigravity-auth.jsonc` (project-allowed keys only; else the old `.opencode/antigravity.json`), then `antigravity-auth.jsonc` | JSONC; invalid values are skipped and named in Diagnostics |
 | Debug logs | `~/.local/state/cortexkit/antigravity-auth/logs/`, or `OPENCODE_ANTIGRAVITY_LOG_DIR`, then `log_dir` | Sensitive request/response data; owner-only |
 | Gemini wire dumps | `opencode-antigravity-gemini-dumps/` in the OS temporary folder, or `OPENCODE_ANTIGRAVITY_GEMINI_DUMP_DIR` | Sensitive request/response data; turn dumps off after debugging |
 | OpenCode 1 sidebar | `$XDG_STATE_HOME/cortexkit/antigravity-auth/sidebar-state.json` | Override `ANTIGRAVITY_AUTH_SIDEBAR_STATE_FILE`; `0600` |
