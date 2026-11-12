@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Per-account model lists are now enforced (#67): `account_models` in `antigravity-auth.jsonc` limits which models each account serves, in local and vault modes. A listed model covers its thinking tiers and aliases, an account without a list serves every model, and a request no account may serve ends with a 412 that names the setting. Set lists from `/antigravity` → Accounts → Models.
 - Updated the embedded common-auth library to 0.45.0: a leftover lock temp file from a crashed process is now cleaned up the next time that lock is taken.
 
 ## [3.0.40] - 2026-11-11

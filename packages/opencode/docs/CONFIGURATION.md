@@ -297,7 +297,7 @@ The [schema](../src/plugin/config/schema.ts) is the source of truth for complete
 | `killswitch.minimum_remaining_percent` | `5` | Global remaining-quota floor |
 | `killswitch.accounts` | `{}` | Per-account floors, keyed by an internal account id the Limits menu writes |
 | `log_level` | `info` | `error`, `warn`, `info`, `debug`, `trace`; mutable via Diagnostics |
-| `account_models` | `{}` | Reserved for per-account model lists; not applied to requests yet |
+| `account_models` | `{}` | Per-account model lists, keyed by an internal account id the Accounts menu writes; see [per-account model lists](MULTI-ACCOUNT.md#per-account-model-lists) |
 
 The soft quota reserve is off by default. Set `"soft_quota_threshold_percent": 80` in `antigravity-auth.jsonc` to opt in; existing explicit values are preserved. Set it to `100` to turn the reserve off. This setting is not available in the `/antigravity` menu; Limits controls the separate operator killswitch.
 

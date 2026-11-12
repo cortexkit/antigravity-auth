@@ -45,6 +45,29 @@ Each cached quota entry carries `{ remainingFraction, resetTime }` per quota gro
 - **All exhausted:** wait for eligible quota/reset/cooldown. `max_rate_limit_wait_seconds` (default `300`, `0` removes the cap) is one cumulative budget for a continuous period with no eligible account, shared by rate-limit and soft-quota waits. Each sleep is capped at the remaining budget; selecting an eligible account resets it. A proposed wait above the full cap still fails fast, and an exhausted budget ends with a native error rather than inventing success.
 - **Proactive rotation:** below `proactive_rotation_threshold_percent` remaining (default `20`), the next request selects a warm-cache account.
 
+## Per-account model lists
+
+`account_models` in `antigravity-auth.jsonc` limits which models an account serves. It is user-only: a project file can't set it. It applies in local and vault modes.
+
+```jsonc
+{
+  "schema_version": 1,
+  "account_models": {
+    // Written by /antigravity → Accounts → Models; never typed by hand.
+    "<account id>": ["gemini-4-carbon", "claude-sonnet-5-5"]
+  }
+}
+```
+
+- **Keys.** Each key is the account's internal id: the local store's row id, or in vault and Thalamus modes the vault roster's route id. The id is never an email and never shown. Set lists from `/antigravity` → Accounts → Models, which writes the id for you; vault ids in particular can't be typed by hand. A route id belongs to this host's roster, so an id written from OpenCode names an account on Pi only when both rosters agree.
+- **What a list covers.** A listed model covers all of its thinking tiers and every alias that resolves to it: `gemini-4-carbon` covers `gemini-4-carbon-high` and `antigravity-gemini-4-carbon-low`, and `gpt-oss-120b` covers `gpt-oss-120b-medium`. An alias of another model never passes. Model names the plugin doesn't serve are ignored and allow nothing.
+- **No entry.** An account without an entry serves every model.
+- **Strict.** An account never serves a model outside its list, even when it is the last account with quota. It isn't rate-limited or cooled down for that, and requests never wait for it. Plugin requests (titles, thinking warmups, cache warmups, image requests) choose among the accounts their own model allows, and a Thalamus routing answer that names a forbidden vault account is ignored.
+- **No account allowed.** When no account may serve a request, it ends at once with HTTP 412 and this text, before anything is sent: `The requested Antigravity model is not available to the configured accounts. Choose another model. The account_models setting limits which accounts may serve it; change it in /antigravity → Accounts.`
+- **Never widen.** A list that can't be read or used never falls back to "every model". The last applied lists stay in force; at start the plugin uses the lists it last applied (kept in `settings-protection.json` in its state folder). With nothing kept, no account serves until the setting is fixed, and `/antigravity` Diagnostics names `account_models`. An empty list `[]` is invalid, and the menu never writes one.
+- **Menu.** Accounts shows each account's list, or "All models". Models sets the list or chooses All models to remove the entry. The menu refuses an empty list or one that names no model it serves, and changes nothing. Edits go to the user file and keep its comments.
+- **Pi.** Pi applies the same lists only in vault mode, keyed by its vault roster's route id, and checks the account before anything is sent. Pi's own login has no stable id, so it always serves every model. Pi reads only the user file, keeps its last applied lists beside its vault files, names an unusable `account_models` in its Accounts section, and never creates `antigravity-auth.jsonc`: a list can be set from Pi's menu once the file exists.
+
 ## Operator killswitch
 
 `/antigravity` → Limits configures OpenCode's operator exclusion layer, stored in the `killswitch` setting of `antigravity-auth.jsonc`. The killswitch and its floors are user-only: a project file can't set them, and Diagnostics names one that tries.
