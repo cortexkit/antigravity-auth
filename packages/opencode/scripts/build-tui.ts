@@ -895,6 +895,7 @@ async function admitExistingMap(mapFile: string) {
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.43.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.44.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.45.0' &&
+        metadata.compiler !== '@cortexkit/common-auth/tui-build@0.47.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')
     )
       throw new Error('build: existing TUI map is not owned generated metadata')

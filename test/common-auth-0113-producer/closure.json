@@ -312,6 +312,7 @@
       "node:path"
     ],
     "fs/refresh-file-lock.js": [
+      "../logger/index.js",
       "./lock-record.js",
       "./private-files.js",
       "./with-lock.js",

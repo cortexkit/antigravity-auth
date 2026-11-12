@@ -182,7 +182,7 @@ test('build.private_public_contract', async () => {
     'opentui:runtime-module:',
   )
   const map = JSON.parse(await readFile(join(target, 'map.json'), 'utf8'))
-  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.45.0')
+  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.47.0')
   // Check each manifest record's path, hash and byte count against the emitted
   // regular file itself, rather than crosschecking two self-reported fields.
   for (const tree of [map.raw, map.runtime]) {
