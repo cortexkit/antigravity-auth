@@ -85,7 +85,7 @@ export interface PiVaultRequestPathOptions {
    * The per-account model lists (`account_models`). The serving vault
    * account is checked by its route id before anything is sent.
    */
-  accountModels?: Pick<PiModelAccess, 'refresh' | 'policy'>
+  accountModels?: Pick<PiModelAccess, 'ready' | 'policy'>
 }
 
 /** Require current vault-mode settings before opening the account source; refuse local or unreadable settings. */
@@ -165,9 +165,10 @@ export function createPiVaultSend(
       principal,
     )
     if (options.accountModels) {
-      // Re-read the list so an edit made since the last request applies.
-      // A failed read throws, so nothing is sent on an unknown list.
-      await options.accountModels.refresh()
+      // The first send waits for the settings file to be opened and applied;
+      // later sends only consult the policy in memory. A failed start throws,
+      // so nothing is sent on an unknown list.
+      await options.accountModels.ready()
       signal.throwIfAborted()
       if (!options.accountModels.policy().allows(ref.routeId, modelId ?? ''))
         throw new PiVaultSendError(PI_ACCOUNT_MODELS_REFUSAL)

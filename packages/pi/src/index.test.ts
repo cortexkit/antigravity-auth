@@ -33,7 +33,7 @@ import {
 import type { PiVaultSeams } from './vault-source.ts'
 import * as vaultSource from './vault-source.ts'
 
-async function shutdownFixture() {
+async function shutdownFixture(extra: Partial<PiVaultSeams> = {}) {
   const fixture = await recoveryFixture()
   const createRuntime = vaultSource.createPiVaultRuntime
   let runtime: vaultSource.PiVaultRuntime | undefined
@@ -93,6 +93,7 @@ async function shutdownFixture() {
       } as never,
       {
         ...fixture.seams,
+        ...extra,
         readHostSlot: () => undefined,
         connect: async () => client,
         connectEnrollment: async () => ({
@@ -119,6 +120,34 @@ async function shutdownFixture() {
 }
 
 describe('Pi vault session shutdown', () => {
+  it('closes the settings watcher the factory opened, so no session leaks one into the next', async () => {
+    const settingsDir = await mkdtemp(join(tmpdir(), 'pi-settings-watch-'))
+    const settingsFile = join(settingsDir, 'antigravity-auth.jsonc')
+    await writeFile(settingsFile, '{ "schema_version": 1 }\n')
+    const watched = () =>
+      (
+        (globalThis as Record<symbol, unknown>)[
+          Symbol.for('cortexkit.common-auth.settings.watchers.v1')
+        ] as Map<string, unknown> | undefined
+      )?.has(settingsFile) ?? false
+    const fixture = await shutdownFixture({ settingsFile })
+    try {
+      // The factory opens and watches the settings file in the background.
+      const deadline = Date.now() + 5_000
+      while (!watched() && Date.now() < deadline)
+        await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(watched()).toBe(true)
+      const shutdown = fixture.handlers.get('session_shutdown')
+      if (!shutdown) throw new Error('No session_shutdown handler registered')
+      await shutdown({ type: 'session_shutdown', reason: 'new' }, {})
+      expect(watched()).toBe(false)
+    } finally {
+      await fixture.runtime.dispose?.()
+      await rm(fixture.directory, { recursive: true, force: true })
+      await rm(settingsDir, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     'quit',
     'reload',

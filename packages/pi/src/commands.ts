@@ -84,20 +84,21 @@ export interface PiAntigravityAccountSectionsOptions {
   /** The vault accounts' model lists; without it none are shown or set. */
   models?: Pick<
     PiModelAccess,
-    'refresh' | 'list' | 'catalog' | 'notice' | 'update'
+    'ready' | 'list' | 'catalog' | 'notice' | 'update'
   >
 }
 
 /**
- * Re-read the model lists for a menu build. A list that can't be read is
- * left out of the menu rather than shown as serving every model.
+ * Wait until the model lists are open and applied. The watcher keeps them
+ * current, so a menu build reads no file. Lists that can't be opened are left
+ * out of the menu rather than shown as serving every model.
  */
 async function readModelLists(
   options: PiAntigravityAccountSectionsOptions,
 ): Promise<boolean> {
   if (!options.models) return false
   try {
-    await options.models.refresh()
+    await options.models.ready()
     return true
   } catch {
     return false

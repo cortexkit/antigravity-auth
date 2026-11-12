@@ -15,6 +15,7 @@ import {
   AntigravityMenuRefusal,
   type VaultRouteRef,
 } from '@cortexkit/antigravity-auth-core'
+import { openSettings } from '@cortexkit/antigravity-auth-core/common-auth/settings'
 
 import { createPiAntigravityAccountSections } from './commands.ts'
 import {
@@ -41,10 +42,29 @@ const ROUTE: VaultRouteRef = Object.freeze({
 })
 
 const roots: string[] = []
-afterEach(() => {
+const accesses: Array<ReturnType<typeof createPiModelAccess>> = []
+afterEach(async () => {
+  // Every access watches its file; close them before the folders go.
+  await Promise.all(accesses.splice(0).map((access) => access.dispose()))
   for (const root of roots.splice(0))
     rmSync(root, { recursive: true, force: true })
 })
+
+/** The library's watchers, one per settings path, shared process-wide. */
+function watchedPaths(): Set<string> {
+  const registry = (globalThis as Record<symbol, unknown>)[
+    Symbol.for('cortexkit.common-auth.settings.watchers.v1')
+  ] as Map<string, unknown> | undefined
+  return new Set(registry?.keys() ?? [])
+}
+
+async function waitFor(condition: () => boolean, timeoutMs = 5_000) {
+  const deadline = Date.now() + timeoutMs
+  while (!condition()) {
+    if (Date.now() > deadline) throw new Error('condition not reached')
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
 
 function fixture(text?: string) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'pi-model-access-')))
@@ -58,7 +78,15 @@ function fixture(text?: string) {
   return {
     file,
     statePath,
-    access: () => createPiModelAccess({ file, statePath }),
+    access: (open?: Parameters<typeof createPiModelAccess>[0]['open']) => {
+      const access = createPiModelAccess({
+        file,
+        statePath,
+        ...(open ? { open } : {}),
+      })
+      accesses.push(access)
+      return access
+    },
   }
 }
 
@@ -279,7 +307,7 @@ describe('Pi /antigravity account model lists', () => {
 
     const missing = fixture()
     const noFile = missing.access()
-    await noFile.refresh()
+    await noFile.ready()
     const refused = await noFile.update('vault:a', ['gemini-4-carbon']).then(
       () => undefined,
       (error: unknown) => error,
@@ -288,5 +316,113 @@ describe('Pi /antigravity account model lists', () => {
       PI_ACCOUNT_MODELS_NO_FILE,
     )
     expect(existsSync(missing.file)).toBe(false)
+  })
+})
+
+describe('Pi settings reads stay off the send path', () => {
+  it('reads the settings file only at start and on change, never per send', async () => {
+    const f = fixture(
+      '{ "schema_version": 1, "account_models": { "vault:a": ["claude-sonnet-5-5"] } }\n',
+    )
+    const reads = { read: 0, get: 0 }
+    const access = f.access((definition, options) => {
+      const handle = openSettings(definition, options)
+      return {
+        ...handle,
+        read: (...args: Parameters<typeof handle.read>) => {
+          reads.read++
+          return handle.read(...args)
+        },
+        get: ((...args: Parameters<typeof handle.get>) => {
+          reads.get++
+          return handle.get(...args)
+        }) as typeof handle.get,
+      }
+    })
+    const { send, sends } = vaultSend(access)
+    const signal = new AbortController().signal
+    // The first send waits for the start, which reads the file once.
+    expect(
+      (await send(ok, signal, 'antigravity-claude-sonnet-5-5')).status,
+    ).toBe(200)
+    const afterStart = { ...reads }
+    expect(afterStart.read).toBeGreaterThan(0)
+    for (let i = 0; i < 20; i++) {
+      expect(
+        (await send(ok, signal, 'antigravity-claude-sonnet-5-5-high')).status,
+      ).toBe(200)
+      await expect(
+        send(ok, signal, 'antigravity-gemini-4-carbon'),
+      ).rejects.toThrow(PI_ACCOUNT_MODELS_REFUSAL)
+    }
+    expect(reads).toEqual(afterStart)
+    expect(sends).toHaveLength(21)
+  })
+
+  it('applies an edit to a running Pi through the watcher', async () => {
+    const f = fixture(
+      '{ "schema_version": 1, "account_models": { "vault:a": ["claude-sonnet-5-5"] } }\n',
+    )
+    const access = f.access()
+    const { send } = vaultSend(access)
+    const signal = new AbortController().signal
+    await expect(
+      send(ok, signal, 'antigravity-gemini-4-carbon'),
+    ).rejects.toThrow(PI_ACCOUNT_MODELS_REFUSAL)
+    writeFileSync(
+      f.file,
+      '{ "schema_version": 1, "account_models": { "vault:a": ["gemini-4-carbon"] } }\n',
+    )
+    await waitFor(() =>
+      access.policy().allows('vault:a', 'antigravity-gemini-4-carbon'),
+    )
+    expect((await send(ok, signal, 'antigravity-gemini-4-carbon')).status).toBe(
+      200,
+    )
+    await expect(
+      send(ok, signal, 'antigravity-claude-sonnet-5-5'),
+    ).rejects.toThrow(PI_ACCOUNT_MODELS_REFUSAL)
+  })
+
+  it('serves every model while the file is missing, then applies it once the watcher sees it created', async () => {
+    const f = fixture()
+    const access = f.access()
+    const { send } = vaultSend(access)
+    const signal = new AbortController().signal
+    expect((await send(ok, signal, 'antigravity-gemini-4-carbon')).status).toBe(
+      200,
+    )
+    mkdirSync(join(f.file, '..'), { recursive: true })
+    writeFileSync(
+      f.file,
+      '{ "schema_version": 1, "account_models": { "vault:a": ["claude-sonnet-5-5"] } }\n',
+    )
+    await waitFor(
+      () => !access.policy().allows('vault:a', 'antigravity-gemini-4-carbon'),
+    )
+    await expect(
+      send(ok, signal, 'antigravity-gemini-4-carbon'),
+    ).rejects.toThrow(PI_ACCOUNT_MODELS_REFUSAL)
+  })
+
+  it('closes its watcher on dispose and opens the file again on the next start', async () => {
+    const f = fixture(
+      '{ "schema_version": 1, "account_models": { "vault:a": ["claude-sonnet-5-5"] } }\n',
+    )
+    const access = f.access()
+    await access.ready()
+    expect(watchedPaths().has(f.file)).toBe(true)
+    await access.dispose()
+    expect(watchedPaths().has(f.file)).toBe(false)
+    // A disposed access no longer follows the file.
+    writeFileSync(
+      f.file,
+      '{ "schema_version": 1, "account_models": { "vault:a": ["gemini-4-carbon"] } }\n',
+    )
+    await new Promise((resolve) => setTimeout(resolve, 1_500))
+    expect(access.policy().allows('vault:a', 'gemini-4-carbon')).toBe(false)
+    await access.ready()
+    expect(access.policy().allows('vault:a', 'gemini-4-carbon')).toBe(true)
+    expect(watchedPaths().has(f.file)).toBe(true)
   })
 })

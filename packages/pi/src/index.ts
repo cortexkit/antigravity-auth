@@ -256,6 +256,9 @@ export async function registerCortexKitPiAntigravity(
     ),
     ...(seams.settingsFile ? { file: seams.settingsFile } : {}),
   })
+  // Open and watch the settings file now; sends wait for this start and
+  // then read only the policy in memory.
+  void accountModels.ready().catch(() => {})
   const send = createPiVaultSend({ ...vault.requestPath, accountModels })
 
   const register = (mode: PiVaultModeRead) => {
@@ -363,7 +366,10 @@ export async function registerCortexKitPiAntigravity(
     }
   })
   pi.on?.('session_shutdown', async () => {
-    await vault.dispose()
+    // Both start at once, so the vault's disposal is not delayed; the
+    // settings watcher must be closed before the next session's factory
+    // opens its own.
+    await Promise.all([vault.dispose(), accountModels.dispose()])
   })
 
   const accounts = createPiVaultAccountsPort(vault.requestPath)

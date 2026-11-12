@@ -11,10 +11,13 @@
  * Pi runs and is persisted beside Pi's vault files for the next start; with
  * nothing persisted, no restricted account serves.
  *
- * The settings modules load on first use, so Pi's start stays lazy. The
- * file is re-read before every vault send and menu build: Pi sends one
- * request at a time, and a re-read keeps edits from OpenCode current
- * without a watcher.
+ * The settings file is opened once per extension instance (`ready`), and the
+ * library's watcher re-applies it after every change, including its
+ * creation: Pi never creates the file, so a missing file means no lists
+ * (every model) until it appears. A send only consults the policy in memory
+ * and never reads the file. `dispose` stops the watcher; Pi calls it on
+ * session shutdown, and the next `ready` opens the file again. The settings
+ * modules load on first use, so Pi's start stays lazy.
  */
 
 import { stat } from 'node:fs/promises'
@@ -52,21 +55,29 @@ export interface PiModelAccessOptions {
   /** Where the last applied value is kept; defaults beside Pi's vault files. */
   readonly statePath: string
   readonly log?: { warn(message: string): void; info(message: string): void }
+  /** Test seam: the library's `openSettings`. */
+  readonly open?: SettingsModule['openSettings']
 }
 
 export interface PiModelAccess {
-  /** Re-read the user file and recompute the policy in force. */
-  refresh(): Promise<void>
-  /** The policy in force after the last refresh; deny-all before the first. */
+  /**
+   * Open the settings file, apply it and start watching it, once; later
+   * calls wait for that same start. A failed start is retried on the next
+   * call.
+   */
+  ready(): Promise<void>
+  /** The policy in force; deny-all until `ready` has applied the file. */
   policy(): Pick<ModelAccessPolicy, 'allows'>
   /** One vault account's list as the menu shows it, by base model name. */
   list(routeId: string): AntigravityAccountModelList
-  /** The models a list may name, after the first refresh. */
+  /** The models a list may name, once `ready` has finished. */
   catalog(): readonly string[]
-  /** A Limits line when the setting can't be used; undefined otherwise. */
+  /** An Accounts line when the setting can't be used; undefined otherwise. */
   notice(): string | undefined
   /** Sets (or, with null, removes) one vault account's list, keeping comments. */
   update(routeId: string, models: readonly string[] | null): Promise<void>
+  /** Stop watching the file and wait for any re-read in progress. */
+  dispose(): Promise<void>
 }
 
 /** The shared settings file, as OpenCode resolves it for the same user. */
@@ -85,24 +96,30 @@ export async function piSettingsFile(
   })
 }
 
+interface OpenSettings {
+  readonly settings: SettingsModule
+  readonly rules: PolicyModule
+  readonly file: string
+  readonly handle: SettingsHandle<
+    PolicyModule['ANTIGRAVITY_SETTINGS']['settings']
+  >
+  readonly store: ProtectionStore
+  persisted: AppliedProtection | undefined
+  /** Stops this start's watcher. */
+  stop?: () => void
+}
+
 export function createPiModelAccess(
   options: PiModelAccessOptions,
 ): PiModelAccess {
   const log = options.log ?? { warn() {}, info() {} }
-  let loaded:
-    | {
-        readonly settings: SettingsModule
-        readonly rules: PolicyModule
-        readonly file: string
-        readonly handle: SettingsHandle<
-          PolicyModule['ANTIGRAVITY_SETTINGS']['settings']
-        >
-        readonly store: ProtectionStore
-        persisted: AppliedProtection | undefined
-      }
-    | undefined
+  // The settings handle of the current start; undefined once disposed.
+  let current: OpenSettings | undefined
+  let starting: Promise<OpenSettings> | undefined
   let protection: ResolvedProtection | undefined
   let policy: Pick<ModelAccessPolicy, 'allows'> = { allows: () => false }
+  // Kept across restarts in one process: a value applied earlier still
+  // stands in for a file that later becomes unusable.
   let lastApplied: AppliedProtection = {}
   // Reads and writes run one at a time, so a refresh never interleaves
   // with the state save of another.
@@ -116,34 +133,36 @@ export function createPiModelAccess(
     return run
   }
 
-  const load = async () => {
-    if (loaded) return loaded
+  const open = async (): Promise<OpenSettings> => {
     const settings = await import(
       '@cortexkit/antigravity-auth-core/common-auth/settings'
     )
     const rules = await import('@cortexkit/antigravity-auth-core/settings')
     const file = options.file ?? (await piSettingsFile())
     const store = rules.createProtectionStore(options.statePath)
-    loaded = {
+    return {
       settings,
       rules,
       file,
       store,
-      handle: settings.openSettings(rules.ANTIGRAVITY_SETTINGS, {
-        file,
-        log,
-        separateInstall: false,
-        // Pi never creates the file: a file Pi created would stop OpenCode's
-        // one-time move of antigravity.json.
-        createMissing: false,
-      }),
+      handle: (options.open ?? settings.openSettings)(
+        rules.ANTIGRAVITY_SETTINGS,
+        {
+          file,
+          log,
+          separateInstall: false,
+          // Pi never creates the file: a file Pi created would stop
+          // OpenCode's one-time move of antigravity.json.
+          createMissing: false,
+        },
+      ),
       persisted: await store.load(file),
     }
-    return loaded
   }
 
-  const refreshOnce = async () => {
-    const { rules, handle, file, store } = await load()
+  /** Read the file through `opened` and apply it; the only file read. */
+  const apply = async (opened: OpenSettings) => {
+    const { rules, handle, file, store } = opened
     await handle.read()
     const accountModels = await handle.get('account_models', { host: 'pi' })
     protection = rules.resolveProtection({
@@ -155,18 +174,15 @@ export function createPiModelAccess(
       ]),
       floorsUnusable: false,
       lastApplied,
-      ...(loaded?.persisted ? { persisted: loaded.persisted } : {}),
+      ...(opened.persisted ? { persisted: opened.persisted } : {}),
     })
     if (protection.accountModelsSource === 'setting') {
       lastApplied = { accountModels: protection.accountModels as AccountModels }
       const next = { accountModels: lastApplied.accountModels }
-      if (
-        loaded &&
-        JSON.stringify(next) !== JSON.stringify(loaded.persisted ?? {})
-      ) {
+      if (JSON.stringify(next) !== JSON.stringify(opened.persisted ?? {})) {
         try {
           await store.save(file, next)
-          loaded.persisted = next
+          opened.persisted = next
         } catch (error) {
           log.warn(
             `Could not save the last applied account_models (${error instanceof Error ? error.name : 'unknown'})`,
@@ -180,18 +196,44 @@ export function createPiModelAccess(
         : rules.compileModelAccess(protection.accountModels)
   }
 
+  const start = async (): Promise<OpenSettings> => {
+    const opened = await open()
+    await serial(() => apply(opened))
+    current = opened
+    opened.stop = opened.handle.watch(() => {
+      // A change reported after dispose belongs to a closed start.
+      if (current !== opened) return
+      void serial(() => apply(opened)).catch((error: unknown) =>
+        log.warn(
+          `Could not apply a change to account_models (${error instanceof Error ? error.name : 'unknown'})`,
+        ),
+      )
+    })
+    return opened
+  }
+
+  const ready = (): Promise<OpenSettings> => {
+    starting ??= start().catch((error: unknown) => {
+      starting = undefined
+      throw error
+    })
+    return starting
+  }
+
   return {
-    refresh: () => serial(refreshOnce),
+    ready: async () => {
+      await ready()
+    },
     policy: () => policy,
     list(routeId) {
-      if (!protection || !loaded) return null
+      if (!protection || !current) return null
       const lists = protection.accountModels
       if (lists === 'deny-all') return 'deny-all'
       const list = Object.hasOwn(lists, routeId) ? lists[routeId] : undefined
-      const canonical = loaded.rules.canonicalModelId
+      const canonical = current.rules.canonicalModelId
       return list ? [...new Set(list.map(canonical))] : null
     },
-    catalog: () => loaded?.rules.knownModelIds() ?? [],
+    catalog: () => current?.rules.knownModelIds() ?? [],
     notice() {
       if (!protection || protection.accountModelsSource === 'setting')
         return undefined
@@ -199,9 +241,10 @@ export function createPiModelAccess(
         ? "account_models in antigravity-auth.jsonc can't be used and no earlier value is known, so no vault account serves until it is fixed."
         : "account_models in antigravity-auth.jsonc can't be used; the last applied value stays in force until it is fixed."
     },
-    update: (routeId, models) =>
-      serial(async () => {
-        const { settings, rules, handle, file } = await load()
+    update: async (routeId, models) => {
+      const opened = await ready()
+      return serial(async () => {
+        const { settings, rules, handle, file } = opened
         let value: string[] | undefined
         if (models !== null) {
           const list = rules.normalizeAccountModelList(models)
@@ -237,8 +280,19 @@ export function createPiModelAccess(
             )
           throw error
         }
-        await refreshOnce()
-      }),
+        // Apply the edit now so the menu shows it; the watcher would also
+        // report it, and applying the same text twice changes nothing.
+        await apply(opened)
+      })
+    },
+    async dispose() {
+      const pending = starting
+      starting = undefined
+      const opened = await pending?.catch(() => undefined)
+      if (current === opened) current = undefined
+      opened?.stop?.()
+      await queue
+    },
   }
 }
 
