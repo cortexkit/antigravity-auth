@@ -73,6 +73,7 @@
     "build": "bun run embed:check && bun scripts/build-tui.ts --library && esbuild src/server.ts --bundle --platform=node --format=esm --external:zod --external:jsonc-parser --external:@cortexkit/private-files --external:@cortexkit/claustrum-client --external:@cortexkit/subc-client --outfile=dist/server.js --sourcemap --metafile=dist/server.meta.json --log-level=warning && tsc -p tsconfig.ga.emit.json && bun ../../scripts/finalize-declaration-specifiers.ts dist/types .",
     "build:tui": "bun run embed:check && bun scripts/build-tui.ts",
     "build:schema": "bun script/build-schema.ts",
+    "build:settings-schema": "bun script/build-settings-schema.ts",
     "smoke:tui": "bun run embed:check && bun scripts/smoke-tui-pack-install.ts",
     "typecheck": "bun run embed:check && bun scripts/build-tui.ts --types && tsc --noEmit && tsc -p tsconfig.ga.json",
     "test": "bun run embed:check && bun test --isolate ./src ./scripts/build-tui.test.ts",

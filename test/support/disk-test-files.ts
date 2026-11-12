@@ -3,6 +3,8 @@
 // even when a MOTOR job opts the other tests into its private /dev/shm mount.
 // Keep reasons here, and add new filesystem-sensitive suites conservatively.
 export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
+  'packages/opencode/src/settings/location.test.ts':
+    'Real directory and symlink identities determine separate settings installs.',
   'packages/core/src/file-lock.test.ts':
     'Fenced lock ownership, eviction, renewal, and concurrent writers.',
   'packages/core/src/atomic-write.test.ts':
