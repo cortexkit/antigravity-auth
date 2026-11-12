@@ -227,6 +227,7 @@ describe('shared request engine import graph', () => {
         'ANTIGRAVITY_ENDPOINT_DAILY',
         'ANTIGRAVITY_ENDPOINT_FALLBACKS',
       ],
+      '../../settings/core-settings': ['type ModelAccessPolicy'],
       '../config': ['type AntigravityConfig'],
       '../debug': ['type LocationDebug'],
       '../errors': ['AntigravityKillswitchError'],
