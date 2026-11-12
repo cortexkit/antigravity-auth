@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { link, lstat, mkdir, open, readdir, readFile, rename, rm, stat, unlink, } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
+import { createLogger } from '../logger/index.js';
 import { DisappearedLockRecordError, isWindowsAccessDeniedCreate, isWindowsAccessDeniedRead, readLockRecord, } from './lock-record.js';
 import { createPrivateBytes, createPrivateDirectoryExclusive, ensurePrivateDirectory, isWindowsSharingViolation, PrivateFileError, privateOperation, readPrivateText, verifyPrivate, windowsPrivateFiles, writePrivateAtomic, } from './private-files.js';
 import { LockOwnershipError, lockPathFor } from './with-lock.js';
@@ -1191,17 +1192,17 @@ export async function acquireRefreshFileLockWithClock(options) {
                         removalConfirmed = true;
                     }, deadline);
                     changingRecordError = undefined;
-                    if (markerAcquired) {
-                        if (windowsPrivateFiles && !removalConfirmed)
-                            throw new PrivateFileError(lockPath, 'release-not-confirmed', {
-                                code: 'EIO',
-                            });
-                        releaseConfirmed = removalConfirmed;
+                    // Acquiring the marker does not confirm removal: stale-marker
+                    // recovery can take it away after the lease owner was checked.
+                    if (markerAcquired && removalConfirmed) {
+                        releaseConfirmed = true;
                         return;
                     }
-                    if (signal?.aborted)
-                        return;
-                    await recoverStaleEvictionMarker(deadline);
+                    if (!markerAcquired) {
+                        if (signal?.aborted)
+                            return;
+                        await recoverStaleEvictionMarker(deadline);
+                    }
                 }
                 catch (error) {
                     const changingRecord = windowsPrivateFiles &&
@@ -1242,6 +1243,9 @@ export async function acquireRefreshFileLockWithClock(options) {
                     new PrivateFileError(lockPath, 'release-not-confirmed', {
                         code: 'ETIMEDOUT',
                     }));
+            createLogger('fs').warn('File lock release deadline expired', {
+                lockPath,
+            });
         },
     };
 }

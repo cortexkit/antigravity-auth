@@ -12,14 +12,16 @@ export interface RoutingCandidate {
     accountId: string;
     credentialId: string;
 }
-export interface AskRoutingInput<Candidate extends RoutingCandidate = RoutingCandidate> {
+export interface AskRoutingInput<Candidate extends RoutingCandidate = RoutingCandidate, Refusals extends boolean = false> {
     sessionId: string;
     provider: string;
     modelId: string;
     /** Only routes already eligible under the plugin's vault and killswitch rules. */
     candidates: readonly Candidate[];
-    /** Defaults to 500 ms, clamped to 1–2000 ms. */
+    /** Defaults to 1500 ms, above routing's normal tail; clamped to 1–2000 ms. */
     deadlineMs?: number;
+    /** Opt in to refusals, which stop the request instead of using a local choice. */
+    refusals?: Refusals;
     /**
      * Longest same-account hold, in seconds, that routing may advise. The
      * holdWaitMaxS helper from `./limits` caps it by the setting and the current
@@ -38,6 +40,14 @@ export interface RoutingSelection<Candidate extends RoutingCandidate = RoutingCa
     candidate: Candidate;
     hold?: RoutingHold;
 }
+export type RoutingRefusal = {
+    refused: {
+        code: 'account_limit_exhausted' | 'account_selection_refused' | 'account_selection_final';
+        routingCode?: string;
+        retryAfterSecs?: number;
+        resetsAtMs?: number;
+    };
+};
 interface RoutingReportIdentity {
     sessionId: string;
     accountId: string;
@@ -77,6 +87,23 @@ export type ReportRoutingInput = (RoutingReportIdentity & ({
     pool?: string;
     /** Optional reset time in epoch milliseconds. */
     resetsAt?: number;
+} | {
+    /**
+     * A provider's typed refusal that condemns the API key until it is
+     * topped up, such as an exhausted prepaid balance. Never use for
+     * 401, 403 or short rate limits.
+     */
+    outcome: 'credential_refused';
+    credentialId: string;
+    /**
+     * What the provider actually sent: its own code from the structured
+     * error (OpenRouter's `openrouter_credits`). When the body carries
+     * no code, `http_<status>`, but only for a status the provider
+     * documents with a single balance meaning (DeepSeek's `http_402`).
+     * Never message text, and never a status with several meanings such
+     * as 403 or 429. Must match `^[a-z0-9._-]{1,64}$`.
+     */
+    providerCode: string;
 })) | {
     sessionId: string;
     kind: 'turn_notes_supported';
@@ -128,10 +155,11 @@ export declare function turnNotes(sessionId: string): readonly {
 }[];
 /**
  * Ask routing for an eligible vault route. Any failure or unfamiliar answer
- * yields undefined so the plugin can keep its own choice. This does not admit
- * routes: callers must exclude vault refusals and killswitch-blocked accounts.
+ * yields undefined so the plugin can keep its own choice. Opted-in routing
+ * refusals instead stop the request. This does not admit routes: callers must
+ * exclude vault refusals and killswitch-blocked accounts.
  */
-export declare function askRouting<Candidate extends RoutingCandidate>(input: AskRoutingInput<Candidate>): Promise<RoutingSelection<Candidate> | undefined>;
+export declare function askRouting<Candidate extends RoutingCandidate, Refusals extends boolean = false>(input: AskRoutingInput<Candidate, Refusals>): Promise<RoutingSelection<Candidate> | (Refusals extends true ? RoutingRefusal : never) | undefined>;
 /**
  * Report a vault request, billing result or turn-note event without waiting for
  * routing. Only contract fields are sent, and all accessor failures are ignored.

@@ -136,11 +136,35 @@ function selectionFor(answer, candidates) {
     }
     return { candidate };
 }
-/**
- * Ask routing for an eligible vault route. Any failure or unfamiliar answer
- * yields undefined so the plugin can keep its own choice. This does not admit
- * routes: callers must exclude vault refusals and killswitch-blocked accounts.
- */
+function refusalFor(value) {
+    if (!isObject(value))
+        return undefined;
+    const code = value.code;
+    if (code !== 'account_limit_exhausted' &&
+        code !== 'account_selection_refused' &&
+        code !== 'account_selection_final') {
+        return undefined;
+    }
+    const refused = { code };
+    const routingCode = value.routing_code;
+    if (typeof routingCode === 'string' &&
+        /^[a-z0-9._-]{1,64}$/.test(routingCode)) {
+        refused.routingCode = routingCode;
+    }
+    const retryAfterSecs = value.retry_after_secs;
+    if (typeof retryAfterSecs === 'number' &&
+        Number.isFinite(retryAfterSecs) &&
+        retryAfterSecs >= 0) {
+        refused.retryAfterSecs = retryAfterSecs;
+    }
+    const resetsAtMs = value.resets_at_ms;
+    if (typeof resetsAtMs === 'number' &&
+        Number.isSafeInteger(resetsAtMs) &&
+        resetsAtMs > 0) {
+        refused.resetsAtMs = resetsAtMs;
+    }
+    return { refused };
+}
 export async function askRouting(input) {
     let timer;
     try {
@@ -150,9 +174,9 @@ export async function askRouting(input) {
         const accountFor = handle.accountFor;
         if (typeof accountFor !== 'function')
             return undefined;
-        const requested = input.deadlineMs ?? 500;
+        const requested = input.deadlineMs ?? 1500;
         const deadlineMs = Number.isNaN(requested)
-            ? 500
+            ? 1500
             : Math.min(2000, Math.max(1, requested));
         const expired = new Promise((resolve) => {
             timer = setTimeout(() => resolve(undefined), deadlineMs);
@@ -166,10 +190,15 @@ export async function askRouting(input) {
         if (typeof cap === 'number' && Number.isFinite(cap)) {
             request.hold_wait_max_s = Math.max(0, Math.floor(cap));
         }
+        if (input.refusals === true)
+            request.refusals = true;
         const pending = accountFor.call(handle, request, { deadlineMs });
         if (!isObject(pending) || typeof pending.then !== 'function')
             return undefined;
         const answer = await Promise.race([pending, expired]);
+        if (input.refusals === true && isObject(answer) && 'refused' in answer) {
+            return refusalFor(answer.refused);
+        }
         return selectionFor(answer, input.candidates);
     }
     catch {
@@ -331,6 +360,19 @@ export function reportRouting(input) {
                         ...(input.resetsAt !== undefined
                             ? { resets_at: input.resetsAt }
                             : {}),
+                    };
+                    break;
+                }
+                case 'credential_refused': {
+                    const { credentialId, providerCode } = input;
+                    if (!isNonEmptyString(credentialId) ||
+                        typeof providerCode !== 'string' ||
+                        !/^[a-z0-9._-]{1,64}$/.test(providerCode))
+                        return;
+                    payload = {
+                        ...identity,
+                        outcome: 'credential_refused',
+                        provider_code: providerCode,
                     };
                     break;
                 }
