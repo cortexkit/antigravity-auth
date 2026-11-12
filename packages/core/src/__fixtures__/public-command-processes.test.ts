@@ -566,6 +566,16 @@ function capturePublicCommandAncestry(
     }
     chain.push(cursor)
     const parent = inspector.read(cursor.ppid)
+    if (!parent) {
+      // The whole child tree can exit between discovery and the first walk.
+      // Drop only a vanished candidate birth; a live orphan still refuses.
+      const current = inspector.read(member.pid)
+      if (
+        !current ||
+        (current.pid === member.pid && current.start !== member.start)
+      )
+        return false
+    }
     if (!parent || parent.zombie || cursor.start < parent.start) {
       recordRefusal(() => ({
         phase: 'walk',

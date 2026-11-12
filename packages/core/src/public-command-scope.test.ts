@@ -196,7 +196,7 @@ it.each([
   const native: PublicCommandInspector = {
     read(pid) {
       if (pid === parent.pid) return parentResult
-      return [leader, child].find((row) => row.pid === pid)
+      return [leader, child, candidate].find((row) => row.pid === pid)
     },
     session: () => [candidate, parent],
     observeArgv(identity) {
@@ -234,6 +234,143 @@ it.each([
     },
   })
   expect(observations).toEqual([parent.pid, candidate.pid])
+  expect([...owned.observed.values()]).toEqual([leader])
+  expect(owned.signals).toEqual([])
+})
+
+it('drops a candidate that exits after its parent becomes unavailable during the first walk', () => {
+  const owned = scope()
+  const reads: number[] = []
+  const native: PublicCommandInspector = {
+    read(pid) {
+      reads.push(pid)
+      return pid === leader.pid ? leader : undefined
+    },
+    session: () => [child, parent],
+    close() {},
+  }
+  const messages = captureDiagnostics(() => {
+    expect(inspectPublicCommandScope(owned, native)).toEqual([])
+  })
+
+  expect(reads).toEqual([
+    leader.pid,
+    leader.pid,
+    parent.pid,
+    child.pid,
+    leader.pid,
+    parent.pid,
+    leader.pid,
+  ])
+  expect(messages).toEqual([])
+  expect([...owned.observed.values()]).toEqual([leader])
+  expect(owned.signals).toEqual([])
+})
+
+it.each([
+  ['unchanged parent', child],
+  ['reparented', { ...child, ppid: 1 }],
+] as const)('still refuses a live candidate with the same birth after its parent becomes unavailable: %s', (_condition, current) => {
+  const owned = scope()
+  const reads: number[] = []
+  const native: PublicCommandInspector = {
+    read(pid) {
+      reads.push(pid)
+      return [leader, current].find((row) => row.pid === pid)
+    },
+    session: () => [child, parent],
+    observeArgv: () => ({ status: 'available', argv: ['inert-child'] }),
+    close() {},
+  }
+  const messages = captureDiagnostics(() =>
+    expectAncestryRefusal(() => inspectPublicCommandScope(owned, native)),
+  )
+
+  expect(reads).toEqual([leader.pid, leader.pid, parent.pid, child.pid])
+  expect(readAncestryDiagnostic<WalkAncestryDiagnostic>(messages)).toEqual({
+    phase: 'walk',
+    candidate: {
+      ...serializeIdentity(child),
+      commandLine: { status: 'available', argv: ['inert-child'] },
+    },
+    cursor: serializeIdentity(child),
+    parent: null,
+    parentRead: 'attempted',
+    failedConditions: ['parent-unavailable'],
+    chain: [serializeIdentity(child)],
+    leader: serializeIdentity(leader),
+    monitor: { pid: process.pid, ppid: process.ppid },
+    directChildDiscovery: {
+      children: [
+        {
+          pid: parent.pid,
+          start: parent.start.toString(),
+          commandLine: { status: 'available', argv: ['inert-child'] },
+        },
+      ],
+      omitted: 0,
+    },
+  })
+  expect([...owned.observed.values()]).toEqual([leader])
+  expect(owned.signals).toEqual([])
+})
+
+it('drops a candidate whose PID is reused after its parent becomes unavailable during the first walk', () => {
+  const owned = scope()
+  const replacement = { ...child, start: child.start + 1n }
+  const reads: number[] = []
+  const native: PublicCommandInspector = {
+    read(pid) {
+      reads.push(pid)
+      return [leader, replacement].find((row) => row.pid === pid)
+    },
+    session: () => [child],
+    close() {},
+  }
+  const messages = captureDiagnostics(() => {
+    expect(inspectPublicCommandScope(owned, native)).toEqual([])
+  })
+
+  expect(reads).toEqual([leader.pid, leader.pid, parent.pid, child.pid])
+  expect(messages).toEqual([])
+  expect([...owned.observed.values()]).toEqual([leader])
+  const sent: number[] = []
+  expect(() =>
+    signalPublicCommandMember(owned, replacement, native, 'SIGTERM', (pid) =>
+      sent.push(pid),
+    ),
+  ).toThrow('not captured before signal')
+  expect(sent).toEqual([])
+  expect(owned.signals).toEqual([])
+})
+
+it('still refuses an ancestor that exits during revalidation of a live candidate', () => {
+  const owned = scope()
+  let parentReads = 0
+  const native: PublicCommandInspector = {
+    read(pid) {
+      if (pid === parent.pid && ++parentReads === 2) return undefined
+      return [leader, parent, child].find((row) => row.pid === pid)
+    },
+    session: () => [child],
+    close() {},
+  }
+  const messages = captureDiagnostics(() =>
+    expectAncestryRefusal(() => inspectPublicCommandScope(owned, native)),
+  )
+
+  expect(parentReads).toBe(2)
+  expect(readAncestryDiagnostic(messages)).toEqual({
+    phase: 'revalidation',
+    candidate: serializeIdentity(child),
+    expected: serializeIdentity(parent),
+    current: null,
+    chain: [serializeIdentity(child), serializeIdentity(parent)],
+    endpoint: serializeIdentity(leader),
+    leader: serializeIdentity(leader),
+    monitor: { pid: process.pid, ppid: process.ppid },
+    directChildDiscovery: { children: [], omitted: 0 },
+  })
   expect([...owned.observed.values()]).toEqual([leader])
   expect(owned.signals).toEqual([])
 })
