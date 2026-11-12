@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Settings now live in `antigravity-auth.jsonc` in the shared CortexKit config folder (`~/.config/cortexkit/` by default). The first start copies `antigravity.json` there once, leaves the old file unchanged and writes `antigravity.json.MOVED_READPLEASE` beside it. Menu changes are saved to the new file and keep its comments. An OpenCode install with its own config folder or its own vault folder keeps using `antigravity.json`.
+- A project settings file (`.cortexkit/antigravity-auth.jsonc`, or the old `.opencode/antigravity.json`) now applies only `quiet_mode`, `toast_scope`, `session_recovery`, `claude_tool_hardening` and `claude_prompt_auto_caching`. Any other setting there is ignored, and `/antigravity` → Diagnostics names it.
+- An invalid setting value is now skipped and its default applies, instead of the whole file being ignored or the value being clamped. Diagnostics names each skipped value.
+- Per-account quota floors are now keyed by a stable account id, so they survive signing in again. A floor that can't be matched to one account isn't moved, and Diagnostics says so.
+- `tool_id_recovery` and `max_backoff_seconds` are retired; the move reports them as not moved. The plugin never read either one.
 - Per-account model lists are now enforced (#67): `account_models` in `antigravity-auth.jsonc` limits which models each account serves, in local and vault modes. A listed model covers its thinking tiers and aliases, an account without a list serves every model, and a request no account may serve ends with a 412 that names the setting. Set lists from `/antigravity` → Accounts → Models.
 - Updated the embedded common-auth library to 0.45.0: a leftover lock temp file from a crashed process is now cleaned up the next time that lock is taken.
 
