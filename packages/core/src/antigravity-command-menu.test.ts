@@ -229,7 +229,7 @@ describe('createAntigravityCommandMenu', () => {
     expect(routing?.lines).toEqual([
       'Account selection strategy: hybrid',
       'Choose available accounts using health and quota signals.',
-      'Configured in antigravity.json: account_selection_strategy',
+      'Configured in antigravity-auth.jsonc: account_selection_strategy',
     ])
     expect(routing?.actions).toEqual([])
     expect(JSON.stringify(routing)).not.toMatch(/Gemini CLI|header.style/i)
@@ -482,7 +482,7 @@ it('reads each account strategy fresh and explains vault selection without inven
       expect(routing?.lines[0]).toBe(`Account selection strategy: ${current}`)
       expect(routing?.lines).toHaveLength(3)
       expect(routing?.lines[2]).toBe(
-        'Configured in antigravity.json: account_selection_strategy',
+        'Configured in antigravity-auth.jsonc: account_selection_strategy',
       )
     }
   }

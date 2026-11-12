@@ -6,7 +6,15 @@
  */
 
 import { describe, expect, it } from 'bun:test'
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -17,6 +25,8 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 
 import type { RpcNotificationPayload } from '../rpc/protocol'
+import { createProtectionStore } from '../settings/protection'
+import { createSettingsRuntime } from '../settings/runtime'
 import { registerAntigravityCommands } from './catalog'
 import { createStoreAccountLimits } from './command-apply'
 import {
@@ -472,6 +482,163 @@ describe('createStoreAccountLimits', () => {
       expect(await limits.read(ref)).toBeNull()
     } finally {
       await cleanup()
+    }
+  })
+})
+
+describe('createStoreAccountLimits on the shared settings file', () => {
+  async function storeWithSharedSettings(fileText: string) {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'v1-shared-floor-')))
+    const file = join(root, 'cortexkit', 'antigravity-auth.jsonc')
+    mkdirSync(join(root, 'cortexkit'))
+    writeFileSync(file, fileText)
+    const runtime = createSettingsRuntime({
+      file,
+      separateInstall: false,
+      legacyUserFile: join(root, 'user', 'antigravity.json'),
+      log: { warn() {}, info() {} },
+      fence: async () => true,
+      protection: createProtectionStore(join(root, 'state', 'protection.json')),
+      moveReportPath: join(root, 'state', 'report.json'),
+    })
+    const project = await runtime.openProject(join(root, 'project'), {
+      config: () => {
+        throw new Error('the shared file exists, so the old loader is unused')
+      },
+      operator: () => {
+        throw new Error('the shared file exists, so the old writer is unused')
+      },
+    })
+    const legacyPath = join(root, 'antigravity-accounts.json')
+    const modules = await loadCommonAuthStoreModules()
+    await initializeFreshAccountStore(modules, { legacyPath, now: Date.now })
+    const admission = await readAccountStoreAdmission(
+      legacyPath,
+      modules,
+      Date.now,
+    )
+    if (admission.status !== 'active') throw new Error(admission.status)
+    const repository = createAccountRepositoryFactory(modules)({
+      paths: admission.paths,
+      now: Date.now,
+      exchange: async () => {
+        throw new Error('token exchange is not part of this test')
+      },
+    })
+    const { ref } = await repository.login({
+      id: crypto.randomUUID(),
+      refreshToken: 'shared-floor-refresh-secret',
+      metadata: { email: 'floor@example.com', addedAt: 1, lastUsed: 1 },
+    })
+    const menu = await createOpenCodeAntigravityMenu({
+      selectionStrategy: () => 'hybrid',
+      accounts: repository,
+      settings: project.operator,
+      settingsFile: project,
+      dump: { isEnabled: () => false, setEnabled: () => undefined },
+      applyLogLevel: () => undefined,
+      accountLimits: createStoreAccountLimits({
+        repository,
+        settings: project.operator,
+      }),
+    })
+    return {
+      file,
+      ref,
+      repository,
+      project,
+      menu,
+      cleanup: async () => {
+        await repository.dispose()
+        await project.release()
+        await runtime.dispose()
+        rmSync(root, { recursive: true, force: true })
+      },
+    }
+  }
+
+  it('keys the floor by the row id and keeps the file comments', async () => {
+    const store = await storeWithSharedSettings(
+      '// floors\n{\n  "schema_version": 1\n}\n',
+    )
+    try {
+      const invocation = { notify: () => undefined }
+      const opened = await store.menu.open(invocation)
+      const item = opened.menu.sections.find(
+        (section) => section.id === 'accounts',
+      )?.items[0]
+      const result = await store.menu.apply(
+        {
+          command: 'antigravity',
+          sectionId: 'accounts',
+          itemId: item?.id ?? '',
+          actionId: 'limit',
+          values: { minimumRemainingPercent: 30 },
+        },
+        invocation,
+      )
+      expect(result).toMatchObject({ ok: true })
+      expect(store.project.operator.get().killswitch.accounts).toEqual({
+        [store.ref.id]: 30,
+      })
+      const text = readFileSync(store.file, 'utf8')
+      expect(text).toContain('// floors')
+      expect(text).toContain(store.ref.id)
+      expect(text).not.toContain(
+        accountKeyForRefreshToken('shared-floor-refresh-secret'),
+      )
+      const routing = opened.menu.sections.find(
+        (section) => section.id === 'routing',
+      )
+      expect(routing?.lines).toContain(
+        'Configured in antigravity-auth.jsonc: account_selection_strategy',
+      )
+    } finally {
+      await store.cleanup()
+    }
+  })
+
+  it('refuses a floor write for a replaced credential', async () => {
+    const store = await storeWithSharedSettings('{ "schema_version": 1 }\n')
+    try {
+      await store.repository.replaceCredential(store.ref, {
+        refreshToken: 'shared-floor-refresh-replacement',
+        disabled: 'keep',
+      })
+      const limits = createStoreAccountLimits({
+        repository: store.repository,
+        settings: store.project.operator,
+      })
+      expect(await limits.write(store.ref, 40)).toBe('stale')
+      expect(store.project.operator.get().killswitch.accounts).toEqual({})
+      expect(readFileSync(store.file, 'utf8')).toBe('{ "schema_version": 1 }\n')
+    } finally {
+      await store.cleanup()
+    }
+  })
+
+  it('renders a refused Limits write with its fixed text', async () => {
+    const store = await storeWithSharedSettings('{ "schema_version": 2 }\n')
+    try {
+      const invocation = { notify: () => undefined }
+      await store.menu.open(invocation)
+      const result = await store.menu.apply(
+        {
+          command: 'antigravity',
+          sectionId: 'limits',
+          actionId: 'set',
+          values: { enabled: true, minimumRemainingPercent: 20 },
+        },
+        invocation,
+      )
+      expect(result).toMatchObject({
+        ok: false,
+        code: 'settings-newer-version',
+        text: `The settings file is from a newer version of antigravity-auth, so nothing was changed. Update antigravity-auth or edit ${store.file} by hand.`,
+      })
+      expect(readFileSync(store.file, 'utf8')).toBe('{ "schema_version": 2 }\n')
+    } finally {
+      await store.cleanup()
     }
   })
 })

@@ -383,3 +383,57 @@ describe('throwIfAllKilled', () => {
     ).not.toThrow()
   })
 })
+
+describe('per-account floors keyed by stable id', () => {
+  const settings: OperatorSettings = {
+    killswitch: {
+      enabled: true,
+      minimum_remaining_percent: 5,
+      accounts: {
+        'row-a': 60,
+        'vault:cred~0123456789': 70,
+        [accountKeyForRefreshToken('rt-a')]: 90,
+        'idx-0': 95,
+      },
+    },
+    log_level: 'info',
+  }
+  const quota = {
+    cachedQuota: { 'non-gemini': { remainingFraction: 0.5, modelCount: 1 } },
+    cachedQuotaUpdatedAt: NOW,
+  }
+
+  it('uses the local row id or the vault route id, never the token or position', () => {
+    const local = evaluateKillswitchForAccount(
+      { index: 0, refreshToken: 'rt-a', ref: { id: 'row-a' }, ...quota },
+      'claude',
+      settings,
+      { now: NOW, floorKeying: 'stable' },
+    )
+    expect(local.thresholdPercent).toBe(60)
+    const vault = evaluateKillswitchForAccount(
+      { index: 0, route: { routeId: 'vault:cred~0123456789' }, ...quota },
+      'claude',
+      settings,
+      { now: NOW, floorKeying: 'stable' },
+    )
+    expect(vault.thresholdPercent).toBe(70)
+    const keyless = evaluateKillswitchForAccount(
+      { index: 0, refreshToken: 'rt-a', ...quota },
+      'claude',
+      settings,
+      { now: NOW, floorKeying: 'stable' },
+    )
+    expect(keyless.thresholdPercent).toBe(5)
+  })
+
+  it('keeps the token-hash keying for antigravity.json', () => {
+    const decision = evaluateKillswitchForAccount(
+      { index: 0, refreshToken: 'rt-a', ref: { id: 'row-a' }, ...quota },
+      'claude',
+      settings,
+      { now: NOW },
+    )
+    expect(decision.thresholdPercent).toBe(90)
+  })
+})

@@ -86,7 +86,14 @@ export async function runSettingsMove(
       {
         host: 'opencode',
         path: input.legacyUserFile,
-        locks: [{ name: OPERATOR_LOCK_NAME, path: input.legacyUserFile }],
+        // Without an old file there is nothing for the operator writer's
+        // lock to protect, and taking it would create lock files in
+        // OpenCode's config folder. A file created during the move is read
+        // whole or not at all, because the writer publishes by rename.
+        locks:
+          preview === undefined
+            ? []
+            : [{ name: OPERATOR_LOCK_NAME, path: input.legacyUserFile }],
         read: readLegacySettingsFile,
       },
     ],

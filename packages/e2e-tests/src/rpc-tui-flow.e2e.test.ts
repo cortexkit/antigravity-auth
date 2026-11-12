@@ -386,7 +386,7 @@ describe('rpc / tui flow (e2e)', () => {
         const routing = payload.menu.sections.find((s) => s.slot === 'routing')
         expect(routing?.lines).toContain('Account selection strategy: sticky')
         expect(routing?.lines).toContain(
-          'Configured in antigravity.json: account_selection_strategy',
+          'Configured in antigravity-auth.jsonc: account_selection_strategy',
         )
         expect(routing?.actions).toEqual([])
         expect(JSON.stringify(routing)).not.toMatch(/Gemini CLI|header.style/i)

@@ -5,6 +5,10 @@
 export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
   'packages/opencode/src/settings/location.test.ts':
     'Real directory and symlink identities determine separate settings installs.',
+  'packages/opencode/src/settings/runtime.test.ts':
+    'Settings move publication by hard link, operator lock waits, and owner-only protection state.',
+  'packages/opencode/src/plugin/config/writer-lock-interop.test.ts':
+    'Real processes contend for one lock file with the old fenced lock and withLock.',
   'packages/core/src/file-lock.test.ts':
     'Fenced lock ownership, eviction, renewal, and concurrent writers.',
   'packages/core/src/atomic-write.test.ts':
