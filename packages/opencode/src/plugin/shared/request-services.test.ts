@@ -7744,7 +7744,11 @@ describe('createRequestExecutor optional vault routing', () => {
           ])
           expect(state.asks).toEqual([
             [
-              { provider: 'antigravity', modelId: 'gemini-3-flash' },
+              {
+                provider: 'antigravity',
+                modelId: 'gemini-3-flash',
+                refusals: true,
+              },
               { deadlineMs: 2000 },
             ],
           ])
@@ -8283,5 +8287,195 @@ describe('createRequestExecutor optional vault routing', () => {
       },
       () => new Promise(() => {}),
     )
+  })
+
+  const ROUTING_REFUSED_MESSAGE =
+    'Routing has no Antigravity account available for this request right now; try again later.'
+
+  async function refusedRequest(
+    refused: Record<string, unknown>,
+    sessionId: string,
+  ) {
+    const records: Array<{
+      level: string
+      message: string
+      extra?: Record<string, unknown>
+    }> = []
+    let result:
+      | {
+          response: Response
+          text: string
+          asks: number
+          sends: number
+          reports: unknown[]
+          saves: number
+          marked: boolean
+          records: typeof records
+          later?: { status: number; asks: number; bearer: string | null }
+        }
+      | undefined
+    await routing(
+      async (state) => {
+        const pool = makePool(2)
+        const h = harness({ pool, respond: async () => okJson() })
+        const save = spyOn(pool, 'requestSaveToDisk')
+        const logger = createLocationLogger({
+          sinkEnabled: () => true,
+          sink: (record) => {
+            records.push(record)
+          },
+          level: 'info',
+        }).createLogger('request')
+        const executor = createRequestExecutor({
+          ...vaultDeps(h, async (account) => admission(account)),
+          logger,
+        })
+        try {
+          const response = await executor.execute(
+            NON_STREAM_URL,
+            CHAT_INIT(),
+            session(sessionId),
+          )
+          const text = await response.text()
+          const sends = h.calls.length
+          const asks = state.asks.length
+          const reports = [...state.reports]
+          const saves = save.mock.calls.length
+          const marked = pool
+            .getAccounts()
+            .some(
+              (row) =>
+                pool.isRateLimited(row, 'gemini', 'gemini-3-flash') ||
+                pool.isAccountCoolingDown(row),
+            )
+          // The session was already placed before routing answered, so the
+          // next request in it does not ask and is served normally.
+          const second = await executor.execute(
+            NON_STREAM_URL,
+            CHAT_INIT(),
+            session(sessionId),
+          )
+          await second.text()
+          result = {
+            response,
+            text,
+            asks,
+            sends,
+            reports,
+            saves,
+            marked,
+            records,
+            later: {
+              status: second.status,
+              asks: state.asks.length,
+              bearer: new Headers(h.calls[0]?.init?.headers).get(
+                'authorization',
+              ),
+            },
+          }
+        } finally {
+          await executor.dispose()
+        }
+      },
+      async () => ({ refused }),
+    )
+    if (!result) throw new Error('refused request did not run')
+    return result
+  }
+
+  for (const code of [
+    'account_limit_exhausted',
+    'account_selection_refused',
+    'account_selection_final',
+  ] as const) {
+    it(`routing refusal ${code} sends nothing and returns the fixed 412 with routing's Retry-After`, async () => {
+      const result = await refusedRequest(
+        {
+          code,
+          routing_code: 'pool.empty',
+          retry_after_secs: 30,
+          // Routing's own retry delay wins over a later reset instant.
+          resets_at_ms: Date.now() + 3_600_000,
+        },
+        `refused-${code}`,
+      )
+      expect(result.asks).toBe(1)
+      expect(result.sends).toBe(0)
+      expect(result.reports).toEqual([])
+      expect(result.response.status).toBe(412)
+      expect(result.response.headers.get('Retry-After')).toBe('30')
+      expect(JSON.parse(result.text)).toEqual({
+        error: {
+          code: 412,
+          status: 'FAILED_PRECONDITION',
+          message: ROUTING_REFUSED_MESSAGE,
+        },
+      })
+      // OpenCode 1 retries any error whose text contains one of these runs;
+      // the fixed sentence carries no digits at all.
+      expect(ROUTING_REFUSED_MESSAGE).not.toMatch(/\d/)
+      expect(result.text).not.toMatch(/429|500|502|503|504|524/)
+      expect(result.text).not.toMatch(/identity-|credential-|Account \d/)
+      expect(result.marked).toBe(false)
+      expect(result.saves).toBe(0)
+      const warns = result.records.filter((record) =>
+        record.message.startsWith('routing-refused'),
+      )
+      expect(warns).toHaveLength(1)
+      expect(warns[0]!.level).toBe('warn')
+      const logged = JSON.stringify(warns)
+      expect(logged).toContain(code)
+      expect(logged).toContain('pool.empty')
+      expect(logged).not.toMatch(/identity-|credential-|refused-/)
+      expect(result.later).toEqual({
+        status: 200,
+        asks: 1,
+        bearer: 'Bearer vault-token-0',
+      })
+    })
+  }
+
+  it('routing refusal rounds a fractional retry delay up to whole seconds', async () => {
+    const result = await refusedRequest(
+      { code: 'account_limit_exhausted', retry_after_secs: 1.2 },
+      'refused-fraction',
+    )
+    expect(result.sends).toBe(0)
+    expect(result.response.headers.get('Retry-After')).toBe('2')
+  })
+
+  it('routing refusal with only a reset instant sets Retry-After from the time left', async () => {
+    const result = await refusedRequest(
+      {
+        code: 'account_limit_exhausted',
+        resets_at_ms: Date.now() + 90_500,
+      },
+      'refused-reset',
+    )
+    expect(result.sends).toBe(0)
+    expect(result.response.status).toBe(412)
+    expect(result.response.headers.get('Retry-After')).toBe('91')
+  })
+
+  it('routing refusal without usable timing omits Retry-After', async () => {
+    for (const [name, refused] of [
+      ['none', { code: 'account_selection_final' }],
+      [
+        'zero-or-past',
+        {
+          code: 'account_selection_refused',
+          retry_after_secs: 0,
+          resets_at_ms: Date.now() - 1_000,
+        },
+      ],
+    ] as const) {
+      const result = await refusedRequest(refused, `refused-${name}`)
+      expect(result.sends).toBe(0)
+      expect(result.response.status).toBe(412)
+      expect(result.response.headers.has('Retry-After')).toBe(false)
+      expect(JSON.parse(result.text).error.message).toBe(
+        ROUTING_REFUSED_MESSAGE,
+      )
+    }
   })
 })

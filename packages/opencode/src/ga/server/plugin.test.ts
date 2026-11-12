@@ -74,6 +74,9 @@ mock.module('@cortexkit/antigravity-auth-core', () => ({
 }))
 
 const server = await import('./index.ts')
+const { createNativeGoogleErrorResponse } = await import(
+  '../../plugin/request-helpers.ts'
+)
 const { createGaLocationServices } = await import(
   '../../plugin/ga-location-services.ts'
 )
@@ -1117,6 +1120,39 @@ describe('hook bodies', () => {
     const foreign = { request: hostRequest(), response: foreignResponse }
     server.adaptGaHttpResponse(foreign, active)
     expect(foreign.response).toBe(foreignResponse)
+  })
+
+  it('vetoes host retry of an owned primary request that routing refused', async () => {
+    // The shared executor answers a routing refusal with this local 412
+    // without sending anything upstream; the host must not repeat it either.
+    let jobs = 0
+    const active = await startBridge(async () => {
+      jobs += 1
+      return createNativeGoogleErrorResponse({
+        status: 412,
+        reason: 'routing_refused',
+        retryAfterSeconds: 30n,
+      })
+    })
+    const primary = requestEvent('primary', 'antigravity-gemini-3.8-flash')
+    await server.rewriteGaHttpRequest(primary, {
+      bridge: active,
+      ownership,
+      isRegisteredModel: registered,
+      env: NO_PROXY_ENV,
+    })
+    const response = {
+      request: primary.request,
+      response: await fetch(primary.request),
+    }
+    server.adaptGaHttpResponse(response, active)
+    expect(response.response.status).toBe(412)
+    expect(response.response.headers.get('Retry-After')).toBe('30')
+    const text = await response.response.text()
+    expect(text).toContain('Routing has no Antigravity account available')
+    expect(text).not.toMatch(/429|500|502|503|504|524/)
+    expect(jobs).toBe(1)
+    expect(retryFor(primary.sessionID).decision).toEqual({ retry: false })
   })
 
   it('refuses every owned off-catalog non-title kind locally without consuming bytes or allowing host retry', async () => {

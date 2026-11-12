@@ -2624,6 +2624,17 @@ type NativeGoogleErrorOptions =
        */
       setting?: 'account_models'
     }
+  | {
+      status: 412
+      reason: 'routing_refused'
+      /**
+       * Whole seconds until routing expects an account to be free, sent only
+       * as the Retry-After header. Omit when routing gave no timing; the body
+       * stays one fixed sentence either way.
+       */
+      retryAfterSeconds?: bigint
+      resetAfterMs?: never
+    }
   | { status: 401; reason: 'missing_access_token' }
   | { status: 502; reason: 'empty_response' }
 
@@ -2636,6 +2647,8 @@ const NATIVE_GOOGLE_ERROR_MESSAGES = {
     'Antigravity account pool has no account available within the configured wait limit. Add accounts with `opencode auth login` or wait for quota reset.',
   model_unavailable:
     'The requested Antigravity model is not available to the configured accounts. Choose another model.',
+  routing_refused:
+    'Routing has no Antigravity account available for this request right now; try again later.',
   missing_access_token:
     'Missing access token. Run `opencode auth login` to reauthenticate.',
   empty_response:
@@ -2687,6 +2700,13 @@ export function createNativeGoogleErrorResponse(
   let body = JSON.stringify({
     error: { code: options.status, status, message },
   })
+  if (
+    options.reason === 'routing_refused' &&
+    options.retryAfterSeconds !== undefined &&
+    options.retryAfterSeconds >= 0n
+  ) {
+    headers.set('Retry-After', options.retryAfterSeconds.toString())
+  }
   if (
     options.status === 412 &&
     typeof options.resetAfterMs === 'number' &&

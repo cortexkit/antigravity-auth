@@ -58,6 +58,7 @@ import {
   askRouting,
   type BillingRequestKind,
   type RoutingCandidate,
+  type RoutingRefusal,
 } from '../../common-auth-embedded/routing-accessor/index.js'
 import {
   ANTIGRAVITY_ENDPOINT_DAILY,
@@ -140,6 +141,34 @@ const MODEL_UNAVAILABLE_TTL_MS = 60 * 60 * 1000
 // while the wait itself is rare. Use the routing accessor's 2 s ceiling, well
 // above routing's normal admission time.
 const ROUTING_ASK_DEADLINE_MS = 2000
+
+/**
+ * Whole seconds a routing refusal asks the client to wait, or undefined when
+ * routing gave no usable timing. Routing's own retry delay wins; otherwise the
+ * time left until its reset instant, rounded up. Values are not capped, so the
+ * header never claims an earlier retry than routing advised.
+ */
+export function routingRefusalRetryAfterSeconds(
+  refused: RoutingRefusal['refused'],
+  now: number,
+): bigint | undefined {
+  const { retryAfterSecs, resetsAtMs } = refused
+  if (
+    typeof retryAfterSecs === 'number' &&
+    Number.isFinite(retryAfterSecs) &&
+    retryAfterSecs > 0
+  ) {
+    return BigInt(Math.ceil(retryAfterSecs))
+  }
+  if (
+    typeof resetsAtMs === 'number' &&
+    Number.isFinite(resetsAtMs) &&
+    resetsAtMs > now
+  ) {
+    return (BigInt(Math.ceil(resetsAtMs - now)) + 999n) / 1000n
+  }
+  return undefined
+}
 
 /** Raw Antigravity sender: the core CLI transport or a test double. */
 export type RequestTransport = (
@@ -1527,9 +1556,31 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   ROUTING_ASK_DEADLINE_MS,
                   deadline.remainingMs(),
                 ),
+                refusals: true,
               }),
             )
             checkAborted()
+            if (answer && 'refused' in answer) {
+              // Routing has decided this request gets no account. Honour that
+              // as final: send nothing, pick no other account, mark nothing
+              // and leave retrying to the caller after Retry-After.
+              const { code, routingCode } = answer.refused
+              log.warn('routing-refused', {
+                code,
+                ...(routingCode === undefined ? {} : { routingCode }),
+              })
+              const retryAfterSeconds = routingRefusalRetryAfterSeconds(
+                answer.refused,
+                Date.now(),
+              )
+              return createNativeGoogleErrorResponse({
+                status: 412,
+                reason: 'routing_refused',
+                ...(retryAfterSeconds === undefined
+                  ? {}
+                  : { retryAfterSeconds }),
+              })
+            }
             if (
               answer &&
               answer.candidate.index !== account.index &&
