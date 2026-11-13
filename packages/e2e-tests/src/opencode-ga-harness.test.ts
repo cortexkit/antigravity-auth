@@ -2455,7 +2455,7 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
           maxOutputTokens: cap,
           thinkingConfig: {
             includeThoughts: true,
-            thinkingBudget: 0,
+            // Antigravity CLI 1.5.8 Claude Low sends a level without a token budget.
             thinkingLevel: 'LOW',
           },
         },
@@ -2600,6 +2600,82 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
       expect(stopped).toBe(true)
     })
   }
+  for (const kind of ['gemini-tools', 'claude-tools'] as const) {
+    it(`accepts contents-indexed ${kind} continuations and rejects part-indexed metadata`, async () => {
+      const contents = [
+        { role: 'user', parts: [{ text: 'Read README.md' }] },
+        {
+          role: 'model',
+          parts: [
+            { text: 'Reading the file', thought: true },
+            {
+              functionCall: { name: 'read', args: {} },
+              thoughtSignature: 's'.repeat(64),
+            },
+          ],
+        },
+        {
+          role: 'model',
+          parts: [{ functionResponse: { name: 'read', response: {} } }],
+        },
+        { role: 'user', parts: [{ text: '[Continue]' }] },
+      ]
+      const partsCount = contents.reduce(
+        (count, content) => count + content.parts.length,
+        0,
+      )
+      for (const fault of ['none', 'step', 'suffix']) {
+        const f = fixture()
+        f.harness.run = async (model) => {
+          const envelope = wire(model)
+          const continuation = {
+            ...envelope,
+            requestId: `agent/conversation/0/trajectory/${fault === 'suffix' ? partsCount + 1 : contents.length}`,
+            request: {
+              ...envelope.request,
+              contents,
+              labels: {
+                ...envelope.request.labels,
+                // Multiple parts in one content must not advance the step index.
+                last_step_index: String(
+                  fault === 'step' ? partsCount : contents.length - 1,
+                ),
+              },
+            },
+          }
+          f.requests.push(
+            { kind: 'primary', body: JSON.stringify(envelope) },
+            { kind: 'primary', body: JSON.stringify(continuation) },
+          )
+          return f.success as Awaited<ReturnType<GaHarness['run']>>
+        }
+        if (fault === 'none') await runGaCoreScenario(f.harness, kind)
+        else
+          await expect(runGaCoreScenario(f.harness, kind)).rejects.toThrow(
+            'Tool-step labels/requestId changed',
+          )
+      }
+    })
+  }
+  it('requires absent toolConfig on native core requests', async () => {
+    for (const toolConfig of [
+      undefined,
+      { functionCallingConfig: { mode: 'VALIDATED' } },
+    ]) {
+      const f = fixture()
+      f.harness.run = async (model) => {
+        const envelope = wire(model)
+        if (toolConfig) Object.assign(envelope.request, { toolConfig })
+        f.requests.push({ kind: 'primary', body: JSON.stringify(envelope) })
+        return f.success as Awaited<ReturnType<GaHarness['run']>>
+      }
+      if (toolConfig)
+        await expect(
+          runGaCoreScenario(f.harness, 'terminal-frame'),
+        ).rejects.toThrow('Native request retained toolConfig')
+      else await runGaCoreScenario(f.harness, 'terminal-frame')
+    }
+  })
   it('keeps all eight public IDs and every enabled catalog variant with deliberate off-catalog titles', async () => {
     const f = fixture()
     f.harness.run = async (model) => {
@@ -2772,10 +2848,14 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
         runGaCoreScenario(f.harness, 'claude-thinking'),
       ).rejects.toThrow('prepared caller cap')
       envelope.request.generationConfig.maxOutputTokens = expected
-      envelope.request.generationConfig.thinkingConfig.thinkingBudget = 1024
-      await expect(
-        runGaCoreScenario(f.harness, 'claude-thinking'),
-      ).rejects.toThrow('Sonnet 5.5 low')
+      for (const thinkingBudget of [0, 1024]) {
+        Object.assign(envelope.request.generationConfig.thinkingConfig, {
+          thinkingBudget,
+        })
+        await expect(
+          runGaCoreScenario(f.harness, 'claude-thinking'),
+        ).rejects.toThrow('Sonnet 5.5 low')
+      }
     }
   })
   it('rejects missing, swapped, unowned and duplicate Claude cap attribution', async () => {

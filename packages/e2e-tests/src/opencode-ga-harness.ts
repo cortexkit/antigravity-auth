@@ -4423,6 +4423,11 @@ function assertGaWire(
       typeof labels.trajectory_id === 'string',
     'Native session wire metadata missing',
   )
+  // Antigravity CLI 1.5.8 omits toolConfig for both Gemini and Claude.
+  requireCondition(
+    !Object.hasOwn(request, 'toolConfig'),
+    'Native request retained toolConfig',
+  )
   return request
 }
 
@@ -4668,10 +4673,11 @@ export async function runGaCoreScenario(
         JSON.stringify({ role: 'user', parts: [{ text: '[Continue]' }] }),
       'Native continuation turn changed',
     )
+    // Antigravity CLI 1.5.8 indexes contents entries, not their individual parts.
     requireCondition(
-      record(request.labels).last_step_index === String(parts.length) &&
+      record(request.labels).last_step_index === String(contents.length - 1) &&
         String(record(JSON.parse(primary[1]!.body)).requestId).endsWith(
-          `/${parts.length + 1}`,
+          `/${contents.length}`,
         ),
       'Tool-step labels/requestId changed',
     )
@@ -4720,13 +4726,6 @@ export async function runGaCoreScenario(
     )
   } else {
     assertGaWire(primary[0]!, model)
-    requireCondition(
-      record(
-        record(record(record(JSON.parse(primary[0]!.body)).request).toolConfig)
-          .functionCallingConfig,
-      ).mode === 'VALIDATED',
-      'Native tool configuration missing',
-    )
   }
 }
 
@@ -4811,7 +4810,8 @@ async function runGaClaudeThinking(harness: GaHarness): Promise<void> {
   const thinking = record(record(request.generationConfig).thinkingConfig)
   requireCondition(
     thinking.includeThoughts === true &&
-      thinking.thinkingBudget === 0 &&
+      // Even a zero token budget is absent from Antigravity CLI 1.5.8 Claude tiers.
+      !Object.hasOwn(thinking, 'thinkingBudget') &&
       thinking.thinkingLevel === 'LOW' &&
       envelope.model === 'claude-sonnet-5-5-low',
     'Native Sonnet 5.5 low thinking/model changed',
