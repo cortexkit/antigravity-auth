@@ -2169,9 +2169,10 @@ describe('GA composed request context', () => {
         expect(networkCalls).toHaveLength(1)
         const body = physicalBody(0)
         expect(body.model).toBe('gemini-3.8-flash-low')
+        // Antigravity CLI 1.5.8 expresses Flash tiers as levels, not token budgets.
         expect(body.request.generationConfig.thinkingConfig).toEqual({
           includeThoughts: true,
-          thinkingBudget: 1000,
+          thinkingLevel: 'LOW',
         })
         expect(body.request).not.toHaveProperty('providerOptions')
       } finally {
@@ -2363,9 +2364,10 @@ describe('GA composed request context', () => {
         expect(networkCalls).toHaveLength(1)
         const body = physicalBody(0)
         expect(body.model).toBe('gemini-3.8-flash-medium')
+        // The selected Flash tier controls the Antigravity CLI 1.5.8 thinking level.
         expect(body.request.generationConfig.thinkingConfig).toEqual({
           includeThoughts: true,
-          thinkingBudget: 4000,
+          thinkingLevel: 'MEDIUM',
         })
       } finally {
         await location.dispose()
@@ -2482,14 +2484,15 @@ describe('GA composed request context', () => {
         const control = bodies.slice(0, 3)
         const primary = [bodies[3], bodies[7], bodies[8]]
         for (const sequence of [control, primary]) {
-          expect(sequence.map((body) => body.requestId.split('/')[4])).toEqual([
-            '2',
-            '4',
-            '3',
-          ])
+          // Antigravity CLI 1.5.8 numbers steps by contents entries, regardless of part counts or auxiliary requests.
+          expect(sequence.map((body) => body.requestId.split('/')[4])).toEqual(
+            sequence.map((body) => String(body.request.contents.length)),
+          )
           expect(
             sequence.map((body) => body.request.labels.last_step_index),
-          ).toEqual(['1', '3', '2'])
+          ).toEqual(
+            sequence.map((body) => String(body.request.contents.length - 1)),
+          )
           expect(
             new Set(sequence.map((body) => body.request.labels.trajectory_id))
               .size,
@@ -2514,8 +2517,12 @@ describe('GA composed request context', () => {
           ).size,
         ).toBe(4)
         for (const body of auxiliaries) {
-          expect(body.request.labels.last_step_index).toBe('5')
-          expect(body.requestId.split('/')[4]).toBe('6')
+          expect(body.request.labels.last_step_index).toBe(
+            String(body.request.contents.length - 1),
+          )
+          expect(body.requestId.split('/')[4]).toBe(
+            String(body.request.contents.length),
+          )
           expect(body.request.labels.used_claude).toBe('true')
         }
       } finally {

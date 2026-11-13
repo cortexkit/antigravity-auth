@@ -53,6 +53,8 @@ describe('account eligibility recovery', () => {
       }
     }
 
+    // Antigravity CLI 1.5.8 numbers the probe's step from contents entries, not parts.
+    const contentsCount = body.request.contents.length
     expect(body).toMatchObject({
       project: 'project-a',
       model: 'gemini-3.8-flash-low',
@@ -60,11 +62,13 @@ describe('account eligibility recovery', () => {
         sessionId: '-3750763034362895579',
         labels: {
           model_enum: 'MODEL_PLACEHOLDER_M320',
-          last_step_index: '1',
+          last_step_index: String(contentsCount - 1),
         },
       },
     })
-    expect(body.requestId).toMatch(/^agent\/[0-9a-f-]+\/\d+\/[0-9a-f-]+\/2$/)
+    expect(body.requestId).toMatch(
+      new RegExp(`^agent/[0-9a-f-]+/\\d+/[0-9a-f-]+/${contentsCount}$`),
+    )
   })
 })
 
