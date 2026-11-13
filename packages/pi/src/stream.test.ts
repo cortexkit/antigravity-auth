@@ -27,6 +27,12 @@ import opusLow from '../../../test-fixtures/agy-cli-1.3.3/native-opus-low.json'
 import sonnetLow from '../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
 import schemaDerived from '../../../test-fixtures/agy-cli-1.3.3/schema-derived-thinking.json'
 import carbonLow from '../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
+import {
+  assertIdentity,
+  captures,
+  signature,
+  toolNames,
+} from '../../../test-fixtures/agy-cli-1.5.8/assert-identity.test'
 import { outageVault } from '../../core/src/__fixtures__/vault-outage.ts'
 import { rememberPackedRefresh } from './credential-cache.ts'
 
@@ -555,6 +561,88 @@ async function collectStream(
   }
   return { events, result: await eventStream.result() }
 }
+
+describe('agy 1.5.8 identity through Pi stream', () => {
+  for (const [modelId, captureOffset] of [
+    ['antigravity-gemini-3.8-flash-low', 0],
+    ['antigravity-claude-sonnet-5-5-low', 2],
+  ] as const) {
+    it(`${modelId}: first request, tool continuation and second user turn`, async () => {
+      const model = fakeModel(modelId)
+      const context: Context = {
+        systemPrompt: 'system',
+        tools: toolNames.map((name) => ({
+          name,
+          description: 'tool',
+          parameters: Type.Object({}),
+        })),
+        messages: [{ role: 'user', content: 'prompt', timestamp: 1 }],
+      }
+      let previous: any
+      for (let index = 0; index < 3; index++) {
+        fetchWithAgyCliTransportMock.mockImplementationOnce(async () =>
+          index === 0
+            ? sseResponse([
+                `data: ${JSON.stringify({
+                  candidates: [
+                    {
+                      content: {
+                        parts: [
+                          {
+                            functionCall: {
+                              name: toolNames[0],
+                              args: {},
+                              id: 'call',
+                            },
+                            ...(captureOffset === 0
+                              ? { thoughtSignature: signature }
+                              : {}),
+                          },
+                        ],
+                      },
+                      finishReason: 'STOP',
+                    },
+                  ],
+                })}\n\n`,
+              ])
+            : terminalTextResponse(),
+        )
+        const { result } = await collectStream(
+          streamCortexKitAntigravity(model, context, {
+            apiKey: 'test-token',
+            sessionId: `agy-158-${modelId}`,
+          }),
+        )
+        const envelope = JSON.parse(
+          String(fetchWithAgyCliTransportMock.mock.calls.at(-1)?.[1]?.body),
+        )
+        assertIdentity(
+          envelope,
+          captures[captureOffset + (index === 1 ? 1 : 0)]!,
+          index,
+          previous,
+        )
+        previous = envelope
+        context.messages.push(result)
+        if (index === 0)
+          context.messages.push({
+            role: 'toolResult',
+            toolCallId: 'call',
+            toolName: toolNames[0]!,
+            content: [{ type: 'text', text: 'result' }],
+            isError: false,
+            timestamp: 2,
+          })
+        else
+          context.messages.push({
+            role: 'user',
+            content: 'next turn',
+            timestamp: 3,
+          })
+      }
+    })
+  }
+})
 
 describe('Pi pre-response deadline', () => {
   function clock() {

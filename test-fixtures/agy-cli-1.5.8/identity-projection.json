@@ -1,0 +1,3915 @@
+{
+  "captured": "2026-11-13",
+  "agy_version": "1.5.8",
+  "changelist": "1020628950",
+  "platform": "darwin/arm64",
+  "auth_method": "consumer",
+  "method": "agy -p through a local mitmproxy 11.0.2 (client-side TLS, no output cap, generations forwarded untouched). Ids are replaced by shape tokens; text content is omitted.",
+  "runs": {
+    "r2": [
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": null,
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_step_index": "0",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 1,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      },
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": null,
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_step_index": "2",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 3,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "functionCall",
+                "thoughtSignature"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "functionResponse"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      },
+      {
+        "model": "claude-sonnet-5-5-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": null,
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_step_index": "0",
+          "model_enum": "MODEL_PLACEHOLDER_M403",
+          "request_id": "<uuid>",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "true",
+          "used_claude_conservative": "true",
+          "used_non_gemini_model": "true"
+        },
+        "contents_count": 1,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 128000,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      },
+      {
+        "model": "claude-sonnet-5-5-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": null,
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_step_index": "2",
+          "model_enum": "MODEL_PLACEHOLDER_M403",
+          "request_id": "<uuid>",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "true",
+          "used_claude_conservative": "true",
+          "used_non_gemini_model": "true"
+        },
+        "contents_count": 3,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "functionCall"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "functionResponse"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 128000,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      }
+    ],
+    "r4-turns": [
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": null,
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_step_index": "0",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 1,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      },
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": null,
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_execution_id": "<uuid>",
+          "last_step_index": "3",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 4,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "text",
+                "thoughtSignature"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      },
+      {
+        "model": "claude-sonnet-5-5-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": null,
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_execution_id": "<uuid>",
+          "last_step_index": "6",
+          "model_enum": "MODEL_PLACEHOLDER_M403",
+          "request_id": "<uuid>",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "true",
+          "used_claude_conservative": "true",
+          "used_non_gemini_model": "true"
+        },
+        "contents_count": 7,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 128000,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      },
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": null,
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_execution_id": "<uuid>",
+          "last_step_index": "9",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "true",
+          "used_claude_conservative": "true",
+          "used_non_gemini_model": "true"
+        },
+        "contents_count": 10,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "text",
+                "thoughtSignature"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "text",
+                "thoughtSignature"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      }
+    ],
+    "r5-shapes": [
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": "agent/<uuid>/<epoch-ms>/<uuid>/1",
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_step_index": "0",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>-0",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 1,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      },
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": "agent/<uuid>/<epoch-ms>/<uuid>/4",
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_execution_id": "<uuid>",
+          "last_step_index": "3",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>-1",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 4,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "text",
+                "thoughtSignature"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": null
+      }
+    ],
+    "r6-session": [
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": "agent/<uuid>/<epoch-ms>/<uuid>/1",
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_step_index": "0",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>-0",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 1,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": true
+      }
+    ],
+    "r7-toolshape": [
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": "agent/<uuid>/<epoch-ms>/<uuid>/1",
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_step_index": "0",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>-0",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 1,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": true
+      },
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": "agent/<uuid>/<epoch-ms>/<uuid>/3",
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_step_index": "2",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>-1",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 3,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "functionCall",
+                "thoughtSignature"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "functionResponse"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": true
+      },
+      {
+        "model": "gemini-3.8-flash-low",
+        "http_version": "HTTP/1.1",
+        "client_alpn_offered": [
+          "http/1.1"
+        ],
+        "header_order": [
+          "Host",
+          "User-Agent",
+          "Transfer-Encoding",
+          "Authorization",
+          "Content-Type",
+          "Accept-Encoding"
+        ],
+        "user_agent": "antigravity/cli/1.5.8 (aidev_client; os_type=darwin; arch=arm64; cl=1020628950; auth_method=consumer)",
+        "content_type": "application/json",
+        "accept_encoding": "gzip",
+        "envelope_keys": [
+          "project",
+          "requestId",
+          "request",
+          "model",
+          "userAgent",
+          "requestType"
+        ],
+        "envelope_request_id_shape": "agent/<uuid>/<epoch-ms>/<uuid>/6",
+        "request_type": "agent",
+        "envelope_user_agent": "antigravity",
+        "request_keys": [
+          "contents",
+          "systemInstruction",
+          "tools",
+          "labels",
+          "generationConfig",
+          "sessionId"
+        ],
+        "labels": {
+          "cascade_id": "<uuid>",
+          "last_execution_id": "<uuid>",
+          "last_step_index": "5",
+          "model_enum": "MODEL_PLACEHOLDER_M320",
+          "request_id": "<uuid>-2",
+          "root_cascade_id": "<uuid>",
+          "trajectory_id": "<uuid>",
+          "used_claude": "false",
+          "used_claude_conservative": "false",
+          "used_non_gemini_model": "false"
+        },
+        "contents_count": 6,
+        "contents_shape": [
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "functionCall",
+                "thoughtSignature"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "functionResponse"
+              ]
+            ]
+          },
+          {
+            "role": "model",
+            "parts_keys": [
+              [
+                "text",
+                "thoughtSignature"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          },
+          {
+            "role": "user",
+            "parts_keys": [
+              [
+                "text"
+              ]
+            ]
+          }
+        ],
+        "system_instruction_keys": [
+          "role",
+          "parts"
+        ],
+        "tools_count": 13,
+        "tools_shape": [
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          },
+          {
+            "keys": [
+              "functionDeclarations"
+            ],
+            "declarations": 1,
+            "declaration_keys": [
+              [
+                "name",
+                "description",
+                "parameters"
+              ]
+            ]
+          }
+        ],
+        "tool_names": [
+          "read_file",
+          "run_command",
+          "manage_task",
+          "send_message",
+          "schedule",
+          "invoke_subagent",
+          "define_subagent",
+          "manage_subagents",
+          "write_file",
+          "edit_file",
+          "search_web",
+          "swarm",
+          "ask_question"
+        ],
+        "generation_config": {
+          "maxOutputTokens": 65536,
+          "thinkingConfig": {
+            "includeThoughts": true,
+            "thinkingLevel": "LOW"
+          }
+        },
+        "has_tool_config": false,
+        "session_id_is_fnv1a_of_empty_string": true
+      }
+    ]
+  }
+}
