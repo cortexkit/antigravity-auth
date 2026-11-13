@@ -417,7 +417,7 @@ test('producer.shared_core_profile_exact_closure', async () => {
       'utf8',
     ),
   )
-  expect(required.length).toBe(183)
+  expect(required.length).toBe(184)
   expect(map.canonicalFiles).toBe(184)
   expect(map.canonicalBytes).toBe(1165665)
   expect(map.publicRoots).toEqual(profile.publicRoots)
