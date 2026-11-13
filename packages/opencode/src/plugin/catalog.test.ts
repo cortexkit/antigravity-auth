@@ -13,7 +13,10 @@ describe('applyAntigravityProviderCatalog', () => {
     const config = {
       provider: {
         google: {
-          models: { existing: { name: 'Existing model' } },
+          models: { existing: { name: 'Existing model' } } as Record<
+            string,
+            unknown
+          >,
           options: { apiKey: 'kept' },
         },
       },

@@ -1987,12 +1987,11 @@ describe('model registration', () => {
       name: 'Gemini 4 Hydrogen (Antigravity)',
       limit: { context: 1048576, output: 262144 },
     })
-    expect(catalog.get('antigravity-gemini-4-hydrogen')?.variants).toEqual([
-      { id: 'low' },
-      { id: 'medium' },
-      { id: 'high' },
-      { id: 'xhigh' },
-    ])
+    expect(
+      catalog
+        .get('antigravity-gemini-4-hydrogen')
+        ?.variants.map((variant) => String(variant.id)),
+    ).toEqual(['low', 'medium', 'high', 'xhigh'])
   })
 
   it('registers Carbon on OpenCode 2 with all effort variants and its output limit', () => {
