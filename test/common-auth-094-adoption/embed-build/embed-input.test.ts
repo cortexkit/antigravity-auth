@@ -468,8 +468,9 @@ test('build.repo_hygiene', async () => {
     '.gitignore',
     childManifest,
     'packages/opencode/scripts/build-tui.ts',
-    // The copied build script imports this command helper.
+    // The copied build script imports these command and esbuild CLI helpers.
     'packages/opencode/scripts/run-command.ts',
+    'packages/opencode/scripts/esbuild-cli.ts',
     'packages/opencode/scripts/embed-common-auth.ts',
     // The root embed:check also checks core's embedded output, through
     // core's call into the same emitter.
