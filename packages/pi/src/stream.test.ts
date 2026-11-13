@@ -25,7 +25,6 @@ import { ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent'
 import { vaultWaitClock } from '../../../test/support/vault-wait-clock.test.ts'
 import opusLow from '../../../test-fixtures/agy-cli-1.3.3/native-opus-low.json'
 import sonnetLow from '../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
-import schemaDerived from '../../../test-fixtures/agy-cli-1.3.3/schema-derived-thinking.json'
 import carbonLow from '../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
 import {
   assertIdentity,
@@ -943,7 +942,8 @@ describe('resolvePiAntigravityModel', () => {
       }
     }
   })
-  it('prepares captured low and schema-derived efforts using genuine Pi registration models', async () => {
+  it('prepares all captured agy 1.5.8 Claude efforts using genuine Pi registration models', async () => {
+    // Every effort is now captured and omits the older zero thinking budget.
     const root = await mkdtemp(join(tmpdir(), 'agy-133-pi-catalog-'))
     try {
       const runtime = await ModelRuntime.create({
@@ -994,10 +994,13 @@ describe('resolvePiAntigravityModel', () => {
           expect(body.model).toBe(fixture.model.replace(/-low$/, `-${level}`))
           expect(body.request.generationConfig).toEqual(
             level === 'low'
-              ? fixture.native_generation_config
+              ? captures[2]!.generation_config
               : {
                   maxOutputTokens: 128000,
-                  thinkingConfig: schemaDerived[level],
+                  thinkingConfig: {
+                    includeThoughts: true,
+                    thinkingLevel: level.toUpperCase(),
+                  },
                 },
           )
           expect(body.request.labels.model_enum).toBe(
@@ -1028,9 +1031,10 @@ describe('resolvePiAntigravityModel', () => {
         const body = JSON.parse(
           String(fetchWithAgyCliTransportMock.mock.calls.at(-1)?.[1]?.body),
         )
-        expect(body.request.generationConfig).toEqual(
-          fixture.as_sent_generation_config,
-        )
+        expect(body.request.generationConfig).toEqual({
+          ...captures[2]!.generation_config,
+          maxOutputTokens: 2048,
+        })
       }
     } finally {
       await rm(root, { recursive: true, force: true })
@@ -1451,7 +1455,8 @@ describe('streamCortexKitAntigravity', () => {
     expect(fetchWithAgyCliTransportMock).not.toHaveBeenCalled()
   })
 
-  it('sends the captured Gemini 3.8 high budget and model enum on the wire', async () => {
+  it('sends the captured Gemini 3.8 high level and model enum on the wire', async () => {
+    // agy 1.5.8 High uses a categorical server level, not budget -1.
     await runStream(
       {
         ...fakeModel('antigravity-gemini-3.8-flash'),
@@ -1470,7 +1475,7 @@ describe('streamCortexKitAntigravity', () => {
     expect(body.model).toBe('gemini-3.8-flash-high')
     expect(body.request.generationConfig.thinkingConfig).toEqual({
       includeThoughts: true,
-      thinkingBudget: -1,
+      thinkingLevel: 'HIGH',
     })
     expect(body.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M318')
     expect(call?.[1]?.headers?.['User-Agent']).toContain(

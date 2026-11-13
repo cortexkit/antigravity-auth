@@ -412,7 +412,9 @@ function prepareAntigravityRequest(options: {
   if (typeof maxTokens === 'number') {
     generationConfig.maxOutputTokens = maxTokens
   }
-  applyAgyNativeGenerationConfig(wireModel, generationConfig)
+  applyAgyNativeGenerationConfig(wireModel, generationConfig, {
+    preserveThinkingBudget: false,
+  })
 
   if (Object.keys(generationConfig).length > 0) {
     request.generationConfig = generationConfig

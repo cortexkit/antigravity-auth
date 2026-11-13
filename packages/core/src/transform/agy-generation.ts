@@ -15,6 +15,7 @@ const ADAPTIVE_LEVELS: Readonly<Record<number, string>> = {
 export function applyAgyNativeGenerationConfig(
   wireModel: string,
   generationConfig: Record<string, unknown>,
+  options: { thinkingBudget?: number; preserveThinkingBudget?: boolean } = {},
 ): void {
   const native = getAgyNativeModel(wireModel)
   if (!native) return
@@ -25,7 +26,28 @@ export function applyAgyNativeGenerationConfig(
   }
   delete generationConfig.max_output_tokens
 
-  if (isGeminiHydrogenModel(wireModel)) {
+  const capturedTier =
+    /^(?:gemini-3\.8-flash|claude-(?:sonnet|opus)-5-5)-(low|medium|high)$/i.exec(
+      wireModel,
+    )?.[1]
+  if (capturedTier) {
+    const thinking = generationConfig.thinkingConfig as
+      | { thinkingBudget?: unknown }
+      | undefined
+    // Builders can distinguish an explicit caller budget from a numeric
+    // resolver default. Direct raw configs preserve their explicit budget.
+    const budget =
+      options.thinkingBudget ??
+      (options.preserveThinkingBudget === false
+        ? undefined
+        : thinking?.thinkingBudget)
+    generationConfig.thinkingConfig = {
+      includeThoughts: true,
+      ...(typeof budget === 'number'
+        ? { thinkingBudget: budget }
+        : { thinkingLevel: capturedTier.toUpperCase() }),
+    }
+  } else if (isGeminiHydrogenModel(wireModel)) {
     const tier = wireModel.toLowerCase().split('-').at(-1)
     // The native CLI sends the numeric value 100 for XHigh, not a string.
     // The CLI capture shows LOW; MEDIUM and HIGH follow Carbon's mapping. A live

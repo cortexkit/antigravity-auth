@@ -244,7 +244,9 @@ function applyAgyGenerationDefaults(
   generationConfig: Record<string, unknown>,
 ): void {
   if (getAgyNativeModel(model)) {
-    applyAgyNativeGenerationConfig(model, generationConfig)
+    applyAgyNativeGenerationConfig(model, generationConfig, {
+      preserveThinkingBudget: false,
+    })
     return
   }
   const maxOutputTokens = getAgyMaxOutputTokens(model)
@@ -1771,7 +1773,9 @@ function prepareAntigravityRequestIn(
               !Array.isArray(generationConfig)
                 ? (generationConfig as Record<string, unknown>)
                 : {}
-            applyAgyNativeGenerationConfig(effectiveModel, config)
+            applyAgyNativeGenerationConfig(effectiveModel, config, {
+              thinkingBudget: options?.variant?.thinkingBudget,
+            })
             if (Object.keys(config).length > 0)
               wireRequest.generationConfig = config
             const metadata = buildAgyAgentRequestMetadata(
@@ -1816,6 +1820,21 @@ function prepareAntigravityRequestIn(
               | undefined,
             rawGenerationConfig,
           )
+        const callerThinking = (rawGenerationConfig?.thinkingConfig ??
+          extraBody?.thinkingConfig ??
+          requestPayload.thinkingConfig) as
+          | { thinkingBudget?: unknown }
+          | undefined
+        const callerAnthropicThinking = (extraBody?.thinking ??
+          requestPayload.thinking) as { budgetTokens?: unknown } | undefined
+        const explicitThinkingBudget =
+          variantConfig?.thinkingBudget ??
+          (typeof callerThinking?.thinkingBudget === 'number'
+            ? callerThinking.thinkingBudget
+            : undefined) ??
+          (typeof callerAnthropicThinking?.budgetTokens === 'number'
+            ? callerAnthropicThinking.budgetTokens
+            : undefined)
         const isGemini3 = effectiveModel.toLowerCase().includes('gemini-3')
 
         wire.logger.debug(
@@ -2493,7 +2512,10 @@ function prepareAntigravityRequestIn(
             !Array.isArray(generationConfig)
               ? (generationConfig as Record<string, unknown>)
               : {}
-          applyAgyNativeGenerationConfig(effectiveModel, config)
+          applyAgyNativeGenerationConfig(effectiveModel, config, {
+            thinkingBudget: explicitThinkingBudget,
+            preserveThinkingBudget: false,
+          })
           if (Object.keys(config).length > 0)
             requestPayload.generationConfig = config
           stripUnsupportedAntigravityFields(requestPayload)
@@ -2657,7 +2679,9 @@ export function buildThinkingWarmupBody(
       generationConfig.max_output_tokens ??
       getAgyMaxOutputTokens(wireModel) ??
       computeClaudeMaxOutputTokens(AGY_CLAUDE_THINKING_BUDGET)
-    applyAgyNativeGenerationConfig(wireModel, generationConfig)
+    applyAgyNativeGenerationConfig(wireModel, generationConfig, {
+      preserveThinkingBudget: false,
+    })
     req.generationConfig = generationConfig
     requestObjects.push(req)
   }

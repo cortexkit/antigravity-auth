@@ -19,6 +19,45 @@ import { prepareAgyWireRequest } from './shared/request-services'
 import { createSignatureStore } from './stores/signature-store'
 
 describe('agy 1.5.8 identity through OpenCode request builders', () => {
+  for (const family of [
+    'gemini-3.8-flash',
+    'claude-sonnet-5-5',
+    'claude-opus-5-5',
+  ]) {
+    for (const tier of ['low', 'medium', 'high']) {
+      for (const wrapped of [false, true]) {
+        it(`${family}-${tier} preserves caller thinking budgets and caps, wrapped=${wrapped}`, () => {
+          for (const thinkingBudget of [-1, 0, 1234]) {
+            const model = `${family}-${tier}`
+            const request = {
+              contents: [{ role: 'user', parts: [{ text: 'prompt' }] }],
+              generationConfig: {
+                maxOutputTokens: 1,
+                thinkingConfig: { includeThoughts: true, thinkingBudget },
+              },
+            }
+            const prepared = prepareAntigravityRequest(
+              `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+              {
+                method: 'POST',
+                body: JSON.stringify(
+                  wrapped ? { project: 'project', model, request } : request,
+                ),
+              },
+              'token',
+              'project',
+            )
+            expect(
+              JSON.parse(String(prepared.init.body)).request.generationConfig,
+            ).toEqual({
+              maxOutputTokens: 1,
+              thinkingConfig: { includeThoughts: true, thinkingBudget },
+            })
+          }
+        })
+      }
+    }
+  }
   for (const wrapped of [false, true]) {
     it(`keeps Continue after a plain Gemini model-text ending, wrapped=${wrapped}`, () => {
       const model = 'gemini-3.8-flash-low'

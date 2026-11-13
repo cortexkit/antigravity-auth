@@ -5,7 +5,6 @@ import { join } from 'node:path'
 import { redactCredentialError } from '@cortexkit/antigravity-auth-core'
 import opusLow from '../../../../test-fixtures/agy-cli-1.3.3/native-opus-low.json'
 import sonnetLow from '../../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
-import schemaDerived from '../../../../test-fixtures/agy-cli-1.3.3/schema-derived-thinking.json'
 import carbonLow from '../../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
 import identityProjection from '../../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
 import { SKIP_THOUGHT_SIGNATURE } from '../constants'
@@ -1058,6 +1057,7 @@ describe('request.ts', () => {
     const mockProjectId = 'test-project'
 
     it('prepares both captured Claude low configurations through host variants and current persisted headers', () => {
+      // Both Claude Low captures in agy 1.5.8 omit the older zero thinking budget.
       for (const fixture of [opusLow, sonnetLow]) {
         const fingerprint = generateFingerprint()
         fingerprint.userAgent = 'antigravity/cli/1.1.24 (historical account)'
@@ -1081,7 +1081,7 @@ describe('request.ts', () => {
         const body = JSON.parse(String(result.init.body))
         expect(body.model).toBe(fixture.model)
         expect(body.request.generationConfig).toEqual(
-          fixture.native_generation_config,
+          identityProjection.runs.r2[2]!.generation_config,
         )
         expect(body.request.labels.model_enum).toBe(fixture.native_model_enum)
         expect(Object.keys(body)).toEqual(fixture.envelope_keys)
@@ -1094,6 +1094,7 @@ describe('request.ts', () => {
     })
 
     it('preserves explicit Claude output caps in plain and wrapped requests', () => {
+      // agy 1.5.8 changes only the default thinking shape, never the caller cap.
       for (const fixture of [opusLow, sonnetLow]) {
         for (const cap of [1, 2048]) {
           for (const wrapped of [false, true]) {
@@ -1115,7 +1116,7 @@ describe('request.ts', () => {
               )
               const body = JSON.parse(String(result.init.body))
               expect(body.request.generationConfig).toEqual({
-                ...fixture.native_generation_config,
+                ...identityProjection.runs.r2[2]!.generation_config,
                 maxOutputTokens: cap,
               })
             }
@@ -1124,7 +1125,8 @@ describe('request.ts', () => {
       }
     })
 
-    it('routes Claude host medium/high variants with schema-derived thinking', () => {
+    it('routes Claude host medium/high variants with captured level-only thinking', () => {
+      // agy 1.5.8 captures replace the former schema-derived zero-budget config.
       for (const family of ['opus', 'sonnet']) {
         for (const effort of ['medium', 'high'] as const) {
           const result = prepareAntigravityRequest(
@@ -1143,7 +1145,10 @@ describe('request.ts', () => {
           expect(body.model).toBe(`claude-${family}-5-5-${effort}`)
           expect(body.request.generationConfig).toEqual({
             maxOutputTokens: 128000,
-            thinkingConfig: schemaDerived[effort],
+            thinkingConfig: {
+              includeThoughts: true,
+              thinkingLevel: effort.toUpperCase(),
+            },
           })
           expect(body.request.labels.model_enum).toBe(
             `MODEL_PLACEHOLDER_M${family === 'opus' ? (effort === 'medium' ? 401 : 402) : effort === 'medium' ? 404 : 405}`,
@@ -1684,28 +1689,29 @@ describe('request.ts', () => {
       [
         'antigravity-gemini-3.8-flash',
         'gemini-3.8-flash-medium',
-        4000,
+        'MEDIUM',
         'MODEL_PLACEHOLDER_M319',
       ],
       [
         'antigravity-gemini-3.8-flash-low',
         'gemini-3.8-flash-low',
-        1000,
+        'LOW',
         'MODEL_PLACEHOLDER_M320',
       ],
       [
         'antigravity-gemini-3.8-flash-medium',
         'gemini-3.8-flash-medium',
-        4000,
+        'MEDIUM',
         'MODEL_PLACEHOLDER_M319',
       ],
       [
         'antigravity-gemini-3.8-flash-high',
         'gemini-3.8-flash-high',
-        -1,
+        'HIGH',
         'MODEL_PLACEHOLDER_M318',
       ],
-    ])('preserves the captured Gemini 3.8 enum and caller cap for %s', (requestedModel, wireModel, thinkingBudget, modelEnum) => {
+    ])('preserves the captured Gemini 3.8 enum and caller cap for %s', (requestedModel, wireModel, thinkingLevel, modelEnum) => {
+      // agy 1.5.8 replaces numeric Flash budgets with server thinking levels.
       const result = prepareAntigravityRequest(
         `https://generativelanguage.googleapis.com/v1beta/models/${requestedModel}:generateContent`,
         {
@@ -1727,11 +1733,11 @@ describe('request.ts', () => {
       expect(wrapped.model).toBe(wireModel)
       expect(wrapped.request.generationConfig).toMatchObject({
         maxOutputTokens: 1024,
-        thinkingConfig: { includeThoughts: true, thinkingBudget },
+        thinkingConfig: { includeThoughts: true, thinkingLevel },
       })
       expect(
         wrapped.request.generationConfig.thinkingConfig,
-      ).not.toHaveProperty('thinkingLevel')
+      ).not.toHaveProperty('thinkingBudget')
       expect(wrapped.request.labels.model_enum).toBe(modelEnum)
     })
 
@@ -2727,7 +2733,6 @@ describe('request.ts', () => {
       expect(warmup.request.generationConfig).toEqual({
         thinkingConfig: {
           includeThoughts: true,
-          thinkingBudget: 0,
           thinkingLevel: 'LOW',
         },
         maxOutputTokens: 128000,
@@ -3855,7 +3860,6 @@ describe('current Claude warmup admission', () => {
       maxOutputTokens: 2048,
       thinkingConfig: {
         includeThoughts: true,
-        thinkingBudget: 0,
         thinkingLevel: 'LOW',
       },
     })
