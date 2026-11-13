@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Concurrent settings saves are no longer refused by mistake on Linux under Bun, using published common-auth 0.49.2 and its shared path helper.
+
 ## [3.1.0] - 2026-11-13
 
 - Gemini 4 Hydrogen offers Low, Medium and High (default) on OpenCode 1, and Low, Medium, High (default) and XHigh on OpenCode 2 and Pi. OpenCode 1 omits XHigh because its built-in Google library cannot pass that thinking level to the plugin. Hydrogen requires a Pro or Ultra subscription in Google Antigravity.
