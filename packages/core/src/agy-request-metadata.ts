@@ -245,16 +245,20 @@ export function buildAgyAgentRequestMetadata(
   session: AgyRequestSessionContext,
   payload: Record<string, unknown>,
   model: string,
-  timestamp = Date.now(),
+  timestamp?: number,
 ): AgyAgentRequestMetadata {
+  // Retries reuse an explicitly supplied timestamp. Otherwise allocate a fresh
+  // timestamp so the request counter advances even within one clock millisecond.
+  const requestTimestamp =
+    timestamp ?? Math.max(Date.now(), (session.lastMetadataTimestamp ?? 0) + 1)
   const stepCount = countAgyRequestSteps(payload)
   const lastStepIndex = stepCount - 1
   // A retry reuses its allocated timestamp and must not advance the generation
   // counter or rotate the execution ID. Tool continuations get their own
   // request timestamp and advance the generation counter.
-  if (session.lastMetadataTimestamp !== timestamp) {
+  if (session.lastMetadataTimestamp !== requestTimestamp) {
     session.requestCount = (session.requestCount ?? 0) + 1
-    session.lastMetadataTimestamp = timestamp
+    session.lastMetadataTimestamp = requestTimestamp
     if (session.lastExecutionId || hasSecondUserTurn(payload)) {
       session.lastExecutionId = randomUUID()
     }
@@ -281,7 +285,7 @@ export function buildAgyAgentRequestMetadata(
   }
 
   return {
-    requestId: `agent/${session.conversationId}/${timestamp}/${session.trajectoryId}/${stepCount}`,
+    requestId: `agent/${session.conversationId}/${requestTimestamp}/${session.trajectoryId}/${stepCount}`,
     sessionId: session.numericSessionId,
     labels,
     lastStepIndex,

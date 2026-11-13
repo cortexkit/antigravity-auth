@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, spyOn } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import identityProjection from '../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
 
@@ -65,6 +65,40 @@ describe('agy request metadata', () => {
     sessions.clear()
 
     expect(sessions.size).toBe(0)
+  })
+
+  it('advances default generation identities even within the same millisecond', () => {
+    const now = spyOn(Date, 'now').mockReturnValue(100)
+    try {
+      const session = createAgyRequestSessionContext()
+      const payload = {
+        contents: [{ role: 'user', parts: [{ text: 'prompt' }] }],
+      }
+      const first = buildAgyAgentRequestMetadata(
+        session,
+        payload,
+        'gemini-3.8-flash-low',
+      )
+      const second = buildAgyAgentRequestMetadata(
+        session,
+        payload,
+        'gemini-3.8-flash-low',
+      )
+      expect(first.labels.request_id).toBe(`${session.trajectoryId}-0`)
+      expect(second.labels.request_id).toBe(`${session.trajectoryId}-1`)
+      expect(first.requestId.split('/')[2]).toBe('100')
+      expect(second.requestId.split('/')[2]).toBe('101')
+      expect(
+        buildAgyAgentRequestMetadata(
+          session,
+          payload,
+          'gemini-3.8-flash-low',
+          101,
+        ),
+      ).toEqual(second)
+    } finally {
+      now.mockRestore()
+    }
   })
 
   it('creates stable session IDs with independently generated conversation and trajectory IDs', () => {
