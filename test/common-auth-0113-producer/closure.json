@@ -287,9 +287,12 @@
       "node:fs/promises",
       "node:path"
     ],
+    "fs/canonical-file-path.d.ts": ["node:fs", "node:fs/promises"],
+    "fs/canonical-file-path.js": ["node:path"],
     "fs/file-read-cache.js": ["node:fs/promises", "node:path"],
     "fs/index.d.ts": [
       "./atomic-write.js",
+      "./canonical-file-path.js",
       "./lock-constants.js",
       "./private-files.js",
       "./refresh-file-lock.js",
@@ -297,6 +300,7 @@
     ],
     "fs/index.js": [
       "./atomic-write.js",
+      "./canonical-file-path.js",
       "./lock-constants.js",
       "./private-files.js",
       "./refresh-file-lock.js",
@@ -590,6 +594,7 @@
       "./resolve.js"
     ],
     "settings/update.js": [
+      "../fs/canonical-file-path.js",
       "../fs/private-files.js",
       "../fs/with-lock.js",
       "./descriptors.js",
@@ -907,6 +912,7 @@
     "store/torn.d.ts": ["./identity.js", "./schema.js"],
     "store/torn.js": ["./identity.js", "./schema.js"],
     "tui-prefs/watcher.js": [
+      "../fs/canonical-file-path.js",
       "../fs/private-files.js",
       "node:fs",
       "node:fs/promises",

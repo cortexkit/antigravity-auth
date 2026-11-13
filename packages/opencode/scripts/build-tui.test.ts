@@ -448,6 +448,34 @@ test('graph.settings_and_watcher_both_renderers_refused', async () => {
   }
 })
 
+test('graph.canonical_file_path_library_only', async () => {
+  const root = await fixture(true)
+  const embedded = join(root, 'src/common-auth-embedded')
+  const helper = join(embedded, 'fs/canonical-file-path.js')
+  const graph = await auditGraph(helper, { tui: false })
+  expect(graph.files).toEqual([helper])
+  expect(graph.externals).toEqual(['node:path'])
+  for (const entry of [
+    'fs/index.js',
+    'settings/index.js',
+    'tui-prefs/watcher.js',
+  ]) {
+    expect(
+      (await auditGraph(join(embedded, entry), { tui: false })).files,
+    ).toContain(helper)
+  }
+  await expect(auditGraph(helper)).rejects.toThrow('forbidden TUI source')
+  for (const profile of TUI_ROOTS) {
+    const entry = join(root, profile.entry)
+    const specifier = `./${relative(dirname(entry), helper).replaceAll('\\', '/')}`
+    await writeFile(
+      entry,
+      `${await readFile(entry, 'utf8')}\nimport ${JSON.stringify(specifier)}\n`,
+    )
+    await expect(auditGraph(entry)).rejects.toThrow('forbidden TUI source')
+  }
+})
+
 test('graph.routing_handle_renderer_refused', async () => {
   const root = await fixture(true)
   // The Claustrum host-mode client (`claustrum/host.js`) and the routing
@@ -745,7 +773,7 @@ test('build.predecessor_0320_maps_are_owned', async () => {
   await buildTuiRoots({ packageRoot: root })
   for (const profile of TUI_ROOTS) {
     const rebuilt = JSON.parse(await readFile(join(root, profile.map), 'utf8'))
-    expect(rebuilt.compiler).toBe('@cortexkit/common-auth/tui-build@0.49.1')
+    expect(rebuilt.compiler).toBe('@cortexkit/common-auth/tui-build@0.49.2')
     expect(rebuilt).not.toHaveProperty('predecessorCanary')
     for (const tree of [profile.raw, profile.runtime])
       expect(await inventory(join(root, tree))).not.toContain(
@@ -762,7 +790,7 @@ test('build.map_admission_valid_generated', async () => {
   const runtime = await hashes(root, 'src/tui-compiled')
   const generated = await readFile(map)
   expect(JSON.parse(generated.toString()).compiler).toBe(
-    '@cortexkit/common-auth/tui-build@0.49.1',
+    '@cortexkit/common-auth/tui-build@0.49.2',
   )
   for (const compiler of [
     '@cortexkit/common-auth/tui-build@0.9.4',
@@ -782,6 +810,7 @@ test('build.map_admission_valid_generated', async () => {
     '@cortexkit/common-auth/tui-build@0.47.0',
     '@cortexkit/common-auth/tui-build@0.48.0',
     '@cortexkit/common-auth/tui-build@0.49.0',
+    '@cortexkit/common-auth/tui-build@0.49.1',
   ]) {
     const previous = JSON.parse(generated.toString())
     previous.compiler = compiler
@@ -954,7 +983,7 @@ test('graph.ga_roots', async () => {
   ])
   checkGaGraph(source, 'source', product)
   const map = JSON.parse(await readFile(join(product, GA_TUI_ROOT.map), 'utf8'))
-  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.49.1')
+  expect(map.compiler).toBe('@cortexkit/common-auth/tui-build@0.49.2')
   for (const [variant, tree, entry, kind] of [
     [map.raw, GA_TUI_ROOT.raw, GA_TUI_ROOT.rawEntry, 'raw'],
     [map.runtime, GA_TUI_ROOT.runtime, GA_TUI_ROOT.runtimeEntry, 'runtime'],
