@@ -28,7 +28,9 @@ export function applyAgyNativeGenerationConfig(
   if (isGeminiHydrogenModel(wireModel)) {
     const tier = wireModel.toLowerCase().split('-').at(-1)
     // The native CLI sends the numeric value 100 for XHigh, not a string.
-    // LOW is captured too; MEDIUM/HIGH are inferred from the routes and Carbon.
+    // The CLI capture shows LOW; MEDIUM and HIGH follow Carbon's mapping. A live
+    // probe on 13 Nov saw all four values accepted, with thinking depth rising
+    // from LOW to XHigh (the server does not name the tier it served).
     generationConfig.thinkingConfig = {
       includeThoughts: true,
       thinkingLevel:

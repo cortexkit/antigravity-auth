@@ -1935,7 +1935,8 @@ describe('request.ts', () => {
     })
 
     it('sends Hydrogen routes and host overrides with high default and numeric XHigh', () => {
-      // LOW and numeric XHigh were captured; MEDIUM/HIGH are inferred from Carbon.
+      // CLI 1.5.5 sent LOW and numeric XHigh; MEDIUM/HIGH follow Carbon. A live
+      // probe on 13 Nov saw all four values accepted by the server.
       for (const [tier, thinkingLevel, modelEnum] of [
         ['low', 'LOW', 'MODEL_PLACEHOLDER_M527'],
         ['medium', 'MEDIUM', 'MODEL_PLACEHOLDER_M526'],

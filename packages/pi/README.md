@@ -87,10 +87,11 @@ Carbon counts against the ordinary Gemini pool until a Carbon quota bucket is ob
 Gemini 4 Hydrogen requires Pro or Ultra in Google Antigravity and supports low,
 medium, high (default) and xhigh effort, with 1,048,576 context and 262,144 output
 tokens. Pi preserves Hydrogen's xhigh instead of clamping it to high. Native CLI
-1.5.5 captures Low as `"LOW"` and XHigh as the JSON number `100`; Medium/High are
-inferred from Carbon. Both captures exhausted the account's weekly quota, so
-server acceptance is unverified. Hydrogen uses the ordinary Gemini quota pool
-until bucket evidence is available.
+1.5.5 sends Low as `"LOW"` and XHigh as the JSON number `100`; Medium and High
+follow Carbon's `"MEDIUM"`/`"HIGH"`. A live probe on 13 November saw all four
+levels accepted, each thinking longer than the one below. The server does not
+name the level it served, so thinking depth is the evidence. Hydrogen uses the
+ordinary Gemini quota pool; no Hydrogen-specific allowance has been observed.
 
 The image-generation model is currently OpenCode-only because Pi's provider event
 protocol does not expose image-output stream events.

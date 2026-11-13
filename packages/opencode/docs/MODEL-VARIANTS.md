@@ -61,9 +61,10 @@ so xhigh would never reach the plugin. Its 1,048,576-token context follows
 Google's 12 November announcement; the native CLI sends 262,144 output tokens,
 with an explicit caller cap taking precedence. The [CLI 1.5.5 capture projection](../../../test-fixtures/agy-cli-1.5.5/hydrogen-evidence.json)
 from 13 November observes `"LOW"` and the JSON number `100` for XHigh, without a
-thinking budget or `toolConfig`. Low, high and xhigh were seen served in a live
-probe on 13 November; medium's `"MEDIUM"` value is inferred from Gemini 4 Carbon's
-thinking-level mapping.
+thinking budget or `toolConfig`; medium and high follow Gemini 4 Carbon's
+`"MEDIUM"`/`"HIGH"`. A live probe on 13 November saw all four levels accepted,
+each thinking longer than the one below. The server does not name the level it
+served, so thinking depth is the evidence.
 Hydrogen stays on the ordinary Gemini quota pool.
 
 The grouped `antigravity-gemini-3.8-flash`, `antigravity-gemini-4-argon` and

@@ -11,8 +11,9 @@ Medium, High (default) and XHigh on OpenCode 2 and Pi, requiring Pro or Ultra in
 Antigravity. OpenCode 1 omits XHigh because its built-in Google library
 (`@ai-sdk/google`) accepts only `minimal`/`low`/`medium`/`high` for `thinkingLevel`,
 so XHigh would never reach the plugin. Hydrogen sends the native CLI's 262,144
-output-token limit and numeric `100` for XHigh. Low, High and XHigh were seen
-served in a live probe on 13 November; Medium's `"MEDIUM"` value is inferred.
+output-token limit and numeric `100` for XHigh. A live probe on 13 November saw
+all four levels accepted, each thinking longer than the one below; the server
+does not name the level it served, so thinking depth is the evidence.
 Hydrogen uses the ordinary Gemini quota pool; no Hydrogen-specific allowance has
 been observed.
 

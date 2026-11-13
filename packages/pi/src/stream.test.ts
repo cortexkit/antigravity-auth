@@ -717,7 +717,7 @@ afterEach(() => {
 })
 
 describe('resolvePiAntigravityModel', () => {
-  it('sends Hydrogen with high default, captured Low/numeric XHigh and inferred Medium/High', async () => {
+  it('sends Hydrogen with high default, captured Low/numeric XHigh and Carbon-style Medium/High', async () => {
     for (const [effort, tier, thinkingLevel, modelEnum] of [
       [undefined, 'high', 'HIGH', 'MODEL_PLACEHOLDER_M525'],
       ['low', 'low', 'LOW', 'MODEL_PLACEHOLDER_M527'],

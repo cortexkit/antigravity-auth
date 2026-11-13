@@ -103,9 +103,9 @@ describe('Gemini 4 Hydrogen', () => {
     }
   })
 
-  it('matches captured Low and numeric XHigh wire configs and inferred Medium/High', () => {
-    // CLI 1.5.5 captured LOW and numeric 100; MEDIUM/HIGH are inferred
-    // from the server routes and Carbon's mapping, not accepted traffic.
+  it('matches captured Low and numeric XHigh wire configs and Carbon-style Medium/High', () => {
+    // CLI 1.5.5 sent LOW and numeric 100; MEDIUM/HIGH follow Carbon's mapping.
+    // A live probe on 13 Nov saw all four values accepted by the server.
     for (const [tier, thinkingLevel] of [
       ['low', 'LOW'],
       ['medium', 'MEDIUM'],
