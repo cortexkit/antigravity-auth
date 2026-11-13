@@ -688,6 +688,35 @@ describe('hook bodies', () => {
     expect(senderCalls).toHaveLength(0)
   })
 
+  it('owns Hydrogen requests and forwards all four selected variants to Antigravity', async () => {
+    const execute = mock(async (_job: GaBridgeJob) => new Response('{}'))
+    const active = await startBridge(execute)
+    const catalog = server.gaCatalogModels()
+    for (const variant of [undefined, 'low', 'medium', 'high', 'xhigh']) {
+      const event = requestEvent(
+        'primary',
+        'antigravity-gemini-4-hydrogen',
+        undefined,
+        variant,
+      )
+      const original = event.request
+      await server.rewriteGaHttpRequest(event, {
+        bridge: active,
+        ownership,
+        isRegisteredModel: (id) => catalog.has(id),
+        env: NO_PROXY_ENV,
+      })
+      expect(ownership.get(event.sessionID)).toBe(true)
+      expect(event.request).not.toBe(original)
+      expect(event.request.url.startsWith(`${active.origin}/agy/`)).toBe(true)
+      await (await fetch(event.request)).text()
+      expect(execute.mock.calls.at(-1)?.[0]).toMatchObject({
+        modelID: 'antigravity-gemini-4-hydrogen',
+        variant: variant ?? null,
+      })
+    }
+  })
+
   it('bridges owned canonical Google origins normally', async () => {
     const execute = mock(async (_job: GaBridgeJob) => new Response('{}'))
     const active = await startBridge(execute)
@@ -1952,6 +1981,19 @@ describe('setup against a host context', () => {
 
 describe('model registration', () => {
   const catalog = server.gaCatalogModels()
+
+  it('registers Hydrogen on OpenCode 2 with all four effort variants and its output limit', () => {
+    expect(catalog.get('antigravity-gemini-4-hydrogen')).toMatchObject({
+      name: 'Gemini 4 Hydrogen (Antigravity)',
+      variants: [
+        { id: 'low' },
+        { id: 'medium' },
+        { id: 'high' },
+        { id: 'xhigh' },
+      ],
+      limit: { context: 1048576, output: 262144 },
+    })
+  })
 
   it('registers Carbon on OpenCode 2 with all effort variants and its output limit', () => {
     expect(catalog.get('antigravity-gemini-4-carbon')).toMatchObject({

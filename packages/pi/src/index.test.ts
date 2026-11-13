@@ -286,6 +286,27 @@ describe('Pi vault session shutdown', () => {
 })
 
 describe('Pi Antigravity model catalog', () => {
+  it('publishes Hydrogen with reasoning and the native output limit', async () => {
+    const registerProvider = mock()
+    await cortexKitPiAntigravityAuth({
+      registerProvider,
+      registerCommand: mock(),
+    } as never)
+    const config = registerProvider.mock.calls[0]?.[1] as {
+      models: Array<{ id: string }>
+    }
+    expect(
+      config.models.find(
+        (model) => model.id === 'antigravity-gemini-4-hydrogen',
+      ),
+    ).toMatchObject({
+      name: 'Gemini 4 Hydrogen (Antigravity)',
+      reasoning: true,
+      contextWindow: 1048576,
+      maxTokens: 262144,
+    })
+  })
+
   it('publishes Carbon with reasoning and the native output limit', async () => {
     const registerProvider = mock()
     await cortexKitPiAntigravityAuth({
@@ -320,6 +341,7 @@ describe('Pi Antigravity model catalog', () => {
       'antigravity-gemini-3.8-flash',
       'antigravity-gemini-4-argon',
       'antigravity-gemini-4-carbon',
+      'antigravity-gemini-4-hydrogen',
       'antigravity-gpt-oss-120b-medium',
     ])
   })

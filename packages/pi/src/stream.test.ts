@@ -717,6 +717,47 @@ afterEach(() => {
 })
 
 describe('resolvePiAntigravityModel', () => {
+  it('sends Hydrogen with high default, captured Low/numeric XHigh and inferred Medium/High', async () => {
+    for (const [effort, tier, thinkingLevel, modelEnum] of [
+      [undefined, 'high', 'HIGH', 'MODEL_PLACEHOLDER_M525'],
+      ['low', 'low', 'LOW', 'MODEL_PLACEHOLDER_M527'],
+      ['medium', 'medium', 'MEDIUM', 'MODEL_PLACEHOLDER_M526'],
+      ['high', 'high', 'HIGH', 'MODEL_PLACEHOLDER_M525'],
+      ['xhigh', 'xhigh', 100, 'MODEL_PLACEHOLDER_M528'],
+    ] as const) {
+      for (const cap of [undefined, 2048]) {
+        fetchWithAgyCliTransportMock.mockImplementationOnce(async () =>
+          sseResponse([
+            'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}}\n\n',
+          ]),
+        )
+        const model = {
+          ...fakeModel('antigravity-gemini-4-hydrogen'),
+          reasoning: true,
+        }
+        const result = await collectStream(
+          streamCortexKitAntigravity(model, userContext(), {
+            apiKey: 'test-token',
+            reasoning: effort,
+            maxTokens: cap,
+            sessionId: `hydrogen-${effort}-${cap}`,
+          }),
+        )
+        expect(result.result.stopReason).toBe('stop')
+        const call = fetchWithAgyCliTransportMock.mock.calls.at(-1)
+        const body = JSON.parse(String(call?.[1]?.body))
+        expect(body.model).toBe(`gemini-4-hydrogen-${tier}`)
+        expect(body.request.generationConfig).toEqual({
+          maxOutputTokens: cap ?? 262144,
+          thinkingConfig: { includeThoughts: true, thinkingLevel },
+        })
+        expect(body.request.labels.model_enum).toBe(modelEnum)
+        expect(body.request).not.toHaveProperty('toolConfig')
+        expect(Object.keys(body)).toEqual(carbonLow.envelope_keys)
+      }
+    }
+  })
+
   it('sends Carbon with medium default, native Low shaping and inferred Medium/High', async () => {
     for (const effort of [undefined, 'low', 'medium', 'high'] as const) {
       for (const cap of [undefined, 2048]) {

@@ -2,6 +2,7 @@ import {
   getAgyNativeModel,
   isGeminiArgonModel,
   isGeminiCarbonModel,
+  isGeminiHydrogenModel,
 } from '../model-registry.ts'
 
 const ADAPTIVE_LEVELS: Readonly<Record<number, string>> = {
@@ -24,7 +25,22 @@ export function applyAgyNativeGenerationConfig(
   }
   delete generationConfig.max_output_tokens
 
-  if (
+  if (isGeminiHydrogenModel(wireModel)) {
+    const tier = wireModel.toLowerCase().split('-').at(-1)
+    // The native CLI sends the numeric value 100 for XHigh, not a string.
+    // LOW is captured too; MEDIUM/HIGH are inferred from the routes and Carbon.
+    generationConfig.thinkingConfig = {
+      includeThoughts: true,
+      thinkingLevel:
+        tier === 'xhigh'
+          ? 100
+          : tier === 'low'
+            ? 'LOW'
+            : tier === 'medium'
+              ? 'MEDIUM'
+              : 'HIGH',
+    }
+  } else if (
     (isGeminiArgonModel(wireModel) || isGeminiCarbonModel(wireModel)) &&
     native.thinkingLevel !== undefined
   ) {

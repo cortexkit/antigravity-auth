@@ -13,9 +13,11 @@ import {
   getGemini38FlashAntigravityModel,
   getGeminiArgonAntigravityModel,
   getGeminiCarbonAntigravityModel,
+  getGeminiHydrogenAntigravityModel,
   getResolverAliasMap,
   isGeminiArgonModel,
   isGeminiCarbonModel,
+  isGeminiHydrogenModel,
 } from '../model-registry.ts'
 import type {
   GoogleSearchConfig,
@@ -56,6 +58,7 @@ export const GEMINI_3_THINKING_LEVELS = [
  */
 export const MODEL_ALIASES: Record<string, string> = getResolverAliasMap()
 const TIER_REGEX = /-(minimal|low|medium|high)$/
+const HYDROGEN_TIER_REGEX = /-(low|medium|high|xhigh)$/i
 const QUOTA_PREFIX_REGEX = /^antigravity-/i
 const GEMINI_3_PRO_REGEX = /^gemini-3(?:\.\d+)?-pro/i
 const GEMINI_3_FLASH_REGEX = /^gemini-3(?:\.\d+)?-flash/i
@@ -87,13 +90,15 @@ function supportsThinkingTiers(model: string): boolean {
  * Extracts thinking tier from model name suffix.
  * Only extracts tier for models that support thinking tiers.
  */
-function extractThinkingTierFromModel(model: string): ThinkingTier | undefined {
+function extractThinkingTierFromModel(
+  model: string,
+): Exclude<ThinkingTier, 'xhigh'> | undefined {
   // Only extract tier for models that support thinking tiers
   if (!supportsThinkingTiers(model)) {
     return undefined
   }
   const tierMatch = model.match(TIER_REGEX)
-  return tierMatch?.[1] as ThinkingTier | undefined
+  return tierMatch?.[1] as Exclude<ThinkingTier, 'xhigh'> | undefined
 }
 
 /**
@@ -168,6 +173,19 @@ function getAgyGemini31ProThinkingBudget(tier?: ThinkingTier): number {
 export function resolveModelWithTier(requestedModel: string): ResolvedModel {
   const isAntigravity = QUOTA_PREFIX_REGEX.test(requestedModel)
   const modelWithoutQuota = requestedModel.replace(QUOTA_PREFIX_REGEX, '')
+
+  // Keep the fourth effort specific to Hydrogen; older families retain their tiers.
+  if (isGeminiHydrogenModel(modelWithoutQuota)) {
+    const tier = modelWithoutQuota
+      .toLowerCase()
+      .match(HYDROGEN_TIER_REGEX)?.[1] as ThinkingTier | undefined
+    return {
+      actualModel: getGeminiHydrogenAntigravityModel(tier),
+      thinkingLevel: tier ?? 'high',
+      tier: tier ?? 'high',
+      isThinkingModel: true,
+    }
+  }
 
   const tier = extractThinkingTierFromModel(modelWithoutQuota)
   const baseName = tier
@@ -459,10 +477,16 @@ export function resolveModelWithVariant(
   if (
     isGeminiArgonModel(base.actualModel) ||
     isGeminiCarbonModel(base.actualModel) ||
+    isGeminiHydrogenModel(base.actualModel) ||
     getAgyNativeModel(base.actualModel)?.supportsAdaptiveThinking
   ) {
     if (!variantConfig.thinkingLevel) return base
-    const family = base.actualModel.replace(TIER_REGEX, '')
+    const family = base.actualModel.replace(
+      isGeminiHydrogenModel(base.actualModel)
+        ? HYDROGEN_TIER_REGEX
+        : TIER_REGEX,
+      '',
+    )
     return {
       ...resolveModelWithTier(`${family}-${variantConfig.thinkingLevel}`),
       googleSearch: variantConfig.googleSearch,

@@ -60,6 +60,7 @@ The extension registers the Antigravity model catalog under the
 - `antigravity-gemini-3.8-flash`
 - `antigravity-gemini-4-argon`
 - `antigravity-gemini-4-carbon`
+- `antigravity-gemini-4-hydrogen`
 - `antigravity-claude-sonnet-5-5`
 - `antigravity-claude-opus-5-5`
 - `antigravity-gpt-oss-120b-medium`
@@ -82,6 +83,14 @@ Gemini 4 Carbon supports low, medium and high effort (medium by default), with
 uses an uppercase thinking level without a thinking budget or `toolConfig`;
 Medium/High follow Argon's tier mapping and are inferred, not captured.
 Carbon counts against the ordinary Gemini pool until a Carbon quota bucket is observed.
+
+Gemini 4 Hydrogen requires Pro or Ultra in Google Antigravity and supports low,
+medium, high (default) and xhigh effort, with 1,048,576 context and 262,144 output
+tokens. Pi preserves Hydrogen's xhigh instead of clamping it to high. Native CLI
+1.5.5 captures Low as `"LOW"` and XHigh as the JSON number `100`; Medium/High are
+inferred from Carbon. Both captures exhausted the account's weekly quota, so
+server acceptance is unverified. Hydrogen uses the ordinary Gemini quota pool
+until bucket evidence is available.
 
 The image-generation model is currently OpenCode-only because Pi's provider event
 protocol does not expose image-output stream events.

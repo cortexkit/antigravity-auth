@@ -1,6 +1,6 @@
 export type ModelFamily = 'claude' | 'gemini-flash' | 'gemini-pro'
 
-export type ThinkingTier = 'low' | 'medium' | 'high'
+export type ThinkingTier = 'low' | 'medium' | 'high' | 'xhigh'
 
 /**
  * Context for request transformation.

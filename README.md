@@ -14,6 +14,11 @@ The host packages are [`@cortexkit/opencode-antigravity-auth`](packages/opencode
 
 Pi local mode uses Pi's native Google login, not the OpenCode account pool.
 
+Gemini 4 Hydrogen is supported on all three hosts with low, medium, high
+(default), and xhigh thinking levels. It requires a Pro or Ultra subscription
+in Google Antigravity. Low and XHigh request shapes are pinned to the native
+CLI; Medium/High are inferred, and server acceptance remains unverified.
+
 ## Disclaimer
 
 Using this software, or any proxy for Antigravity, violates Google's Terms of Service. Google account holders have reported suspensions, bans, and shadow-bans (restrictions without notice). This project is not endorsed by Google or the model providers. You are responsible for compliance with provider terms and use it at your own legal, financial, and technical risk.

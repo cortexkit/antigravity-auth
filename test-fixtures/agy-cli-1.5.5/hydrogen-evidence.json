@@ -1,0 +1,39 @@
+{
+  "captured_at": "2026-11-13T07:28:02Z",
+  "agy_version": "1.5.5",
+  "routes": {
+    "gemini-4-hydrogen-high": {
+      "displayName": "Gemini 4 Hydrogen (High)",
+      "model": "MODEL_PLACEHOLDER_M525",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-4-hydrogen-low": {
+      "displayName": "Gemini 4 Hydrogen (Low)",
+      "model": "MODEL_PLACEHOLDER_M527",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-4-hydrogen-medium": {
+      "displayName": "Gemini 4 Hydrogen (Medium)",
+      "model": "MODEL_PLACEHOLDER_M526",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-4-hydrogen-xhigh": {
+      "displayName": "Gemini 4 Hydrogen (XHigh)",
+      "model": "MODEL_PLACEHOLDER_M528",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    }
+  },
+  "native_generation_config_low": {
+    "maxOutputTokens": 262144,
+    "thinkingConfig": { "includeThoughts": true, "thinkingLevel": "LOW" }
+  },
+  "native_generation_config_xhigh": {
+    "maxOutputTokens": 262144,
+    "thinkingConfig": { "includeThoughts": true, "thinkingLevel": 100 }
+  },
+  "note": "Projection of HYDROGEN-EVIDENCE.json: both native generations returned HTTP 429 RESOURCE_EXHAUSTED for individual weekly quota. Server acceptance is unobserved; Medium/High request bodies were not captured."
+}

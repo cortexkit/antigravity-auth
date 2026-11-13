@@ -10,6 +10,7 @@ import {
   forwardAbort,
   isGeminiArgonModel,
   isGeminiCarbonModel,
+  isGeminiHydrogenModel,
   isRetiredAgyModel,
   orderAgyRequestPayloadInPlace,
   type PreResponseClock,
@@ -342,6 +343,7 @@ export function resolvePiAntigravityModel(
     model.reasoning &&
     (isGeminiArgonModel(lower) ||
       isGeminiCarbonModel(lower) ||
+      isGeminiHydrogenModel(lower) ||
       lower.includes('gemini-3') ||
       (lower.includes('claude') &&
         (lower.includes('thinking') || /claude-(opus|sonnet)-5-5/.test(lower))))
@@ -351,7 +353,11 @@ export function resolvePiAntigravityModel(
   }
 
   const tier =
-    reasoning === 'minimal' ? 'low' : reasoning === 'xhigh' ? 'high' : reasoning
+    reasoning === 'minimal'
+      ? 'low'
+      : reasoning === 'xhigh' && !isGeminiHydrogenModel(lower)
+        ? 'high'
+        : reasoning
   const baseModel = model.id.replace(/-(minimal|low|medium|high|xhigh)$/i, '')
   return resolveAntigravityModel(`${baseModel}-${tier}`)
 }

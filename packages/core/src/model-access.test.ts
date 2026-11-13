@@ -5,6 +5,17 @@ import {
 } from '@cortexkit/antigravity-auth-core/settings'
 
 describe('model access', () => {
+  it('canonicalizes all Hydrogen efforts and applies one allowlist entry to all four', () => {
+    const policy = compileModelAccess({ local: ['gemini-4-hydrogen-xhigh'] })
+    expect(policy.valid).toBe(true)
+    for (const tier of ['', '-low', '-medium', '-high', '-xhigh']) {
+      const id = `antigravity-gemini-4-hydrogen${tier}`
+      expect(canonicalModelId(id)).toBe('gemini-4-hydrogen')
+      expect(policy.allows('local', id)).toBe(true)
+    }
+    expect(policy.allows('local', 'gemini-4-carbon')).toBe(false)
+  })
+
   it('canonicalizes public tiers and prefixes without stripping GPT wire suffixes', () => {
     for (const id of [
       'gemini-4-carbon',

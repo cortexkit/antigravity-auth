@@ -8,6 +8,7 @@ The table lists the public picker models from the canonical [model registry](../
 
 | Model ID (under `google/`) | Variants | Quota |
 | --- | --- | --- |
+| `antigravity-gemini-4-hydrogen` | `low`, `medium`, `high` (default), `xhigh` | Gemini pool pending bucket evidence |
 | `antigravity-gemini-4-carbon` | `low`, `medium` (default), `high` | Gemini pool until a Carbon quota bucket is observed |
 | `antigravity-gemini-4-argon` | `low`, `medium` (default), `high` | Per-model readings; whether usage shares a weekly quota allowance with other models, and which allowance, is unverified |
 | `antigravity-gemini-3.8-flash` | `low`, `medium`, `high` | `gemini-flash` |
@@ -51,6 +52,16 @@ Update saved model selections explicitly; old `max` or custom thinking-budget
 examples do not define a supported Claude 5.5 effort.
 
 ## Gemini
+
+Gemini 4 Hydrogen requires Pro or Ultra in Google Antigravity and exposes low,
+medium, high (default) and xhigh. Its 1,048,576-token context follows Google's
+12 November announcement; the native CLI sends 262,144 output tokens, with an
+explicit caller cap taking precedence. The [CLI 1.5.5 capture projection](../../../test-fixtures/agy-cli-1.5.5/hydrogen-evidence.json)
+from 13 November observes `"LOW"` and the JSON number `100` for XHigh, without a
+thinking budget or `toolConfig`. Medium/High use inferred `"MEDIUM"`/`"HIGH"`
+following Carbon. Both captured generations exhausted the account's weekly
+quota, so server acceptance of these bodies remains unverified. Hydrogen stays
+on the ordinary Gemini quota pool.
 
 The grouped `antigravity-gemini-3.8-flash`, `antigravity-gemini-4-argon` and
 `antigravity-gemini-4-carbon` entries expose low, medium and high variants.

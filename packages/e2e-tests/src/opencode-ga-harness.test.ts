@@ -2600,7 +2600,7 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
       expect(stopped).toBe(true)
     })
   }
-  it('keeps all seven public IDs and every enabled catalog variant with deliberate off-catalog titles', async () => {
+  it('keeps all eight public IDs and every enabled catalog variant with deliberate off-catalog titles', async () => {
     const f = fixture()
     f.harness.run = async (model) => {
       const config = JSON.parse(
@@ -2624,6 +2624,7 @@ describe('GA native oracle fixtures (synthetic records, not native proof)', () =
       [
         'google/antigravity-gemini-4-argon',
         'google/antigravity-gemini-4-carbon',
+        'google/antigravity-gemini-4-hydrogen',
         'google/antigravity-gemini-3.1-flash-image',
         'google/antigravity-gemini-3.8-flash',
         'google/antigravity-claude-sonnet-5-5',

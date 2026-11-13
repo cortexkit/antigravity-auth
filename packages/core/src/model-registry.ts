@@ -1,7 +1,7 @@
 import type { ProviderModel } from './model-types.ts'
 import type { ThinkingTier } from './transform/types.ts'
 
-export type ModelThinkingLevel = 'minimal' | 'low' | 'medium' | 'high'
+export type ModelThinkingLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
 
 export interface ModelThinkingConfig {
   thinkingBudget: number
@@ -104,6 +104,36 @@ export interface AgyNativeModelDefinition {
 export const AGY_NATIVE_MODEL_DEFINITIONS: Readonly<
   Record<string, AgyNativeModelDefinition>
 > = {
+  // Context: Google's "Introducing Gemini 4 Hydrogen" announcement (12 Nov 2026).
+  // Output caps and route enums: native CLI 1.5.5 capture (13 Nov 2026).
+  'gemini-4-hydrogen-low': {
+    displayName: 'Gemini 4 Hydrogen (Low)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M527',
+    supportsThinking: true,
+  },
+  'gemini-4-hydrogen-medium': {
+    displayName: 'Gemini 4 Hydrogen (Medium)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M526',
+    supportsThinking: true,
+  },
+  'gemini-4-hydrogen-high': {
+    displayName: 'Gemini 4 Hydrogen (High)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M525',
+    supportsThinking: true,
+  },
+  'gemini-4-hydrogen-xhigh': {
+    displayName: 'Gemini 4 Hydrogen (XHigh)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M528',
+    supportsThinking: true,
+  },
   'gemini-4-carbon-low': {
     displayName: 'Gemini 4 Carbon (Low)',
     maxTokens: 1048576,
@@ -290,6 +320,21 @@ export function isRetiredAgyModel(model: string): boolean {
 }
 
 const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
+  'antigravity-gemini-4-hydrogen': defineModel(
+    'antigravity-gemini-4-hydrogen',
+    {
+      name: 'Gemini 4 Hydrogen (Antigravity)',
+      reasoning: true,
+      limit: { context: 1048576, output: 262144 },
+      modalities: DEFAULT_MODALITIES,
+      variants: {
+        low: { thinkingLevel: 'low' },
+        medium: { thinkingLevel: 'medium' },
+        high: { thinkingLevel: 'high' },
+        xhigh: { thinkingLevel: 'xhigh' },
+      },
+    },
+  ),
   'antigravity-gemini-4-argon': defineModel('antigravity-gemini-4-argon', {
     name: 'Gemini 4 Argon (Antigravity)',
     reasoning: true,
@@ -475,6 +520,7 @@ const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
 const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
   'antigravity-gemini-4-argon',
   'antigravity-gemini-4-carbon',
+  'antigravity-gemini-4-hydrogen',
   'antigravity-gemini-3.8-flash',
   'antigravity-gemini-3.1-flash-image',
   'antigravity-claude-sonnet-5-5',
@@ -540,6 +586,8 @@ export function getQuotaGroupForModel(
   hasArgonPool = false,
 ): ModelQuotaGroup | undefined {
   const normalized = modelId.toLowerCase()
+  // Hydrogen stays on the ordinary Gemini pool until a bucket is observed.
+  if (isGeminiHydrogenModel(normalized)) return 'gemini'
   // Carbon counts against the Gemini pool until a Carbon quota bucket is observed.
   if (isGeminiCarbonModel(normalized)) return 'gemini'
   // Argon per-model quota is retained separately: the model alone does not
@@ -574,6 +622,28 @@ export function isGeminiArgonModel(model: string): boolean {
 export function isGeminiCarbonModel(model: string): boolean {
   return /^(?:antigravity-)?gemini-4-carbon(?:-(?:low|medium|high))?$/.test(
     model.toLowerCase(),
+  )
+}
+
+/** Recognize only Hydrogen's public selector and four observed server routes. */
+export function isGeminiHydrogenModel(model: string): boolean {
+  return /^(?:antigravity-)?gemini-4-hydrogen(?:-(?:low|medium|high|xhigh))?$/.test(
+    model.toLowerCase(),
+  )
+}
+
+export function getGeminiHydrogenAntigravityModel(tier?: ThinkingTier): string {
+  return getTieredAntigravityModel(
+    {
+      defaultModel: 'gemini-4-hydrogen-high',
+      byTier: {
+        low: 'gemini-4-hydrogen-low',
+        medium: 'gemini-4-hydrogen-medium',
+        high: 'gemini-4-hydrogen-high',
+        xhigh: 'gemini-4-hydrogen-xhigh',
+      },
+    },
+    tier,
   )
 }
 

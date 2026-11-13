@@ -4447,6 +4447,7 @@ export async function runGaCoreScenario(
           [
             'antigravity-gemini-4-argon',
             'antigravity-gemini-4-carbon',
+            'antigravity-gemini-4-hydrogen',
             'antigravity-gemini-3.1-flash-image',
             'antigravity-gemini-3.8-flash',
             'antigravity-claude-sonnet-5-5',

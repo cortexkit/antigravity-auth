@@ -1934,6 +1934,82 @@ describe('request.ts', () => {
       })
     })
 
+    it('sends Hydrogen routes and host overrides with high default and numeric XHigh', () => {
+      // LOW and numeric XHigh were captured; MEDIUM/HIGH are inferred from Carbon.
+      for (const [tier, thinkingLevel, modelEnum] of [
+        ['low', 'LOW', 'MODEL_PLACEHOLDER_M527'],
+        ['medium', 'MEDIUM', 'MODEL_PLACEHOLDER_M526'],
+        ['high', 'HIGH', 'MODEL_PLACEHOLDER_M525'],
+        ['xhigh', 100, 'MODEL_PLACEHOLDER_M528'],
+      ] as const) {
+        for (const source of [
+          `gemini-4-hydrogen-${tier}`,
+          'antigravity-gemini-4-hydrogen',
+          'antigravity-gemini-4-hydrogen-xhigh',
+        ]) {
+          for (const wrapped of [false, true]) {
+            const request = {
+              contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+              tools: [
+                {
+                  functionDeclarations: [
+                    {
+                      name: 'read',
+                      parameters: { type: 'OBJECT', properties: {} },
+                    },
+                  ],
+                },
+              ],
+              toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+            }
+            const result = prepareAntigravityRequest(
+              `https://generativelanguage.googleapis.com/v1beta/models/${source}:generateContent`,
+              {
+                method: 'POST',
+                body: JSON.stringify(
+                  wrapped
+                    ? { project: mockProjectId, model: source, request }
+                    : request,
+                ),
+              },
+              mockAccessToken,
+              mockProjectId,
+              undefined,
+              undefined,
+              { variant: { thinkingLevel: tier } },
+            )
+            const body = JSON.parse(String(result.init.body))
+            expect(body.model).toBe(`gemini-4-hydrogen-${tier}`)
+            expect(body.request.labels.model_enum).toBe(modelEnum)
+            expect(body.request.generationConfig).toEqual({
+              maxOutputTokens: 262144,
+              thinkingConfig: { includeThoughts: true, thinkingLevel },
+            })
+            expect(body.request).not.toHaveProperty('toolConfig')
+            expect(Object.keys(body)).toEqual(carbonLow.envelope_keys)
+          }
+        }
+      }
+      const result = prepareAntigravityRequest(
+        'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-4-hydrogen:generateContent',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+      )
+      const body = JSON.parse(String(result.init.body))
+      expect(body.model).toBe('gemini-4-hydrogen-high')
+      expect(body.request.generationConfig).toEqual({
+        maxOutputTokens: 262144,
+        thinkingConfig: { includeThoughts: true, thinkingLevel: 'HIGH' },
+      })
+    })
+
     it('sends Carbon tiers and grouped variants with native Low shaping and no toolConfig', () => {
       for (const [model, tier, modelEnum] of [
         ['gemini-4-carbon-low', 'low', 'MODEL_PLACEHOLDER_M438'],

@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import capturedCatalog from '../../../test-fixtures/agy-cli-1.3.3/current-model-metadata.json'
 import serverCatalog from '../../../test-fixtures/agy-cli-1.3.5/server-model-catalog.json'
 import carbonMetadata from '../../../test-fixtures/agy-cli-1.5.5/carbon-model-metadata.json'
+import hydrogen from '../../../test-fixtures/agy-cli-1.5.5/hydrogen-evidence.json'
 import { getAgyModelEnum } from './agy-request-metadata.ts'
 import {
   AGY_NATIVE_MODEL_DEFINITIONS,
@@ -18,6 +19,10 @@ import {
 import { resolveModelWithTier } from './transform/model-resolver.ts'
 
 const EXPECTED_NATIVE_IDS = [
+  'gemini-4-hydrogen-low',
+  'gemini-4-hydrogen-medium',
+  'gemini-4-hydrogen-high',
+  'gemini-4-hydrogen-xhigh',
   'gemini-4-carbon-low',
   'gemini-4-carbon-medium',
   'gemini-4-carbon-high',
@@ -52,11 +57,13 @@ const REQUIRED_PUBLIC_MODEL_FIELDS = [
 
 describe('model registry', () => {
   it('preserves the pre-Carbon public catalog after Gemini 3.5 Flash removal', () => {
-    // Keep the old catalog's frozen hash: the additive Carbon definition has
+    // Keep the old catalog's frozen hash: additive Carbon and Hydrogen have
     // separate contract tests, while every field of older models stays pinned.
     const baseline = Object.fromEntries(
       Object.entries(getPublicModelDefinitions()).filter(
-        ([id]) => id !== 'antigravity-gemini-4-carbon',
+        ([id]) =>
+          id !== 'antigravity-gemini-4-carbon' &&
+          id !== 'antigravity-gemini-4-hydrogen',
       ),
     )
     const digest = createHash('sha256')
@@ -101,6 +108,7 @@ describe('model registry', () => {
       'antigravity-gemini-3.8-flash',
       'antigravity-gemini-4-argon',
       'antigravity-gemini-4-carbon',
+      'antigravity-gemini-4-hydrogen',
       'antigravity-gpt-oss-120b-medium',
     ])
 
@@ -213,11 +221,15 @@ describe('model registry', () => {
       const observed = Object.entries({
         ...serverCatalog.models,
         ...carbonMetadata.models,
+        ...hydrogen.routes,
       }).find(([key]) => key === id)?.[1]
       expect(observed).toBeDefined()
-      // The Carbon map projection records routes and enums, not token limits.
-      // Its Low output cap is pinned separately to the native request capture.
-      if (Object.hasOwn(carbonMetadata.models, id))
+      // Carbon and Hydrogen map projections record routes and enums, not limits.
+      // Native output caps are pinned separately to their request captures.
+      if (
+        Object.hasOwn(carbonMetadata.models, id) ||
+        Object.hasOwn(hydrogen.routes, id)
+      )
         expect(observed).toMatchObject({
           displayName: metadata.displayName,
           model: metadata.model,
@@ -250,8 +262,12 @@ describe('model registry', () => {
       'gemini-3.8-flash',
       'gemini-4-argon',
       'gemini-4-carbon',
+      'gemini-4-hydrogen',
     ]) {
-      const efforts = ['low', 'medium', 'high']
+      const efforts =
+        family === 'gemini-4-hydrogen'
+          ? ['low', 'medium', 'high', 'xhigh']
+          : ['low', 'medium', 'high']
       const definition = definitions[`antigravity-${family}`]!
       expect(Object.keys(definition.variants ?? {})).toEqual(efforts)
       for (const effort of efforts) {
