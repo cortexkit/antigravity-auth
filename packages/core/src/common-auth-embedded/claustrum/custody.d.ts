@@ -247,6 +247,10 @@ export declare function decideScopedRetryAfter401(site: string, served: Claustru
 export declare const SERVING_MARGIN_MS = 300000;
 /** A kept receipt needs a minute of headroom, not the vault's refresh demand. */
 export declare const KEPT_RECEIPT_MARGIN_MS = 60000;
+/** Maximum request-path wait for a vault read without a usable kept receipt. */
+export declare const VAULT_RECEIPT_WAIT_MS = 10000;
+/** Only the first minute of each observed outage earns a request-path wait. */
+export declare const VAULT_YOUNG_OUTAGE_MS = 60000;
 /**
  * Reads this consumer's vault credentials (list, fetch, 401 report), with the
  * enrollment token or the host's grant as authorization. Used by every host of a

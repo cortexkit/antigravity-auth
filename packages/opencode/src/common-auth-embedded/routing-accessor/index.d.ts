@@ -1,7 +1,8 @@
 /**
- * Optional THALAMUS routing for vault mode and advisory turn notes for request
- * shaping. Account ids are vault account ids, not local pool rows. Nothing is
- * persisted here; plugins on routes the runner does not serve get no turn notes.
+ * Optional THALAMUS routing for vault mode, plugin wait reports and advisory turn
+ * notes for request shaping. Account ids are vault account ids, not local pool
+ * rows. Nothing is persisted here; plugins on routes the runner does not serve
+ * get no turn notes.
  */
 import { type CacheWarmStopReason } from './cache-policy.js';
 export type { CacheTouchInput, CacheWarmStoppedInput, CacheWarmStopReason, SessionCacheHours, SessionCachePolicy, SessionCacheTtl, SessionKeepWarmMode, SessionToolWait, } from './cache-policy.js';
@@ -30,6 +31,8 @@ export interface AskRoutingInput<Candidate extends RoutingCandidate = RoutingCan
      * routing's default cap in force.
      */
     holdWaitMaxS?: number;
+    /** Plugin sticky choice's vault credential id; an eligible-account hint, not a pin. */
+    warmCredentialId?: string;
 }
 export interface RoutingHold {
     /** Uncapped advice from routing. The plugin must apply its own hold cap. */
@@ -66,6 +69,9 @@ export interface BillingUsage {
     reasoning?: number;
     reasoningIncludedInOutput?: boolean;
 }
+/** Keep this closed list aligned with the routing contract when adding a reason. */
+export declare const PLUGIN_WAIT_REASONS: readonly ['account_limit', 'account_free', 'rate_limited', 'server_busy', 'quota_reading', 'routing_hold'];
+export type PluginWaitReason = (typeof PLUGIN_WAIT_REASONS)[number];
 export type ReportRoutingInput = (RoutingReportIdentity & ({
     outcome: 'served';
     /**
@@ -116,6 +122,18 @@ export type ReportRoutingInput = (RoutingReportIdentity & ({
     reason: 'anchor_missing' | 'before_user_message' | 'unsupported_model' | 'not_oauth';
 } | {
     sessionId: string;
+    kind: 'wait';
+    phase: 'start' | 'end';
+    waitId: string;
+    reason: PluginWaitReason;
+    /** Absolute epoch-millisecond time of the next attempt. */
+    nextMs?: number;
+    attempt?: number;
+    /** Fixed plugin text, never provider text, an account label or an id. */
+    message?: string;
+    outcome?: 'resumed' | 'cancelled' | 'abandoned';
+} | {
+    sessionId: string;
     kind: 'billing';
     attemptId: string;
     requestKind: BillingRequestKind;
@@ -156,14 +174,21 @@ export declare function turnNotes(sessionId: string): readonly {
 /**
  * Ask routing for an eligible vault route. Any failure or unfamiliar answer
  * yields undefined so the plugin can keep its own choice. Opted-in routing
- * refusals instead stop the request. This does not admit routes: callers must
- * exclude vault refusals and killswitch-blocked accounts.
+ * refusals instead stop the request. This does not admit routes. Callers never
+ * pass an account the vault refused. A plugin may also leave out accounts its
+ * user's own eligibility rules exclude, such as a per-model account list. Each
+ * plugin decides whether its quota floors (a minimum share of a quota window
+ * an account must keep) also filter candidates; routing keeps its own reserve
+ * of each window.
+ * Routing's pick among the candidates is final. Don't reject it under a local
+ * floor, and don't add floors of the plugin's own that duplicate routing's
+ * reserves.
  */
 export declare function askRouting<Candidate extends RoutingCandidate, Refusals extends boolean = false>(input: AskRoutingInput<Candidate, Refusals>): Promise<RoutingSelection<Candidate> | (Refusals extends true ? RoutingRefusal : never) | undefined>;
 /**
- * Report a vault request, billing result or turn-note event without waiting for
- * routing. Only contract fields are sent, and all accessor failures are ignored.
- * Headers must already be limited to rate-limit headers by the caller; values
- * are not filtered or redacted here.
+ * Report a vault request, billing result, plugin wait or turn-note event without
+ * waiting for routing. Only contract fields are sent, and all accessor failures
+ * are ignored. Headers must already be limited to rate-limit headers by the
+ * caller; values are not filtered or redacted here.
  */
 export declare function reportRouting(input: ReportRoutingInput): void;

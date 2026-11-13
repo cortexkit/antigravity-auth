@@ -9,7 +9,7 @@ import { insulaUsageTransport } from './insula.js';
 export { ClaustrumCredentialError, } from '@cortexkit/claustrum-client';
 export { ClaustrumUnreachableError, classifyVaultFailure, VAULT_FAILURE_CLASSES, } from './availability.js';
 export { ClaustrumConsumer, DEFAULT_CONNECT_TIMEOUT_MS, } from './consumer.js';
-export { ClaustrumScopedCustody, decideScopedRetryAfter401, isScopedCredentialRotation, KEPT_RECEIPT_MARGIN_MS, SERVING_MARGIN_MS, } from './custody.js';
+export { ClaustrumScopedCustody, decideScopedRetryAfter401, isScopedCredentialRotation, KEPT_RECEIPT_MARGIN_MS, SERVING_MARGIN_MS, VAULT_RECEIPT_WAIT_MS, VAULT_YOUNG_OUTAGE_MS, } from './custody.js';
 export { ClaustrumEnrollmentManager, classifyEnrollmentError, connectClaustrumEnrollmentClient, disconnectClaustrumEnrollment, enrollmentAuthority, enrollmentName, getClaustrumEnrollmentPaths, hostEnrollmentPaths, RETRYABLE_ENROLLMENT_CODES, readClaustrumEnrollmentStatus, readClaustrumEnrollmentToken, resetClaustrumEnrollmentState, TERMINAL_ENROLLMENT_CODES, validEnrollmentDisplayName, validEnrollmentRequestedGrants, vaultAuthority, } from './enrollment.js';
 export { ClaustrumConsumerError, } from './errors.js';
 export { connectVaultHost, hasVaultHost, VAULT_HOST_CONNECT_REFUSAL, VAULT_HOST_STATUS, } from './host.js';

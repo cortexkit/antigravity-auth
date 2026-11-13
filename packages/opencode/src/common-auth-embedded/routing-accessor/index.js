@@ -1,11 +1,21 @@
 /**
- * Optional THALAMUS routing for vault mode and advisory turn notes for request
- * shaping. Account ids are vault account ids, not local pool rows. Nothing is
- * persisted here; plugins on routes the runner does not serve get no turn notes.
+ * Optional THALAMUS routing for vault mode, plugin wait reports and advisory turn
+ * notes for request shaping. Account ids are vault account ids, not local pool
+ * rows. Nothing is persisted here; plugins on routes the runner does not serve
+ * get no turn notes.
  */
 import { isCacheWarmStopReason, } from './cache-policy.js';
 import { routingHandle } from './handle.js';
 export { CACHE_WARM_STOP_REASONS, isCacheWarmStopReason, reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
+/** Keep this closed list aligned with the routing contract when adding a reason. */
+export const PLUGIN_WAIT_REASONS = [
+    'account_limit',
+    'account_free',
+    'rate_limited',
+    'server_busy',
+    'quota_reading',
+    'routing_hold',
+];
 function isObject(value) {
     return typeof value === 'object' && value !== null;
 }
@@ -192,6 +202,13 @@ export async function askRouting(input) {
         }
         if (input.refusals === true)
             request.refusals = true;
+        const warmCredentialId = input.warmCredentialId;
+        if (isNonEmptyString(warmCredentialId) &&
+            warmCredentialId.length <= 256 &&
+            !/\p{Cc}/u.test(warmCredentialId) &&
+            input.candidates.some((candidate) => candidate.credentialId === warmCredentialId)) {
+            request.warm_credential = warmCredentialId;
+        }
         const pending = accountFor.call(handle, request, { deadlineMs });
         if (!isObject(pending) || typeof pending.then !== 'function')
             return undefined;
@@ -210,14 +227,15 @@ export async function askRouting(input) {
     }
 }
 /**
- * Report a vault request, billing result or turn-note event without waiting for
- * routing. Only contract fields are sent, and all accessor failures are ignored.
- * Headers must already be limited to rate-limit headers by the caller; values
- * are not filtered or redacted here.
+ * Report a vault request, billing result, plugin wait or turn-note event without
+ * waiting for routing. Only contract fields are sent, and all accessor failures
+ * are ignored. Headers must already be limited to rate-limit headers by the
+ * caller; values are not filtered or redacted here.
  */
 export function reportRouting(input) {
     try {
-        const handle = routingHandle(input.sessionId);
+        const sessionId = input.sessionId;
+        const handle = routingHandle(sessionId);
         if (!handle)
             return;
         const report = handle.report;
@@ -226,6 +244,45 @@ export function reportRouting(input) {
         let payload;
         if ('kind' in input) {
             switch (input.kind) {
+                case 'wait': {
+                    const { phase, waitId, reason, nextMs, attempt, message, outcome } = input;
+                    if (!isNonEmptyString(sessionId) ||
+                        (phase !== 'start' && phase !== 'end') ||
+                        !isNonEmptyString(waitId) ||
+                        waitId.length > 64 ||
+                        /[^A-Za-z0-9._:-]/.test(waitId) ||
+                        !PLUGIN_WAIT_REASONS.includes(reason))
+                        return;
+                    payload = {
+                        kind: 'wait',
+                        phase,
+                        wait_id: waitId,
+                        reason,
+                        ...(typeof nextMs === 'number' &&
+                            Number.isSafeInteger(nextMs) &&
+                            nextMs > 0
+                            ? { next_ms: nextMs }
+                            : {}),
+                        ...(typeof attempt === 'number' &&
+                            Number.isInteger(attempt) &&
+                            attempt >= 1
+                            ? { attempt }
+                            : {}),
+                        ...(typeof message === 'string' &&
+                            message.length >= 1 &&
+                            message.length <= 160 &&
+                            !/\p{Cc}/u.test(message)
+                            ? { message }
+                            : {}),
+                        ...(phase === 'end' &&
+                            (outcome === 'resumed' ||
+                                outcome === 'cancelled' ||
+                                outcome === 'abandoned')
+                            ? { outcome }
+                            : {}),
+                    };
+                    break;
+                }
                 case 'billing': {
                     const { attemptId, requestKind, credentialId, provider, model, outcome, accountId, providerRequestId, providerResponseId, userMessageId, status, attempt, chargeBasis, usage: inputUsage, usageByModel: inputUsageByModel, cache: inputCache, } = input;
                     if (!isNonEmptyString(attemptId) ||

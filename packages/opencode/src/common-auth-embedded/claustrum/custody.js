@@ -65,6 +65,10 @@ export function decideScopedRetryAfter401(site, served, current, logger = defaul
 export const SERVING_MARGIN_MS = 300_000;
 /** A kept receipt needs a minute of headroom, not the vault's refresh demand. */
 export const KEPT_RECEIPT_MARGIN_MS = 60_000;
+/** Maximum request-path wait for a vault read without a usable kept receipt. */
+export const VAULT_RECEIPT_WAIT_MS = 10_000;
+/** Only the first minute of each observed outage earns a request-path wait. */
+export const VAULT_YOUNG_OUTAGE_MS = 60_000;
 function invalidMaterial() {
     return new ClaustrumConsumerError('invalid-material', 'Claustrum returned invalid credential material');
 }
@@ -198,7 +202,10 @@ export class ClaustrumScopedCustody {
     #setTimeout;
     #clearTimeout;
     #outage = false;
+    #outageSince = 0;
+    #outageWaitSpent = false;
     #outageError = new ClaustrumUnreachableError();
+    #receiptWaits = new Map();
     #probeTimer;
     #probing = false;
     #lastProbeAt = -Infinity;
@@ -277,6 +284,8 @@ export class ClaustrumScopedCustody {
         if (this.#closed || this.#outage)
             return;
         this.#outage = true;
+        this.#outageSince = this.#now();
+        this.#outageWaitSpent = false;
         this.#outageError =
             error instanceof ClaustrumCredentialError
                 ? error
@@ -582,11 +591,13 @@ export class ClaustrumScopedCustody {
     /** Ask the vault while reachable; retain one validated receipt in memory only. */
     async authorize(identity, signal, routeId = 'vault') {
         this.#check(signal);
+        const startedAt = this.#now();
         const { credentialId, credentialType, accountIdentity } = identity;
         let kept = this.#kept.get(credentialId);
         if (kept &&
             (kept.attempt.credentialType !== credentialType ||
-                kept.attempt.expectedAccountIdentity !== accountIdentity)) {
+                kept.attempt.expectedAccountIdentity !== accountIdentity ||
+                !this.#usable(kept.attempt))) {
             this.forget(credentialId);
             kept = undefined;
         }
@@ -605,7 +616,22 @@ export class ClaustrumScopedCustody {
             return this.#serveKept(credentialId, kept, token, routeId);
         }
         try {
-            const attempt = await this.#authorizeFresh({ credentialId, credentialType, accountIdentity }, token, signal);
+            let attempt;
+            try {
+                // Once recovery is in flight, later arrivals join it rather than
+                // issuing another immediate read into the same known outage.
+                const recovering = this.#outage &&
+                    this.#receiptWaits.has(this.#receiptWaitKey({ credentialId, credentialType, accountIdentity }, token));
+                if (recovering)
+                    throw this.#outageError;
+                attempt = await this.#authorizeFresh({ credentialId, credentialType, accountIdentity }, token, signal);
+            }
+            catch (error) {
+                this.#check(signal);
+                if (classifyVaultFailure(error) !== 'unreachable' || kept)
+                    throw error;
+                attempt = await this.#waitForReceipt({ credentialId, credentialType, accountIdentity }, token, startedAt, error, signal);
+            }
             this.#kept.set(credentialId, { attempt, routeId, since: null });
             this.#usageServed.set(credentialId, { ...identity });
             return attempt;
@@ -618,6 +644,122 @@ export class ClaustrumScopedCustody {
             }
             return this.#serveKept(credentialId, kept, token, routeId, error);
         }
+    }
+    #receiptWaitKey(identity, token) {
+        // Never share authorization across a changed enrollment or account binding.
+        return JSON.stringify([
+            identity.credentialId,
+            identity.credentialType,
+            identity.accountIdentity,
+            token,
+        ]);
+    }
+    async #waitForReceipt(identity, token, startedAt, error, signal) {
+        // Measure from the first unreachable observation, even at cold start.
+        // Otherwise a process that never connected would charge every request 10 s
+        // for an arbitrarily long outage. Any vault answer starts a new window.
+        // Once one wait has run out in this outage, the outage has outlasted the
+        // bound: later cold reads fail at once. Without that, a host that tries its
+        // accounts in turn would pay the full wait once per account.
+        const remaining = VAULT_RECEIPT_WAIT_MS - (this.#now() - startedAt);
+        if (remaining <= 0 ||
+            this.#outageWaitSpent ||
+            this.#now() - this.#outageSince >= VAULT_YOUNG_OUTAGE_MS)
+            throw error;
+        const key = this.#receiptWaitKey(identity, token);
+        let wait = this.#receiptWaits.get(key);
+        if (!wait) {
+            const controller = new AbortController();
+            const created = {
+                controller,
+                users: 0,
+                error,
+                pending: Promise.resolve().then(async () => {
+                    let delay = 250;
+                    for (;;) {
+                        await this.#receiptBackoff(delay, controller.signal);
+                        try {
+                            return await this.#authorizeFresh(identity, token, controller.signal);
+                        }
+                        catch (failure) {
+                            this.#check(controller.signal);
+                            if (classifyVaultFailure(failure) !== 'unreachable')
+                                throw failure;
+                            created.error = failure;
+                            delay = Math.min(delay * 2, 1_000);
+                        }
+                    }
+                }),
+            };
+            wait = created;
+            this.#receiptWaits.set(key, wait);
+            const remove = () => {
+                if (this.#receiptWaits.get(key) === created)
+                    this.#receiptWaits.delete(key);
+            };
+            void wait.pending.then(remove, remove);
+        }
+        const shared = wait;
+        shared.users++;
+        let timer;
+        let abort;
+        try {
+            const attempt = await Promise.race([
+                shared.pending,
+                new Promise((_resolve, reject) => {
+                    timer = this.#setTimeout(() => {
+                        if (this.#outage)
+                            this.#outageWaitSpent = true;
+                        reject(shared.error);
+                    }, remaining);
+                    timer.unref?.();
+                    if (signal) {
+                        abort = () => reject(signal.reason);
+                        signal.addEventListener('abort', abort, { once: true });
+                        if (signal.aborted)
+                            abort();
+                    }
+                }),
+            ]);
+            this.#check(signal);
+            // Each physical send owns its receipt and later failure report, even
+            // when several requests shared the same recovery read.
+            const receipt = Object.freeze(Object.defineProperty({ ...attempt }, 'accessToken', {
+                value: attempt.accessToken,
+                enumerable: false,
+            }));
+            this.#provenance.set(receipt, { token });
+            return receipt;
+        }
+        finally {
+            if (timer)
+                this.#clearTimeout(timer);
+            if (abort)
+                signal?.removeEventListener('abort', abort);
+            if (--shared.users === 0) {
+                shared.controller.abort();
+                if (this.#receiptWaits.get(key) === shared)
+                    this.#receiptWaits.delete(key);
+            }
+        }
+    }
+    #receiptBackoff(delay, signal) {
+        this.#check(signal);
+        return new Promise((resolve, reject) => {
+            const abort = () => {
+                this.#clearTimeout(timer);
+                signal.removeEventListener('abort', abort);
+                reject(signal.reason);
+            };
+            const timer = this.#setTimeout(() => {
+                signal.removeEventListener('abort', abort);
+                resolve();
+            }, delay);
+            timer.unref?.();
+            signal.addEventListener('abort', abort, { once: true });
+            if (signal.aborted)
+                abort();
+        });
     }
     #serveKept(credentialId, kept, token, routeId, error = this.#outageError) {
         // A concurrent refusal or 401 may already have discarded this entry.
@@ -876,6 +1018,9 @@ export class ClaustrumScopedCustody {
         if (this.#closed)
             return;
         this.#closed = true;
+        for (const wait of this.#receiptWaits.values())
+            wait.controller.abort();
+        this.#receiptWaits.clear();
         if (this.#probeTimer)
             this.#clearTimeout(this.#probeTimer);
         this.#probeTimer = undefined;

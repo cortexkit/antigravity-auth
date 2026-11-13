@@ -159,6 +159,13 @@ export class ClaustrumDiscoveryHub {
     #own;
     #watch;
     #run;
+    /**
+     * Member commit fan-outs still running, each until every one of its
+     * commits has settled. Only a run whose generation ended can leave one
+     * behind while another run starts; `#discover` waits for them before it
+     * reads the files it lists over.
+     */
+    #fanOuts = new Set();
     /** The hub's last authority read; undefined before the first one. */
     #active;
     /** Counts inactive transitions, so local work started before one stops. */
@@ -665,6 +672,15 @@ export class ClaustrumDiscoveryHub {
         // Folders that could not be made owner-only fail every member's commit,
         // as an unreadable base fails its member's: each is marked pending.
         const folders = await this.#ensureRosterDirectories().then(() => undefined, (error) => error instanceof Error ? error : new Error(String(error)));
+        // A generation that ended may still have member commits in flight. A
+        // commit that passed its last generation check just before vault mode
+        // went off still renames its file afterwards, so its older listing can
+        // land after this run read that file. The base-view rule below would
+        // then take it for another process's newer commit and keep it over this
+        // list. The files are read only once every such commit has settled.
+        await this.#settleFanOuts();
+        if (!this.#live(generation))
+            return undefined;
         // What each member's file held before the list. Another process may
         // commit while this list runs; the base-view rule then keeps its newer
         // roster rather than replacing it with this older listing. Each file is
@@ -696,9 +712,17 @@ export class ClaustrumDiscoveryHub {
         // does), so no commit ever holds two members' locks and no order between
         // members is needed. The results are then published in member order.
         const members = this.#open();
-        const commits = await Promise.all(members.map((entry) => entry.hooks && !entry.closed
+        const fanOut = Promise.all(members.map((entry) => entry.hooks && !entry.closed
             ? this.#commit(entry, entry.hooks, inventory, folders ?? bases.get(entry), generation)
             : undefined));
+        this.#fanOuts.add(fanOut);
+        let commits;
+        try {
+            commits = await fanOut;
+        }
+        finally {
+            this.#fanOuts.delete(fanOut);
+        }
         if (!this.#live(generation))
             return undefined;
         const errors = new Map();
@@ -811,6 +835,28 @@ export class ClaustrumDiscoveryHub {
         }
         catch (error) {
             return { error };
+        }
+    }
+    /**
+     * Wait until no member commit fan-out of an earlier run is still running.
+     * Each of them belongs to a generation that ended, so its commits fail or
+     * finish at their next generation check and this wait stays short.
+     */
+    async #settleFanOuts() {
+        if (!this.#fanOuts.size)
+            return;
+        const phaseDiagnostics = channel('common-auth.claustrum.phases');
+        const phase = (name) => {
+            if (phaseDiagnostics.hasSubscribers)
+                phaseDiagnostics.publish({ logger: this.#logger, phase: name });
+        };
+        phase('earlier fan-out drain begin');
+        try {
+            while (this.#fanOuts.size)
+                await Promise.allSettled([...this.#fanOuts]);
+        }
+        finally {
+            phase('earlier fan-out drain end');
         }
     }
     /**
