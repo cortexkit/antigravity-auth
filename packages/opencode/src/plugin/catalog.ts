@@ -23,9 +23,17 @@ export function applyAntigravityProviderCatalog(
   mutableConfig.provider ??= {}
 
   const providerConfig = mutableConfig.provider[providerId] ?? {}
+  const models = { ...OPENCODE_MODEL_DEFINITIONS }
+  const hydrogen = models['antigravity-gemini-4-hydrogen']
+  if (hydrogen) {
+    // Omit xhigh: OpenCode 1's bundled @ai-sdk/google accepts only minimal/low/medium/high for thinkingLevel, so xhigh would never reach the plugin.
+    const variants = { ...hydrogen.variants }
+    delete variants.xhigh
+    models[hydrogen.id] = { ...hydrogen, variants }
+  }
   providerConfig.models = {
     ...(providerConfig.models ?? {}),
-    ...OPENCODE_MODEL_DEFINITIONS,
+    ...models,
   }
   providerConfig.whitelist = getAntigravityOpencodeModelIds()
   mutableConfig.provider[providerId] = providerConfig

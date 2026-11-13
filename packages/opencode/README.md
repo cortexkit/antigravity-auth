@@ -6,11 +6,15 @@ One package for OpenCode 1.x (V1) and OpenCode 2.x general availability (GA), wi
 
 This guide describes the current source tree, not an announcement that an unreleased version is available on npm. See the [project overview](../../README.md) and [current models and evidence caveats](docs/MODEL-VARIANTS.md): Gemini 4 Carbon and Argon offer Low, Medium and High; their MEDIUM/HIGH thinking levels and toolConfig omission remain unverified live. Carbon defaults to 262,144 output tokens and uses the ordinary Gemini quota pool until a Carbon bucket is observed.
 
-Gemini 4 Hydrogen adds Low, Medium, High (default) and XHigh on OpenCode 1 and
-OpenCode 2, requiring Pro or Ultra in Antigravity. It sends the native CLI's
-262,144 output-token limit and numeric `100` for XHigh. Medium/High are inferred;
-server acceptance is not yet observed. Hydrogen uses the ordinary Gemini quota
-pool pending bucket evidence.
+Gemini 4 Hydrogen adds Low, Medium and High (default) on OpenCode 1, and Low,
+Medium, High (default) and XHigh on OpenCode 2 and Pi, requiring Pro or Ultra in
+Antigravity. OpenCode 1 omits XHigh because its built-in Google library
+(`@ai-sdk/google`) accepts only `minimal`/`low`/`medium`/`high` for `thinkingLevel`,
+so XHigh would never reach the plugin. Hydrogen sends the native CLI's 262,144
+output-token limit and numeric `100` for XHigh. Low, High and XHigh were seen
+served in a live probe on 13 November; Medium's `"MEDIUM"` value is inferred.
+Hydrogen uses the ordinary Gemini quota pool; no Hydrogen-specific allowance has
+been observed.
 
 ## Host requirements and entries
 

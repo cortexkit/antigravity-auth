@@ -54,14 +54,17 @@ examples do not define a supported Claude 5.5 effort.
 ## Gemini
 
 Gemini 4 Hydrogen requires Pro or Ultra in Google Antigravity and exposes low,
-medium, high (default) and xhigh. Its 1,048,576-token context follows Google's
-12 November announcement; the native CLI sends 262,144 output tokens, with an
-explicit caller cap taking precedence. The [CLI 1.5.5 capture projection](../../../test-fixtures/agy-cli-1.5.5/hydrogen-evidence.json)
+medium and high (default) on OpenCode 1, and low, medium, high (default) and xhigh
+on OpenCode 2 and Pi. OpenCode 1 omits xhigh because its built-in Google library
+(`@ai-sdk/google`) accepts only `minimal`/`low`/`medium`/`high` for `thinkingLevel`,
+so xhigh would never reach the plugin. Its 1,048,576-token context follows
+Google's 12 November announcement; the native CLI sends 262,144 output tokens,
+with an explicit caller cap taking precedence. The [CLI 1.5.5 capture projection](../../../test-fixtures/agy-cli-1.5.5/hydrogen-evidence.json)
 from 13 November observes `"LOW"` and the JSON number `100` for XHigh, without a
-thinking budget or `toolConfig`. Medium/High use inferred `"MEDIUM"`/`"HIGH"`
-following Carbon. Both captured generations exhausted the account's weekly
-quota, so server acceptance of these bodies remains unverified. Hydrogen stays
-on the ordinary Gemini quota pool.
+thinking budget or `toolConfig`. Low, high and xhigh were seen served in a live
+probe on 13 November; medium's `"MEDIUM"` value is inferred from Gemini 4 Carbon's
+thinking-level mapping.
+Hydrogen stays on the ordinary Gemini quota pool.
 
 The grouped `antigravity-gemini-3.8-flash`, `antigravity-gemini-4-argon` and
 `antigravity-gemini-4-carbon` entries expose low, medium and high variants.

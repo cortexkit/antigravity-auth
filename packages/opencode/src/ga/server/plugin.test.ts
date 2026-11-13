@@ -1985,14 +1985,14 @@ describe('model registration', () => {
   it('registers Hydrogen on OpenCode 2 with all four effort variants and its output limit', () => {
     expect(catalog.get('antigravity-gemini-4-hydrogen')).toMatchObject({
       name: 'Gemini 4 Hydrogen (Antigravity)',
-      variants: [
-        { id: 'low' },
-        { id: 'medium' },
-        { id: 'high' },
-        { id: 'xhigh' },
-      ],
       limit: { context: 1048576, output: 262144 },
     })
+    expect(catalog.get('antigravity-gemini-4-hydrogen')?.variants).toEqual([
+      { id: 'low' },
+      { id: 'medium' },
+      { id: 'high' },
+      { id: 'xhigh' },
+    ])
   })
 
   it('registers Carbon on OpenCode 2 with all effort variants and its output limit', () => {
