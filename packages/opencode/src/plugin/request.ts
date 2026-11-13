@@ -2012,6 +2012,7 @@ function prepareAntigravityRequestIn(
 
               if (
                 isClaudeThinking &&
+                !getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking &&
                 typeof thinkingBudget === 'number' &&
                 thinkingBudget > 0
               ) {
@@ -2035,6 +2036,7 @@ function prepareAntigravityRequestIn(
 
               if (
                 isClaudeThinking &&
+                !getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking &&
                 typeof thinkingBudget === 'number' &&
                 thinkingBudget > 0
               ) {
@@ -2445,7 +2447,13 @@ function prepareAntigravityRequestIn(
         //
         // The synthetic messages allow Claude to generate fresh thinking on the
         // new turn instead of failing with "Expected thinking but found text".
-        if (isClaudeThinking && Array.isArray(requestPayload.contents)) {
+        // Adaptive Claude replays tool calls without the legacy signed-thinking
+        // repair. Synthetic recovery turns would change a valid CLI continuation.
+        if (
+          isClaudeThinking &&
+          !getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking &&
+          Array.isArray(requestPayload.contents)
+        ) {
           const conversationState = analyzeConversationState(
             requestPayload.contents,
           )

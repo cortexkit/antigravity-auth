@@ -1426,6 +1426,7 @@ describe('transform/gemini', () => {
     })
 
     it('uses uppercase placeholder schemas and default names for schema-less tools', () => {
+      // The captured agy CLI 1.5.8 shape changes wrappers, not placeholder schemas.
       const payload: RequestPayload = {
         contents: [],
         tools: [
@@ -1437,9 +1438,9 @@ describe('transform/gemini', () => {
       }
       applyGeminiTransforms(payload, { model: 'gemini-2.5-flash' })
       expect(payload.tools).toEqual([
-        {
+        ...['tool1', 'tool2', 'tool-2'].map((name) => ({
           functionDeclarations: [
-            ...['tool1', 'tool2', 'tool-2'].map((name) => ({
+            {
               name,
               description: '',
               parameters: {
@@ -1452,7 +1453,11 @@ describe('transform/gemini', () => {
                 },
                 required: ['_placeholder'],
               },
-            })),
+            },
+          ],
+        })),
+        {
+          functionDeclarations: [
             { name: 'tool3', description: '', parameters: { type: 'OBJECT' } },
           ],
         },
@@ -1601,7 +1606,8 @@ describe('transform/gemini', () => {
       expect(tools[1]).toHaveProperty('codeExecution')
     })
 
-    it('merges existing functionDeclarations into output', () => {
+    it('retains existing and new declarations in separate tools entries', () => {
+      // The captured agy CLI 1.5.8 shape keeps these declarations in separate entries.
       const payload: RequestPayload = {
         contents: [],
         tools: [
@@ -1620,8 +1626,10 @@ describe('transform/gemini', () => {
       wrapToolsAsFunctionDeclarations(payload)
 
       const tools = payload.tools as Array<Record<string, unknown>>
-      expect(tools).toHaveLength(1)
-      const decls = tools[0]?.functionDeclarations as Array<
+      expect(tools).toHaveLength(2)
+      for (const tool of tools)
+        expect(tool.functionDeclarations).toHaveLength(1)
+      const decls = tools.flatMap((tool) => tool.functionDeclarations) as Array<
         Record<string, unknown>
       >
       expect(decls).toHaveLength(2)

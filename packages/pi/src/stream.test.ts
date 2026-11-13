@@ -1526,15 +1526,20 @@ describe('streamCortexKitAntigravity', () => {
       'requestType',
     ])
     expect(body.request.systemInstruction).toEqual({
+      // The captured agy CLI 1.5.8 shape includes this role and separate function wrappers.
+      role: 'system',
       parts: [{ text: 'be terse\n\nanswer in English' }],
     })
     expect(body.request.contents).toEqual([
       { role: 'user', parts: [{ text: 'hi' }] },
     ])
-    expect(body.request.toolConfig).toEqual({
-      functionCallingConfig: { mode: 'VALIDATED' },
-    })
-    const declarations = body.request.tools[0].functionDeclarations
+    expect(body.request).not.toHaveProperty('toolConfig')
+    expect(body.request.tools).toHaveLength(2)
+    for (const tool of body.request.tools)
+      expect(tool.functionDeclarations).toHaveLength(1)
+    const declarations = body.request.tools.flatMap(
+      (tool: any) => tool.functionDeclarations,
+    )
     expect(declarations.map((decl: { name: string }) => decl.name)).toEqual([
       'read',
       'grep',
@@ -1547,7 +1552,7 @@ describe('streamCortexKitAntigravity', () => {
       properties: { pattern: { type: 'STRING' } },
       required: ['pattern'],
     })
-    expect(body.request.labels.last_step_index).toBe('1')
+    expect(body.request.labels.last_step_index).toBe('0')
   })
 
   it('keys sessions without a sessionId on the first non-system message', async () => {
@@ -1570,19 +1575,30 @@ describe('streamCortexKitAntigravity', () => {
   })
 
   it('adds execution metadata after a completed turn', async () => {
-    const terminal = () =>
-      sseResponse([
-        'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":10,"candidatesTokenCount":2}}}\n\n',
-      ])
-
-    await runStream(fakeModel(), terminal(), 'execution-metadata')
-    await runStream(fakeModel(), terminal(), 'execution-metadata')
+    // The captured agy CLI 1.5.8 starts execution labels on the second user turn, not merely
+    // after consuming a response to a replay of the same prompt.
+    const context = userContext()
+    fetchWithAgyCliTransportMock.mockImplementationOnce(async () =>
+      terminalTextResponse(),
+    )
+    const first = await collectStream(
+      streamCortexKitAntigravity(fakeModel(), context, {
+        apiKey: 'test-token',
+        sessionId: 'execution-metadata',
+      }),
+    )
+    context.messages.push(first.result, {
+      role: 'user',
+      content: 'next turn',
+      timestamp: 2,
+    })
+    await runContextStream(context, 'execution-metadata')
 
     const calls = fetchWithAgyCliTransportMock.mock.calls
     const firstBody = JSON.parse(String(calls.at(-2)?.[1]?.body))
     const secondBody = JSON.parse(String(calls.at(-1)?.[1]?.body))
     expect(firstBody.request.labels).not.toHaveProperty('last_execution_id')
-    expect(firstBody.request.labels.last_step_index).toBe('1')
+    expect(firstBody.request.labels.last_step_index).toBe('0')
     expect(secondBody.request.labels.last_execution_id).toMatch(
       /^[0-9a-f-]{36}$/,
     )
@@ -1590,6 +1606,7 @@ describe('streamCortexKitAntigravity', () => {
   })
 
   it('does not rotate execution metadata on a tool-call turn', async () => {
+    // A tool-call response does not complete the first user turn.
     await runStream(
       fakeModel('antigravity-claude-opus-5-5'),
       sseResponse([
@@ -1609,7 +1626,7 @@ describe('streamCortexKitAntigravity', () => {
       String(fetchWithAgyCliTransportMock.mock.calls.at(-1)?.[1]?.body),
     )
     expect(secondBody.request.labels).not.toHaveProperty('last_execution_id')
-    expect(secondBody.request.labels.last_step_index).toBe('1')
+    expect(secondBody.request.labels.last_step_index).toBe('0')
   })
 
   it('releases and cancels an open response body after STOP', async () => {
@@ -2349,9 +2366,8 @@ describe('Pi final tool schema wire normalization', () => {
             : { type: 'INTEGER', minimum: 1, description: 'multipleOf: 2' },
         },
       })
-      expect(body.request.toolConfig).toEqual({
-        functionCallingConfig: { mode: 'VALIDATED' },
-      })
+      // The captured agy CLI 1.5.8 shape omits toolConfig; schema validation remains strict.
+      expect(body.request).not.toHaveProperty('toolConfig')
     })
   }
 })
