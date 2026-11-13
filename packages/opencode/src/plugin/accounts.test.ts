@@ -2822,7 +2822,7 @@ const EMBEDDED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
   version: '0.49.0',
   tarballSha256:
-    '13d5dbe86b30c61e702b5e4e62bb9e9f90e1b196990bc8542ed2bd44724841f0',
+    'a0e05e31e4393c121edba6f1049c46ab5217fd00ffa03a023ef38509663841dd',
 } as const
 
 async function embeddedFilesBelow(

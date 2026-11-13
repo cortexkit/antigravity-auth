@@ -14,11 +14,12 @@ import { gunzipSync } from 'node:zlib'
 export const inputPath =
   'tools/common-auth-build/inputs/cortexkit-common-auth-0.49.0.tgz'
 export const producerVersion = '0.49.0'
-export const artifactStatus = 'candidate'
+export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '13d5dbe86b30c61e702b5e4e62bb9e9f90e1b196990bc8542ed2bd44724841f0',
-  sri: 'sha512-2YlxDeEFl1mTY0ychvO8S3FYn2ykPmb9SYkQ/gd+eYyhTLM65hG/OcJWogil4LpqetqWRmQVyZyQIE4j1O2TAw==',
+  shasum: '214130ec907c53fed1e7c83ea26cc281f8fe02f3',
+  sha256: 'a0e05e31e4393c121edba6f1049c46ab5217fd00ffa03a023ef38509663841dd',
+  sri: 'sha512-dr7TSLFrppSoC0wT51WcmJtSgnf121cD5WqSVRn2+83D6CSvYSDGXdDJfqzO0Htj/iKQQDPJj5ILERnIHqYybA==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -1598,6 +1599,7 @@ function profileOutputs(
     input: inputPath,
     tarballSha256: productionPin.sha256,
     sri: productionPin.sri,
+    shasum: productionPin.shasum,
     canonicalFiles: files.length,
     canonicalBytes: files.reduce((total, file) => total + file.bytes, 0),
     generator: {

@@ -7,7 +7,7 @@ const PIN = {
   package: '@cortexkit/common-auth',
   version: '0.49.0',
   tarballSha256:
-    '13d5dbe86b30c61e702b5e4e62bb9e9f90e1b196990bc8542ed2bd44724841f0',
+    'a0e05e31e4393c121edba6f1049c46ab5217fd00ffa03a023ef38509663841dd',
 } as const
 
 async function filesBelow(root: string, dir: string): Promise<string[]> {
@@ -20,7 +20,7 @@ async function filesBelow(root: string, dir: string): Promise<string[]> {
   return out
 }
 
-/** Verify the candidate archive identity and every store/fs member before loading executable code. */
+/** Verify the published archive identity and every store/fs member before loading executable code. */
 export async function loadVerifiedStoreModules() {
   const root = dirname(
     dirname(
@@ -47,7 +47,7 @@ export async function loadVerifiedStoreModules() {
     !Array.isArray(receipt.files)
   ) {
     throw new Error(
-      `the embedded common-auth receipt is not the pinned candidate ${PIN.version}`,
+      `the embedded common-auth receipt is not the pinned published ${PIN.version}`,
     )
   }
   const recorded = receipt.files.filter((file) =>
