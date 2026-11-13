@@ -12,13 +12,13 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.48.0.tgz'
-export const producerVersion = '0.48.0'
-export const artifactStatus = 'published'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.49.0.tgz'
+export const producerVersion = '0.49.0'
+export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  sha256: '44a289bdbb837f45cb740b5c0b36f8dad039d95228cdf9aa620e791bbecd6bc6',
-  sri: 'sha512-j3FjDCowKBqz0z/iaDlw5eiS0eVSeSEsmNPSinDsZrtzJ+LlM0Ko8S/UPsAUedG8BARjzWncYObSgNAuyOeycw==',
+  sha256: '13d5dbe86b30c61e702b5e4e62bb9e9f90e1b196990bc8542ed2bd44724841f0',
+  sri: 'sha512-2YlxDeEFl1mTY0ychvO8S3FYn2ykPmb9SYkQ/gd+eYyhTLM65hG/OcJWogil4LpqetqWRmQVyZyQIE4j1O2TAw==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -891,13 +891,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'settings/edit.d.ts',
-    662,
-    'abd44206e80335425293a51b7aa2a0d9392768ea817569d467dfd8e32184fb06',
+    705,
+    '12c877c921cdd0ba40948e558afedbcf2ee5f8ff8708908bed9b55a5c1e7800d',
   ],
   [
     'settings/edit.js',
-    8928,
-    '4e16333dd69be5fdccd0b65f2c96cc7a7766ece514f935a2d4faac7583e610c6',
+    10682,
+    'bee8adcd3f244bfa8be32cbbe75e90707a1ffc8e622c70ca0e94471f39415911',
   ],
   [
     'settings/fs.js',
@@ -906,8 +906,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'settings/handle.d.ts',
-    1576,
-    'e15a5e36534948bcba2487dd6631def42bef626f2cb8333f20e42ec4a6f0d7d3',
+    1652,
+    'f6e23fd2f13b2f3d1942dee6db4f4e802d2763e3d4b4eb18ed6cca88974762ff',
   ],
   [
     'settings/handle.js',
@@ -916,8 +916,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'settings/index.d.ts',
-    915,
-    '998e3c0947ad044e8719a90c4f26e6e94f20b13d782ef84d0415d9d9bbfef3e5',
+    987,
+    '23dff586898ffb2fa2f95597518e82ed9c19b1a6e5ed4187dc01675eff67f4fa',
   ],
   [
     'settings/index.js',
@@ -1000,9 +1000,14 @@ const canonical: readonly (readonly [string, number, string])[] = [
     '353437b45c3b96f3df6d64de05765acb2e4da54b6ac9d293fcd5ccbb6517ad3b',
   ],
   [
+    'settings/update.d.ts',
+    863,
+    '4bb1820b65c2cdca47332d051a9f68aa88e1277ae97ae72f1679dc6baf615cb1',
+  ],
+  [
     'settings/update.js',
-    5513,
-    '204a8d98f9eac4c90e8062e3d1e5f7e7cc336dd0ec791da4f97a20ea516eba3d',
+    6331,
+    '2c1325aef462ca0f80595735be1db678bde1b065e9fbe4097763fd897baf6d05',
   ],
   [
     'settings/write.js',
@@ -1532,7 +1537,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '2eeea1897ba62755cee0fb91a8b12d55e9b0fafdc68e526fbbb646a730f2af9e'
+    'f9b4bb2816a65f3d1b1c72e9798133ae77208b9f3dba29438baf4acbe7f3becb'
   )
     throw new Error('publication: manifest bytes')
 }
