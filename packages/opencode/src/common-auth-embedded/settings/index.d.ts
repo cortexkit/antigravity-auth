@@ -8,3 +8,4 @@ export { SETTINGS_REFUSAL_CODES, SettingsRefusal, type SettingsRefusalCode, } fr
 export type { GetOptions } from './resolve.js';
 export { settingsJsonSchema } from './schema.js';
 export type { ReportEntry, ReportReason } from './snapshot.js';
+export type { SettingsCurrent, SettingsUpdatePlan } from './update.js';

@@ -37,7 +37,12 @@ function descriptorAtPath(descriptor, path) {
     }
     return current;
 }
-function destination(declaration, setting, value, { host, model }) {
+function destination(declaration, setting, value, { host, model }, level) {
+    if (level !== undefined) {
+        return level === 'default' && !isJsonObject(value)
+            ? [setting]
+            : [setting, level];
+    }
     if (declaration.overrides !== undefined && isJsonObject(value)) {
         if (declaration.overrides.model &&
             model !== undefined &&
@@ -74,6 +79,20 @@ function checkPath(parsed, path) {
         if (node && node.type !== 'object')
             invalid();
     }
+}
+function preservePlainDefault(parsed, setting) {
+    const node = parsed.tree && findNodeAtLocation(parsed.tree, [setting]);
+    if (!node)
+        invalid();
+    // Keep the original value text so comments inside a list survive promotion.
+    const value = parsed.text.slice(node.offset, node.offset + node.length);
+    return parseForEdit(applyEdits(parsed.text, [
+        {
+            offset: node.offset,
+            length: node.length,
+            content: `{ "default": ${value} }`,
+        },
+    ]));
 }
 /** Remove only the member's own tokens; intervening comment lines belong to neither neighbor. */
 function removeMember(text, tree, path) {
@@ -157,6 +176,18 @@ export function applySettingsEdits(definition, source, edits, context) {
         if (!Object.hasOwn(definition.settings, edit.setting))
             invalid();
         const declaration = definition.settings[edit.setting];
+        if (edit.level !== undefined) {
+            if (edit.path !== undefined)
+                invalid();
+            if (edit.level === 'default') {
+                if (declaration.overrides === undefined)
+                    invalid();
+            }
+            else if ((edit.level !== 'opencode' && edit.level !== 'pi') ||
+                !declaration.overrides?.host) {
+                invalid();
+            }
+        }
         if (edit.path !== undefined &&
             declaration.value.kind !== 'object' &&
             declaration.value.kind !== 'record')
@@ -170,9 +201,24 @@ export function applySettingsEdits(definition, source, edits, context) {
     const units = [];
     for (const edit of edits) {
         const declaration = definition.settings[edit.setting];
+        if (edit.level !== undefined &&
+            edit.level !== 'default' &&
+            !isJsonObject(working.value[edit.setting])) {
+            if (edit.remove === true)
+                continue;
+            if (Object.hasOwn(working.value, edit.setting)) {
+                working = preservePlainDefault(working, edit.setting);
+            }
+            // Earlier root edits now refer to the override's default, if it exists.
+            for (const unit of units) {
+                if (unit.path.length === 1 && unit.path[0] === edit.setting) {
+                    unit.path.push('default');
+                }
+            }
+        }
         const base = edit.path !== undefined
             ? [edit.setting]
-            : destination(declaration, edit.setting, working.value[edit.setting], context);
+            : destination(declaration, edit.setting, working.value[edit.setting], context, edit.level);
         const path = [...base, ...(edit.path ?? [])];
         checkPath(working, path);
         units.push(resolutionUnit(declaration.value, base, edit.path ?? []));

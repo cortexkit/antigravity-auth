@@ -1,6 +1,7 @@
 import { basename, dirname, join } from 'node:path';
 import { ensurePrivateDirectory } from '../fs/private-files.js';
 import { withLock } from '../fs/with-lock.js';
+import { deepFreeze } from './descriptors.js';
 import { applySettingsEdits, } from './edit.js';
 import { SettingsFs } from './fs.js';
 import { rethrowSettingsLockError } from './lock-errors.js';
@@ -96,6 +97,21 @@ export async function updateSettings(definition, options, edits, context) {
                 const version = parsed.value.schema_version;
                 if (Number.isInteger(version) && version > 1) {
                     throw new SettingsRefusal('settings-newer-version', 'Settings were written by a newer version');
+                }
+                if (typeof edits === 'function') {
+                    const planned = edits(deepFreeze(missing
+                        ? { status: 'missing' }
+                        : {
+                            status: 'ready',
+                            document: structuredClone(parsed.value),
+                        }));
+                    if (planned !== null &&
+                        (typeof planned === 'object' || typeof planned === 'function') &&
+                        'then' in planned &&
+                        typeof planned.then === 'function') {
+                        throw new SettingsRefusal('settings-invalid-value', 'Settings update plans must be synchronous');
+                    }
+                    edits = planned;
                 }
                 if (!parsed.tree) {
                     source = `${parsed.hasBom ? '\uFEFF' : ''}// ${definition.plugin} settings\n{\n  "schema_version": 1\n}\n`;

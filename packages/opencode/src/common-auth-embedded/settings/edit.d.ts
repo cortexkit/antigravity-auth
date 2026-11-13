@@ -2,6 +2,7 @@ import type { SettingsDefinition } from './define.js';
 export type SettingsEdit = {
     setting: string;
     path?: readonly string[];
+    level?: 'default' | 'opencode' | 'pi';
 } & ({
     value: unknown;
     remove?: never;
