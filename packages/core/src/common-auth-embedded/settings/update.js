@@ -24,21 +24,24 @@ async function writeTarget(file) {
     catch (error) {
         if (error.code !== 'ENOENT')
             unavailable(file, error);
+        let isSymlink = false;
         try {
-            await SettingsFs.lstat(file);
+            isSymlink = (await SettingsFs.lstat(file)).isSymbolicLink();
         }
         catch (lstatError) {
             if (lstatError.code !== 'ENOENT')
                 unavailable(file, lstatError);
-            try {
-                return join(await SettingsFs.realpath(dirname(file)), basename(file));
-            }
-            catch (parentError) {
-                unavailable(file, parentError);
-            }
         }
-        // A directory entry whose realpath is missing is a dangling symlink.
-        unavailable(file, error);
+        // Only a symlink whose realpath is missing is a dangling entry.
+        if (isSymlink)
+            unavailable(file, error);
+        // Bun 1.4 can fail realpath for regular files during a concurrent atomic replace.
+        try {
+            return join(await SettingsFs.realpath(dirname(file)), basename(file));
+        }
+        catch (parentError) {
+            unavailable(file, parentError);
+        }
     }
 }
 /** Lock the canonical user file so symlink aliases serialize the same edits. */
