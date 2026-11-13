@@ -982,7 +982,11 @@ export function wrapToolsAsFunctionDeclarations(
   const finalTools: unknown[] = []
 
   if (functionDeclarations.length > 0) {
-    finalTools.push({ functionDeclarations })
+    finalTools.push(
+      ...functionDeclarations.map((declaration) => ({
+        functionDeclarations: [declaration],
+      })),
+    )
   }
 
   finalTools.push(...passthroughTools)

@@ -44,7 +44,7 @@ import { getPackedRefresh } from './credential-cache.ts'
 const STREAM_ACTION = 'streamGenerateContent'
 const FALLBACK_SESSION_KEY = '__default__'
 const TRAILING_USAGE_TIMEOUT_MS = 1_000
-const requestSessions = new AgyRequestSessionStore('')
+const requestSessions = new AgyRequestSessionStore()
 
 async function nextWithTimeout<T>(
   iterator: AsyncIterator<T>,
@@ -315,18 +315,13 @@ export function finalizePiAntigravityRequest(
   wireModel: string,
   scope: AgyRequestScope,
 ): string {
-  if (isGeminiArgonModel(wireModel) || isGeminiCarbonModel(wireModel)) {
-    delete request.toolConfig
-  } else if (Array.isArray(request.tools) && request.tools.length > 0) {
-    request.toolConfig = { functionCallingConfig: { mode: 'VALIDATED' } }
-  }
+  delete request.toolConfig
 
   const metadata = buildAgyAgentRequestMetadata(
     scope.session,
     request,
     wireModel,
     scope.timestamp,
-    { stepCountMode: 'cli' },
   )
   request.labels = metadata.labels
   request.sessionId = metadata.sessionId
@@ -893,9 +888,6 @@ function runAntigravityStream(
         reason: output.stopReason as 'stop' | 'length' | 'toolUse',
         message: output,
       })
-      if (output.stopReason === 'stop' || output.stopReason === 'length') {
-        requestSessions.completeExecution(sessionKey)
-      }
       stream.end()
     } catch (error) {
       requestAbort?.abort()

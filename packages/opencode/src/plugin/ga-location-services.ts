@@ -1611,7 +1611,7 @@ function gaEngineCollaborators(input: {
   const observe = input.overrides.observeRawSenderSignal
   return {
     config: runtime.config.config,
-    sessions: new AgySessionRegistry(runtime.directory),
+    sessions: new AgySessionRegistry(),
     operatorSettings: runtime.operatorSettings,
     modelAccess: () => runtime.settings.modelAccess(),
     transport: (

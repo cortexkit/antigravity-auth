@@ -5,6 +5,12 @@ export const captures = projection.runs.r2
 export const toolNames = captures[0]!.tool_names
 export const signature = 's'.repeat(64)
 
+export function assertUserAgent(value: string | null): void {
+  expect(value).toBe(captures[0]!.user_agent
+    .replace('os_type=darwin', `os_type=${process.platform === 'win32' ? 'windows' : process.platform}`)
+    .replace('arch=arm64', `arch=${process.arch === 'x64' ? 'amd64' : process.arch}`))
+}
+
 export function assertIdentity(
   envelope: any,
   capture: (typeof captures)[number],
@@ -12,11 +18,15 @@ export function assertIdentity(
   previous?: any,
 ): void {
   const request = envelope.request
+  // The synthetic second user turn has five contents; the first two requests
+  // use the exact content shapes in the capture.
+  const contentsCount = requestIndex === 2 ? 5 : capture.contents_count
+  expect(request.contents).toHaveLength(contentsCount)
   const labels = request.labels
   const id = envelope.requestId.split('/')
   expect(id).toEqual([
     'agent', expect.any(String), expect.stringMatching(/^\d+$/),
-    expect.any(String), String(request.contents.length),
+    expect.any(String), String(contentsCount),
   ])
   expect(id[1]).toMatch(/^[\da-f-]{36}$/)
   expect(id[3]).toMatch(/^[\da-f-]{36}$/)
@@ -27,7 +37,7 @@ export function assertIdentity(
   const expectedLabels = {
     cascade_id: id[1],
     ...(requestIndex >= 2 ? { last_execution_id: expect.stringMatching(/^[\da-f-]{36}$/) } : {}),
-    last_step_index: String(request.contents.length - 1),
+    last_step_index: String(contentsCount - 1),
     model_enum: capture.labels.model_enum,
     request_id: `${id[3]}-${requestIndex}`,
     root_cascade_id: id[1],
@@ -44,6 +54,7 @@ export function assertIdentity(
   expect(envelope.requestType).toBe(capture.request_type)
   expect(request.sessionId).toBe('-3750763034362895579')
   expect(request).not.toHaveProperty('toolConfig')
+  expect(request.generationConfig).toEqual(capture.generation_config)
   expect(Object.keys(request.systemInstruction)).toEqual(capture.system_instruction_keys)
   expect(request.tools.map((tool: any) => ({
     keys: Object.keys(tool),

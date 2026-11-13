@@ -335,7 +335,11 @@ export function normalizeClaudeTools(
 
   const finalTools: unknown[] = []
   if (functionDeclarations.length > 0) {
-    finalTools.push({ functionDeclarations })
+    finalTools.push(
+      ...functionDeclarations.map((declaration) => ({
+        functionDeclarations: [declaration],
+      })),
+    )
   }
   payload.tools = finalTools.concat(passthroughTools)
 

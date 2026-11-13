@@ -258,6 +258,7 @@ async function connectViaProxy(
     const tlsOptions = {
       socket: proxySocket,
       servername: targetHost,
+      ALPNProtocols: ['http/1.1'],
       signal: signal ?? undefined,
     } satisfies tls.ConnectionOptions &
       Pick<net.SocketConstructorOpts, 'signal'>
@@ -296,6 +297,7 @@ async function connectDirect(
       host: targetUrl.hostname,
       port: Number(targetUrl.port || DEFAULT_HTTPS_PORT),
       servername: targetUrl.hostname,
+      ALPNProtocols: ['http/1.1'],
       signal: signal ?? undefined,
     } satisfies tls.ConnectionOptions &
       Pick<net.SocketConstructorOpts, 'signal'>

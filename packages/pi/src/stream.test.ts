@@ -29,6 +29,7 @@ import schemaDerived from '../../../test-fixtures/agy-cli-1.3.3/schema-derived-t
 import carbonLow from '../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
 import {
   assertIdentity,
+  assertUserAgent,
   captures,
   signature,
   toolNames,
@@ -616,6 +617,11 @@ describe('agy 1.5.8 identity through Pi stream', () => {
         const envelope = JSON.parse(
           String(fetchWithAgyCliTransportMock.mock.calls.at(-1)?.[1]?.body),
         )
+        assertUserAgent(
+          new Headers(
+            fetchWithAgyCliTransportMock.mock.calls.at(-1)?.[1]?.headers,
+          ).get('User-Agent'),
+        )
         assertIdentity(
           envelope,
           captures[captureOffset + (index === 1 ? 1 : 0)]!,
@@ -999,7 +1005,7 @@ describe('resolvePiAntigravityModel', () => {
           )
           expect(Object.keys(body)).toEqual(fixture.envelope_keys)
           expect(new Headers(call?.[1]?.headers).get('User-Agent')).toMatch(
-            /^antigravity\/cli\/1\.3\.5 .*cl=998863838;/,
+            /^antigravity\/cli\/1\.5\.8 .*cl=1020628950;/,
           )
         }
         fetchWithAgyCliTransportMock.mockImplementationOnce(async () =>
@@ -1122,7 +1128,8 @@ describe('finalizePiAntigravityRequest', () => {
     }
   })
 
-  it('omits toolConfig for every Argon route and grouped selector but keeps VALIDATED for other Gemini', () => {
+  it('omits toolConfig for every Argon route, grouped selector and other Gemini', () => {
+    // The agy 1.5.8 omission applies to Flash too, not just Argon.
     for (const model of [
       'gemini-4-argon-low',
       'gemini-4-argon-medium',
@@ -1149,15 +1156,11 @@ describe('finalizePiAntigravityRequest', () => {
         },
         timestamp: 1,
       })
-      if (model.includes('argon'))
-        expect(request).not.toHaveProperty('toolConfig')
-      else
-        expect(request.toolConfig).toEqual({
-          functionCallingConfig: { mode: 'VALIDATED' },
-        })
+      expect(request).not.toHaveProperty('toolConfig')
     }
   })
-  it('adds AGY session metadata and VALIDATED tool configuration', () => {
+  it('adds AGY session metadata without tool configuration', () => {
+    // agy 1.5.8 labels start at request 0 and content index 0, without toolConfig.
     const request: Record<string, unknown> = {
       generationConfig: { thinkingConfig: { thinkingBudget: 10_000 } },
       tools: [
@@ -1185,14 +1188,15 @@ describe('finalizePiAntigravityRequest', () => {
     )
 
     expect(requestId).toBe(
-      'agent/conversation-id/1784285195116/trajectory-id/2',
+      'agent/conversation-id/1784285195116/trajectory-id/1',
     )
-    expect(request.toolConfig).toEqual({
-      functionCallingConfig: { mode: 'VALIDATED' },
-    })
+    expect(request).not.toHaveProperty('toolConfig')
     expect(request.labels).toEqual({
-      last_step_index: '1',
+      cascade_id: 'conversation-id',
+      last_step_index: '0',
       model_enum: 'MODEL_PLACEHOLDER_M318',
+      request_id: 'trajectory-id-0',
+      root_cascade_id: 'conversation-id',
       trajectory_id: 'trajectory-id',
       used_claude: 'false',
       used_claude_conservative: 'false',
@@ -1203,7 +1207,6 @@ describe('finalizePiAntigravityRequest', () => {
       'contents',
       'systemInstruction',
       'tools',
-      'toolConfig',
       'labels',
       'generationConfig',
       'sessionId',
@@ -1211,6 +1214,7 @@ describe('finalizePiAntigravityRequest', () => {
   })
 
   it('matches native first-execution tool continuation step metadata', () => {
+    // agy 1.5.8 counts the three contents, not an extra execution step.
     const request: Record<string, unknown> = {
       contents: [
         { role: 'user', parts: [{ text: 'prompt' }] },
@@ -1252,10 +1256,10 @@ describe('finalizePiAntigravityRequest', () => {
     )
 
     expect(requestId).toBe(
-      'agent/conversation-id/1784285195116/trajectory-id/5',
+      'agent/conversation-id/1784285195116/trajectory-id/3',
     )
     expect(request.labels).toMatchObject({
-      last_step_index: '4',
+      last_step_index: '2',
       model_enum: 'MODEL_PLACEHOLDER_M71',
     })
   })
@@ -1470,7 +1474,7 @@ describe('streamCortexKitAntigravity', () => {
     })
     expect(body.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M318')
     expect(call?.[1]?.headers?.['User-Agent']).toContain(
-      'antigravity/cli/1.3.5',
+      'antigravity/cli/1.5.8',
     )
   })
 

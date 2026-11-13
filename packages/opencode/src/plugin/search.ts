@@ -1,5 +1,3 @@
-import crypto from 'node:crypto'
-
 /**
  * Google Search Tool Implementation
  *
@@ -14,6 +12,11 @@ import {
   SEARCH_SYSTEM_INSTRUCTION,
   SEARCH_TIMEOUT_MS,
 } from '../constants'
+import {
+  buildAgyAgentRequestMetadata,
+  createAgyRequestSessionContext,
+  orderAgyRequestPayloadInPlace,
+} from './agy-request-metadata'
 import { fetchWithAgyCliTransport } from './agy-transport'
 import { buildFingerprintHeaders, getSessionFingerprint } from './fingerprint'
 import { createLogger } from './logger'
@@ -100,18 +103,6 @@ export interface SearchResult {
 // ============================================================================
 // Helper Functions
 // ============================================================================
-
-let sessionCounter = 0
-const sessionPrefix = `search-${Date.now().toString(36)}`
-
-function generateRequestId(): string {
-  return `agent/${crypto.randomUUID()}/${Date.now()}/${crypto.randomUUID()}/2`
-}
-
-function getSessionId(): string {
-  sessionCounter++
-  return `${sessionPrefix}-${sessionCounter}`
-}
 
 function formatSearchResult(result: SearchResult): string {
   const lines: string[] = []
@@ -245,7 +236,7 @@ export async function executeSearch(
     tools.push({ urlContext: {} })
   }
 
-  const requestPayload = {
+  const requestPayload: Record<string, unknown> = {
     systemInstruction: {
       parts: [{ text: SEARCH_SYSTEM_INSTRUCTION }],
     },
@@ -262,14 +253,22 @@ export async function executeSearch(
     },
   }
 
+  // Each grounding call is an independent agent request, not a continuation
+  // of the tool caller's conversation.
+  const metadata = buildAgyAgentRequestMetadata(
+    createAgyRequestSessionContext(),
+    requestPayload,
+    SEARCH_MODEL,
+  )
+  requestPayload.labels = metadata.labels
+  requestPayload.sessionId = metadata.sessionId
+  orderAgyRequestPayloadInPlace(requestPayload)
+
   // Wrap in Antigravity format using the captured agy CLI envelope ordering.
   const wrappedBody = {
     project: projectId,
-    requestId: generateRequestId(),
-    request: {
-      ...requestPayload,
-      sessionId: getSessionId(),
-    },
+    requestId: metadata.requestId,
+    request: requestPayload,
     model: SEARCH_MODEL,
     userAgent: 'antigravity',
     requestType: 'agent',

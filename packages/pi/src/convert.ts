@@ -45,7 +45,7 @@ interface GeminiTool {
 export interface GeminiRequest {
   contents: GeminiContent[]
   tools?: GeminiTool[]
-  systemInstruction?: { parts: GeminiPart[] }
+  systemInstruction?: { role: 'system'; parts: GeminiPart[] }
 }
 
 function sanitize(text: string): string {
@@ -181,7 +181,10 @@ function convertMessages(
 
     if (message.role === 'toolResult') {
       const role =
-        callMatchesTarget.get(message.toolCallId) === true ? 'model' : 'user'
+        callMatchesTarget.get(message.toolCallId) === true &&
+        !options?.model?.replace(/^antigravity-/, '').startsWith('claude-')
+          ? 'model'
+          : 'user'
       const part: GeminiPart = {
         functionResponse: {
           name: message.toolName,
@@ -189,7 +192,7 @@ function convertMessages(
           id: message.toolCallId,
         },
       }
-      // Gemini groups consecutive function responses into one user turn.
+      // Consecutive function responses share a turn, with the target's role.
       const last = contents[contents.length - 1]
       if (
         last &&
@@ -211,12 +214,12 @@ function convertTools(
   model?: string,
 ): GeminiTool[] | undefined {
   if (!tools?.length) return undefined
-  return [
-    {
-      // Match the agy wire format (MITM-verified): field name is `parameters`
-      // (not `parametersJsonSchema`) and schemas are sanitized to Gemini shape
-      // (UPPERCASE types, unsupported keywords stripped) via core's toGeminiSchema.
-      functionDeclarations: tools.map((tool) => ({
+  return tools.map((tool) => ({
+    // Match the captured agy wire format: field name is `parameters`
+    // (not `parametersJsonSchema`) and schemas are sanitized to Gemini shape
+    // (UPPERCASE types, unsupported keywords stripped) via core's toGeminiSchema.
+    functionDeclarations: [
+      {
         name: tool.name,
         description: tool.description,
         parameters: toGeminiSchema(tool.parameters, {
@@ -224,9 +227,9 @@ function convertTools(
             ?.replace(/^antigravity-/, '')
             .startsWith('gpt-oss-'),
         }),
-      })),
-    },
-  ]
+      },
+    ],
+  }))
 }
 
 interface InstructionState {
@@ -291,6 +294,7 @@ export function buildGeminiRequest(
 
   if (systemPrompt.trim()) {
     request.systemInstruction = {
+      role: 'system',
       parts: [{ text: sanitize(systemPrompt) }],
     }
   }

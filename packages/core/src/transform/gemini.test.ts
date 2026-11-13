@@ -1630,6 +1630,7 @@ describe('transform/gemini', () => {
     })
 
     it('handles multiple tools correctly', () => {
+      // agy 1.5.8 wraps each declaration in its own tools entry.
       const payload: RequestPayload = {
         contents: [],
         tools: [
@@ -1653,8 +1654,10 @@ describe('transform/gemini', () => {
       wrapToolsAsFunctionDeclarations(payload)
 
       const tools = payload.tools as Array<Record<string, unknown>>
-      expect(tools).toHaveLength(1)
-      const decls = tools[0]?.functionDeclarations as Array<
+      expect(tools).toHaveLength(3)
+      for (const tool of tools)
+        expect(tool.functionDeclarations).toHaveLength(1)
+      const decls = tools.flatMap((tool) => tool.functionDeclarations) as Array<
         Record<string, unknown>
       >
       expect(decls).toHaveLength(3)

@@ -7,6 +7,7 @@ import opusLow from '../../../../test-fixtures/agy-cli-1.3.3/native-opus-low.jso
 import sonnetLow from '../../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
 import schemaDerived from '../../../../test-fixtures/agy-cli-1.3.3/schema-derived-thinking.json'
 import carbonLow from '../../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
+import identityProjection from '../../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
 import { SKIP_THOUGHT_SIGNATURE } from '../constants'
 import * as config from './config'
 import { DEFAULT_CONFIG } from './config'
@@ -33,15 +34,8 @@ import {
 } from './request'
 import { transformThinkingParts } from './request-helpers'
 
-const AGY_1_1_13_WIRE_FIXTURE = JSON.parse(
-  readFileSync(
-    new URL(
-      '../../../../test-fixtures/agy-cli-1.1.13-stream-request.json',
-      import.meta.url,
-    ),
-    'utf8',
-  ),
-) as { envelopeKeys: string[]; requestKeys: string[] }
+// Current request identity follows agy 1.5.8; older captures remain historical.
+const AGY_WIRE_FIXTURE = identityProjection.runs.r2[0]!
 
 const {
   buildSignatureSessionKey,
@@ -1093,7 +1087,7 @@ describe('request.ts', () => {
         expect(Object.keys(body)).toEqual(fixture.envelope_keys)
         expect(body.request.providerOptions).toBeUndefined()
         expect(new Headers(result.init.headers).get('User-Agent')).toMatch(
-          /^antigravity\/cli\/1\.3\.5 .*cl=998863838;/,
+          /^antigravity\/cli\/1\.5\.8 .*cl=1020628950;/,
         )
         expect(fingerprint).toEqual(previous)
       }
@@ -1237,6 +1231,7 @@ describe('request.ts', () => {
     })
 
     it('uses session-scoped AGY metadata and strips internal OpenCode session headers', () => {
+      // agy 1.5.8 indexes contents from zero and labels each generation.
       const result = prepareAntigravityRequest(
         'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash-high:generateContent',
         {
@@ -1288,12 +1283,15 @@ describe('request.ts', () => {
 
       const wrapped = JSON.parse(result.init.body as string)
       expect(wrapped.requestId).toBe(
-        'agent/conversation-id/1784285195116/trajectory-id/5',
+        'agent/conversation-id/1784285195116/trajectory-id/3',
       )
       expect(wrapped.request.sessionId).toBe('-3750763034362895579')
       expect(wrapped.request.labels).toEqual({
-        last_step_index: '4',
+        cascade_id: 'conversation-id',
+        last_step_index: '2',
         model_enum: 'MODEL_PLACEHOLDER_M84',
+        request_id: 'trajectory-id-0',
+        root_cascade_id: 'conversation-id',
         trajectory_id: 'trajectory-id',
         used_claude: 'false',
         used_claude_conservative: 'false',
@@ -1351,11 +1349,9 @@ describe('request.ts', () => {
 
       const body = result.init.body as string
       const parsed = JSON.parse(body)
-      expect(Object.keys(parsed)).toEqual(AGY_1_1_13_WIRE_FIXTURE.envelopeKeys)
-      expect(Object.keys(parsed.request)).toEqual(
-        AGY_1_1_13_WIRE_FIXTURE.requestKeys,
-      )
-      expect(parsed.requestId).toMatch(/^agent\/.+\/2$/)
+      expect(Object.keys(parsed)).toEqual(AGY_WIRE_FIXTURE.envelope_keys)
+      expect(Object.keys(parsed.request)).toEqual(AGY_WIRE_FIXTURE.request_keys)
+      expect(parsed.requestId).toMatch(/^agent\/.+\/1$/)
       expect(parsed.userAgent).toBe('antigravity')
       expect(parsed.requestType).toBe('agent')
     })
@@ -1500,7 +1496,8 @@ describe('request.ts', () => {
       ).toBeUndefined()
     })
 
-    it('strips host-only cache fields and configures VALIDATED tool calls on the agy path', () => {
+    it('strips host-only cache fields and omits toolConfig on the agy path', () => {
+      // agy 1.5.8 omits toolConfig even when function tools are present.
       const result = prepareAntigravityRequest(
         'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:generateContent',
         {
@@ -1570,9 +1567,7 @@ describe('request.ts', () => {
       expect(request.contents[1].parts[0].functionCall.args.cacheControl).toBe(
         'tool-data',
       )
-      expect(request.toolConfig).toEqual({
-        functionCallingConfig: { mode: 'VALIDATED' },
-      })
+      expect(request).not.toHaveProperty('toolConfig')
     })
 
     it.each([
@@ -2097,7 +2092,8 @@ describe('request.ts', () => {
       }
     })
 
-    it('omits toolConfig for every Argon route and grouped selector but keeps VALIDATED for other Gemini', () => {
+    it('omits toolConfig for every Argon route, grouped selector and other Gemini', () => {
+      // The agy 1.5.8 omission also applies outside Argon.
       for (const [model, effort] of [
         ['gemini-4-argon-low', 'LOW'],
         ['gemini-4-argon-medium', 'MEDIUM'],
@@ -2140,15 +2136,14 @@ describe('request.ts', () => {
               thinkingConfig: { includeThoughts: true, thinkingLevel: effort },
             })
           } else {
-            expect(body.request.toolConfig).toEqual({
-              functionCallingConfig: { mode: 'VALIDATED' },
-            })
+            expect(body.request).not.toHaveProperty('toolConfig')
           }
         }
       }
     })
 
-    it('sanitizes already-wrapped agy requests and preserves existing tool config fields', () => {
+    it('sanitizes already-wrapped agy requests and removes host tool config fields', () => {
+      // Forwarding host toolConfig would differ from the agy 1.5.8 wire.
       const result = prepareAntigravityRequest(
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent',
         {
@@ -2190,12 +2185,7 @@ describe('request.ts', () => {
       expect(wrapped.request.providerOptions).toBeUndefined()
       expect(wrapped.request.cachedContent).toBeUndefined()
       expect(wrapped.request.contents[0].parts[0].cacheControl).toBeUndefined()
-      expect(wrapped.request.toolConfig).toEqual({
-        functionCallingConfig: {
-          allowedFunctionNames: ['read'],
-          mode: 'VALIDATED',
-        },
-      })
+      expect(wrapped.request).not.toHaveProperty('toolConfig')
     })
 
     it('does not send toolConfig when an agy request has no tools', () => {
@@ -2692,6 +2682,7 @@ describe('request.ts', () => {
 
   describe('buildThinkingWarmupBody', () => {
     it('uses a separate valid AGY trajectory instead of reusing stale main-request metadata', () => {
+      // A one-content warmup uses suffix 1 and step index 0 in agy 1.5.8.
       const body = JSON.stringify({
         project: 'project',
         requestId: 'agent/main-conversation/100/main-trajectory/5',
@@ -2722,13 +2713,13 @@ describe('request.ts', () => {
       const warmup = JSON.parse(buildThinkingWarmupBody(body, true)!)
 
       expect(warmup.requestId).toMatch(
-        /^agent\/[0-9a-f-]+\/\d+\/[0-9a-f-]+\/2$/,
+        /^agent\/[0-9a-f-]+\/\d+\/[0-9a-f-]+\/1$/,
       )
       expect(warmup.requestId).not.toContain('main-trajectory')
       expect(warmup.request.contents).toHaveLength(1)
       expect(warmup.request.tools).toBeUndefined()
       expect(warmup.request.toolConfig).toBeUndefined()
-      expect(warmup.request.labels.last_step_index).toBe('1')
+      expect(warmup.request.labels.last_step_index).toBe('0')
       expect(warmup.model).toBe('claude-sonnet-5-5-low')
       expect(warmup.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M403')
       expect(warmup.request.labels.trajectory_id).not.toBe('main-trajectory')

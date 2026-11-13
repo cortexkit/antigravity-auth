@@ -224,7 +224,7 @@ async function makeContext(overrides: ContextOverrides = {}) {
         access: 'access-a',
         expires: Date.now() + 3_600_000,
       })),
-    agySessionRegistry: new AgySessionRegistry(directory),
+    agySessionRegistry: new AgySessionRegistry(),
     // These tests run on the pool-file manager built above.
     accountSource: { kind: 'pool-file' } as const,
     // Default to the shared `transport` mock so tests that exercise the

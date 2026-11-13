@@ -153,7 +153,7 @@ describe('executeSearch', () => {
 
     expect(headers.Authorization).toBe('Bearer bearer-token-xyz')
     expect(headers['User-Agent']).toMatch(
-      /^antigravity\/cli\/1\.3\.5 \(aidev_client; os_type=.+; arch=.+; cl=998863838; auth_method=consumer\)$/,
+      /^antigravity\/cli\/1\.5\.8 \(aidev_client; os_type=.+; arch=.+; cl=1020628950; auth_method=consumer\)$/,
     )
     expect(headers['X-Goog-Api-Client']).toBeUndefined()
     expect(headers['Client-Metadata']).toBeUndefined()
@@ -165,7 +165,24 @@ describe('executeSearch', () => {
       'userAgent',
       'requestType',
     ])
-    expect(body.requestId).toMatch(/^agent\/.+\/2$/)
+    // A standalone agy 1.5.8 search generation has one content and request index 0.
+    expect(body.requestId).toMatch(
+      /^agent\/[\da-f-]{36}\/\d+\/[\da-f-]{36}\/1$/,
+    )
+    const [, cascadeId, , trajectoryId] = body.requestId.split('/')
+    expect(body.request.sessionId).toBe('-3750763034362895579')
+    expect(body.request.labels).toMatchObject({
+      cascade_id: cascadeId,
+      root_cascade_id: cascadeId,
+      trajectory_id: trajectoryId,
+      request_id: `${trajectoryId}-0`,
+      last_step_index: '0',
+      used_claude: 'false',
+      used_claude_conservative: 'false',
+      used_non_gemini_model: 'false',
+    })
+    expect(body.request.labels).not.toHaveProperty('last_execution_id')
+    expect(body.request).not.toHaveProperty('toolConfig')
     expect(body.userAgent).toBe('antigravity')
     expect(body.requestType).toBe('agent')
   })

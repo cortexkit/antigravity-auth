@@ -1,6 +1,3 @@
-import { resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
-
 import {
   type AgyRequestScope,
   type AgyRequestSessionContext,
@@ -36,9 +33,8 @@ export class AgySessionRegistry {
   private readonly requestSessions: AgyRequestSessionStore
   private readonly parentSessionIds = new Map<string, string | null>()
 
-  constructor(directory: string, options: AgySessionRegistryOptions = {}) {
-    const workspaceUri = directory ? pathToFileURL(resolve(directory)).href : ''
-    this.requestSessions = new AgyRequestSessionStore(workspaceUri, options)
+  constructor(options: AgySessionRegistryOptions = {}) {
+    this.requestSessions = new AgyRequestSessionStore(options)
   }
 
   getOrCreate(identity: OpenCodeSessionIdentity): AgyRequestSessionContext {

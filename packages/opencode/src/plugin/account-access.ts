@@ -301,7 +301,7 @@ export function buildAccountAccessProbeRequest(
     generationConfig: { maxOutputTokens: 1, temperature: 0 },
   }
   const requestMetadata = buildAgyAgentRequestMetadata(
-    createAgyRequestSessionContext(''),
+    createAgyRequestSessionContext(),
     request,
     wireModel,
   )

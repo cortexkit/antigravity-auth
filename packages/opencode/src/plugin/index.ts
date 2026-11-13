@@ -264,7 +264,7 @@ export const createAntigravityPlugin =
       initDiskSignatureCache(config.signature_cache)
     }
 
-    const sessionRegistry = new AgySessionRegistry(directory)
+    const sessionRegistry = new AgySessionRegistry()
     let cachedGetAuth: GetAuth | null = null
     let stopSidebarPublisher: (() => Promise<void>) | undefined
     const lifecycle = createPluginLifecycle({

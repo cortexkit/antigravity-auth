@@ -31,7 +31,7 @@ describe('OpenCode session identity', () => {
 
 describe('AgySessionRegistry', () => {
   it('keeps request identity stable within a session and isolated across sessions', () => {
-    const registry = new AgySessionRegistry('/workspace')
+    const registry = new AgySessionRegistry()
 
     const first = registry.getOrCreate({
       sessionId: 'session-a',
@@ -53,7 +53,7 @@ describe('AgySessionRegistry', () => {
   })
 
   it('allocates unique monotonic request timestamps without changing session identity', () => {
-    const registry = new AgySessionRegistry('/workspace', { now: () => 100 })
+    const registry = new AgySessionRegistry({ now: () => 100 })
     const identity = { sessionId: 'session-a', parentSessionId: null }
 
     const first = registry.beginRequest(identity)
@@ -65,7 +65,7 @@ describe('AgySessionRegistry', () => {
   })
 
   it('registers parent relationships and deletes exact session state', () => {
-    const registry = new AgySessionRegistry('/workspace')
+    const registry = new AgySessionRegistry()
     registry.register('session-child', 'session-parent')
 
     expect(registry.getParentSessionId('session-child')).toBe('session-parent')
@@ -78,7 +78,7 @@ describe('AgySessionRegistry', () => {
 
   it('prunes expired state without changing an active session', () => {
     let now = 0
-    const registry = new AgySessionRegistry('/workspace', {
+    const registry = new AgySessionRegistry({
       ttlMs: 100,
       now: () => now,
     })
@@ -100,7 +100,7 @@ describe('AgySessionRegistry', () => {
 
   it('keeps the registry bounded by evicting least-recently-used sessions', () => {
     let now = 0
-    const registry = new AgySessionRegistry('/workspace', {
+    const registry = new AgySessionRegistry({
       maxEntries: 2,
       now: () => now,
     })

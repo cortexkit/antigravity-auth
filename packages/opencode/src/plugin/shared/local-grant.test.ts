@@ -553,7 +553,7 @@ async function runScenario(mode: Mode, stage: Stage = 'project') {
       config,
       accounts: manager,
       credentials,
-      sessions: new AgySessionRegistry(pool.dir),
+      sessions: new AgySessionRegistry(),
       wire: {
         ...wire,
         prepare(...args) {

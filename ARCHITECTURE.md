@@ -52,7 +52,7 @@ flowchart LR
 - converts tool schemas to Gemini's uppercase-typed schema;
 - builds the `agy` CLI's request metadata (conversation, trajectory and step ids, `packages/core/src/agy-request-metadata.ts`);
 - orders the payload keys as the CLI does;
-- appends a `[Continue]` user turn when the history ends on a model turn, because Antigravity rejects that.
+- appends a `[Continue]` user turn when the history ends on a model turn, because Antigravity rejects that, except for a Gemini model turn containing only function responses: that continuation ends on the function responses to copy agy CLI 1.5.8.
 
 Title requests for a model the plugin doesn't serve go to `gemini-3.8-flash-low`.
 
@@ -160,7 +160,7 @@ The library is embedded so that each release ships exactly the library bytes it 
 1. **Vault, host and unreadable authority exclude local accounts**, with no fallback. Enforced by the vault and custody tests and the Windows vault job (`test/windows-vault/`), which counts local reads.
 2. **Renderers never import credential or store code.** Enforced by the import-graph tests in `packages/opencode/scripts/build-tui.test.ts`.
 3. **OpenCode 2 ownership is decided by the placeholder header alone**, never by the active connection. Enforced by `isGaOwnedRequest` and the GA server tests.
-4. **Every outbound request ends in a user turn.** Enforced by request preparation and its tests.
+4. **Outbound histories end in a user turn, except Gemini function-response continuations.** Request preparation appends a `[Continue]` user turn after every other model-ending history because Antigravity rejects it. A Gemini model turn containing only function responses is left last, copying agy CLI 1.5.8. Enforced by request preparation and its tests.
 5. **Failures are native errors**, and plugin refusal text carries no 429/5xx digit runs. Enforced by request-services and GA tests.
 6. **Quota reads use only the daily host.** Enforced by `ANTIGRAVITY_QUOTA_ENDPOINT` and the quota tests.
 7. **Request-path store reads take no exclusive lock.** Enforced by the store admission tests.

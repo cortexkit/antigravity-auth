@@ -498,6 +498,7 @@ describe('normalizeClaudeTools', () => {
     })
 
     it('handles multiple functionDeclarations', () => {
+      // agy 1.5.8 sends one tools entry per declaration, including for Claude.
       const payload: RequestPayload = {
         tools: [
           {
@@ -512,7 +513,13 @@ describe('normalizeClaudeTools', () => {
       normalizeClaudeTools(payload, identityClean)
 
       const tools = payload.tools as any[]
-      expect(tools[0].functionDeclarations).toHaveLength(2)
+      expect(tools).toHaveLength(2)
+      expect(tools[0].functionDeclarations).toHaveLength(1)
+      expect(tools[1].functionDeclarations).toHaveLength(1)
+      expect(tools.map((tool) => tool.functionDeclarations[0].name)).toEqual([
+        'tool1',
+        'tool2',
+      ])
     })
   })
 

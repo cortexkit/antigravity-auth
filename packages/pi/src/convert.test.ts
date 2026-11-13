@@ -365,7 +365,11 @@ describe('buildGeminiRequest', () => {
         messages: [{ role: 'user', content: 'hi', timestamp: 0 }],
       }),
     )
-    expect(request.systemInstruction).toEqual({ parts: [{ text: 'be terse' }] })
+    expect(request.systemInstruction).toEqual({
+      // agy 1.5.8 includes the system role on the instruction.
+      role: 'system',
+      parts: [{ text: 'be terse' }],
+    })
     const decl = request.tools?.[0]?.functionDeclarations[0]
     expect(decl?.name).toBe('read')
     // Must match the agy wire format: field name `parameters`, sanitized to
@@ -411,7 +415,10 @@ function system(fields: Omit<SystemMessage, 'role'>): SystemMessage {
 }
 
 function declarationNames(request: ReturnType<typeof buildGeminiRequest>) {
-  return request.tools?.[0]?.functionDeclarations.map((decl) => decl.name)
+  // agy 1.5.8 carries one declaration in each tools entry.
+  return request.tools?.flatMap((tool) =>
+    tool.functionDeclarations.map((decl) => decl.name),
+  )
 }
 
 describe('buildGeminiRequest with Pi transcript system messages', () => {
@@ -436,6 +443,8 @@ describe('buildGeminiRequest with Pi transcript system messages', () => {
     )
 
     expect(request.systemInstruction).toEqual({
+      // agy 1.5.8 includes the system role on the instruction.
+      role: 'system',
       parts: [
         {
           text: 'base prompt\n\nextra instruction\n\nfirst block\nsecond block',
@@ -468,6 +477,8 @@ describe('buildGeminiRequest with Pi transcript system messages', () => {
     )
 
     expect(request.systemInstruction).toEqual({
+      // agy 1.5.8 includes the system role on the instruction.
+      role: 'system',
       parts: [{ text: 'base\n\n<rules>new</rules>' }],
     })
   })
@@ -535,6 +546,8 @@ describe('buildGeminiRequest with Pi transcript system messages', () => {
 
     const fromFlat = buildGeminiRequest(flat)
     expect(fromFlat.systemInstruction).toEqual({
+      // agy 1.5.8 includes the system role on the instruction.
+      role: 'system',
       parts: [{ text: 'be terse' }],
     })
     expect(declarationNames(fromFlat)).toEqual(['read'])

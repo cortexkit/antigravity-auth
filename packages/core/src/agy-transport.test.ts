@@ -1,6 +1,8 @@
-import { afterEach, describe, expect, it } from 'bun:test'
+import { afterEach, describe, expect, it, spyOn } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import * as net from 'node:net'
+import * as tls from 'node:tls'
+import identityProjection from '../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
 
 import {
   buildAgyCliHeaderPairs,
@@ -137,6 +139,18 @@ describe('agy transport', () => {
     expect(DEFAULT_AGY_IDLE_TIMEOUT_MS).toBe(180_000)
   })
 
+  it('preserves the agy 1.5.8 generation header order', () => {
+    expect(
+      buildAgyCliHeaderPairs(
+        'https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent',
+        {
+          headers: { Authorization: 'Bearer token' },
+          body: '{}',
+        },
+      ).map(([name]) => name),
+    ).toEqual(identityProjection.runs.r2[0]!.header_order)
+  })
+
   it('serializes the captured agy CLI 1.1.24 stream header contract', () => {
     const pairs = buildAgyCliHeaderPairs(
       AGY_1_1_24_WIRE_FIXTURE.capture.endpoint,
@@ -178,6 +192,7 @@ describe('agy transport', () => {
   })
 
   it('destroys a direct TLS connection when aborted', async () => {
+    const connect = spyOn(tls, 'connect')
     disableProxyEnv()
     const probe = createSocketProbe()
     const port = await listen(probe.server, 'localhost')
@@ -193,7 +208,12 @@ describe('agy transport', () => {
       controller.abort()
       await expect(request).rejects.toThrow(/aborted/i)
       await probe.peerClosed
+      // agy 1.5.8 offers only HTTP/1.1, even when the peer supports HTTP/2.
+      expect(connect.mock.calls[0]?.[0]).toMatchObject({
+        ALPNProtocols: identityProjection.runs.r2[0]!.client_alpn_offered,
+      })
     } finally {
+      connect.mockRestore()
       await closeSocketProbe(probe)
     }
   })
@@ -220,6 +240,7 @@ describe('agy transport', () => {
   })
 
   it('destroys a tunneled TLS connection when aborted during handshake', async () => {
+    const connect = spyOn(tls, 'connect')
     let connected = false
     let markTunnelStarted: () => void
     const tunnelStarted = new Promise<void>((resolve) => {
@@ -247,7 +268,12 @@ describe('agy transport', () => {
       controller.abort()
       await expect(request).rejects.toThrow(/aborted/i)
       await probe.peerClosed
+      // The proxy tunnel must offer the same ALPN identity as a direct send.
+      expect(connect.mock.calls[0]?.[0]).toMatchObject({
+        ALPNProtocols: identityProjection.runs.r2[0]!.client_alpn_offered,
+      })
     } finally {
+      connect.mockRestore()
       await closeSocketProbe(probe)
     }
   })

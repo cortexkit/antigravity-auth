@@ -257,7 +257,7 @@ function harness(options: {
               report401: async () => {},
             }),
           },
-    sessions: new AgySessionRegistry(testRoot()),
+    sessions: new AgySessionRegistry(),
     transport: async (_url, init) => {
       bodies.push(init?.body)
       sentFor.push(

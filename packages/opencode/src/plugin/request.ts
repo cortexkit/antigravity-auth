@@ -113,7 +113,7 @@ import type { GoogleSearchConfig } from './transform/types'
 const log = createLogger('request')
 
 const PLUGIN_SESSION_ID = `-${crypto.randomUUID()}`
-const DEFAULT_AGY_REQUEST_SESSION = createAgyRequestSessionContext('')
+const DEFAULT_AGY_REQUEST_SESSION = createAgyRequestSessionContext()
 
 const sessionDisplayedThinkingHashes = new Set<string>()
 
@@ -713,51 +713,68 @@ function stripUnsupportedAntigravityFields(
   }
 }
 
+function isGeminiFunctionResponseTurn(
+  content: any,
+  wireModel: string,
+): boolean {
+  return (
+    wireModel.startsWith('gemini-') &&
+    content?.role === 'model' &&
+    Array.isArray(content.parts) &&
+    content.parts.length > 0 &&
+    content.parts.every((part: any) => part?.functionResponse)
+  )
+}
+
 function configureAntigravityToolCalling(
   payload: Record<string, unknown>,
-  wireModel: string,
 ): void {
-  if (
-    isGeminiArgonModel(wireModel) ||
-    isGeminiCarbonModel(wireModel) ||
-    isGeminiHydrogenModel(wireModel) ||
-    !Array.isArray(payload.tools) ||
-    payload.tools.length === 0
-  ) {
-    delete payload.toolConfig
-    return
+  delete payload.toolConfig
+  if (Array.isArray(payload.tools)) {
+    payload.tools = payload.tools.flatMap((tool) =>
+      Array.isArray(tool?.functionDeclarations)
+        ? tool.functionDeclarations.map((declaration: unknown) => ({
+            functionDeclarations: [declaration],
+          }))
+        : [tool],
+    )
   }
-
-  const toolConfig =
-    payload.toolConfig &&
-    typeof payload.toolConfig === 'object' &&
-    !Array.isArray(payload.toolConfig)
-      ? (payload.toolConfig as Record<string, unknown>)
-      : {}
-  const functionCallingConfig =
-    toolConfig.functionCallingConfig &&
-    typeof toolConfig.functionCallingConfig === 'object' &&
-    !Array.isArray(toolConfig.functionCallingConfig)
-      ? (toolConfig.functionCallingConfig as Record<string, unknown>)
-      : {}
-
-  functionCallingConfig.mode = 'VALIDATED'
-  toolConfig.functionCallingConfig = functionCallingConfig
-  payload.toolConfig = toolConfig
 }
 
 /**
- * The native CLI sends a function response to a same-target call in a model
- * turn (a request then ends with a model turn and gets the trailing user
- * `[Continue]` turn). A call is same-target when it carries its own replay
- * signature; a call whose signature was missing or stripped carries the
- * validator sentinel and keeps its responses in a user turn.
+ * Gemini sends a function response to a same-target call in a model turn
+ * without a synthetic continuation prompt. A call is same-target when it
+ * carries its own replay signature; a call whose signature was missing or
+ * stripped carries the validator sentinel and keeps its responses in a user
+ * turn. Claude sends function responses in user turns without call signatures.
  */
 function normalizeNativeFunctionResponseRoles(
   payload: Record<string, unknown>,
+  wireModel: string,
 ): void {
   const contents = (payload as { contents?: unknown }).contents
   if (!Array.isArray(contents)) return
+  if (wireModel.startsWith('claude-')) {
+    for (const content of contents) {
+      if (Array.isArray(content?.parts)) {
+        for (const part of content.parts) {
+          if (part?.functionCall) {
+            delete part.thoughtSignature
+            delete part.thought_signature
+          }
+        }
+      }
+      if (
+        content?.role === 'model' &&
+        Array.isArray(content.parts) &&
+        content.parts.length > 0 &&
+        content.parts.every((part: any) => part?.functionResponse)
+      ) {
+        content.role = 'user'
+      }
+    }
+    return
+  }
   const signedCalls = new Set<string>()
   for (const content of contents) {
     const parts = (content as { parts?: unknown } | null)?.parts
@@ -1688,15 +1705,16 @@ function prepareAntigravityRequestIn(
           }
           sanitizeRequestPayloadForAntigravity(req)
           stripUnsupportedAntigravityFields(req)
-          configureAntigravityToolCalling(req, effectiveModel)
-          normalizeNativeFunctionResponseRoles(req)
+          configureAntigravityToolCalling(req)
+          normalizeNativeFunctionResponseRoles(req, effectiveModel)
         }
         for (const req of requestObjects) {
           if (Array.isArray((req as any).contents)) {
             const contents = (req as any).contents
             const lastContent = contents[contents.length - 1]
             if (
-              lastContent?.role === 'model' ||
+              (lastContent?.role === 'model' &&
+                !isGeminiFunctionResponseTurn(lastContent, effectiveModel)) ||
               lastContent?.role === 'assistant'
             ) {
               contents.push({ role: 'user', parts: [{ text: '[Continue]' }] })
@@ -2180,7 +2198,11 @@ function prepareAntigravityRequestIn(
 
             const finalTools: any[] = []
             if (functionDeclarations.length > 0) {
-              finalTools.push({ functionDeclarations })
+              finalTools.push(
+                ...functionDeclarations.map((declaration) => ({
+                  functionDeclarations: [declaration],
+                })),
+              )
             }
             requestPayload.tools = finalTools.concat(passthroughTools)
           } else {
@@ -2432,7 +2454,8 @@ function prepareAntigravityRequestIn(
             requestPayload.contents.length - 1
           ] as any
           if (
-            lastContent?.role === 'model' ||
+            (lastContent?.role === 'model' &&
+              !isGeminiFunctionResponseTurn(lastContent, effectiveModel)) ||
             lastContent?.role === 'assistant'
           ) {
             requestPayload.contents.push({
@@ -2474,16 +2497,16 @@ function prepareAntigravityRequestIn(
           if (Object.keys(config).length > 0)
             requestPayload.generationConfig = config
           stripUnsupportedAntigravityFields(requestPayload)
-          configureAntigravityToolCalling(requestPayload, effectiveModel)
-          // Function-response roles depend on the signatures settled by the
-          // sanitizer above; a response turn that becomes a model turn at the
-          // end of the request then needs the trailing user turn.
-          normalizeNativeFunctionResponseRoles(requestPayload)
+          configureAntigravityToolCalling(requestPayload)
+          // Replay signatures decide Gemini's function-response role; Claude
+          // keeps function responses in user turns.
+          normalizeNativeFunctionResponseRoles(requestPayload, effectiveModel)
           if (Array.isArray(requestPayload.contents)) {
-            const lastContent = requestPayload.contents[
-              requestPayload.contents.length - 1
-            ] as { role?: unknown } | undefined
-            if (lastContent?.role === 'model') {
+            const lastContent = requestPayload.contents.at(-1) as any
+            if (
+              lastContent?.role === 'model' &&
+              !isGeminiFunctionResponseTurn(lastContent, effectiveModel)
+            ) {
               requestPayload.contents.push({
                 role: 'user',
                 parts: [{ text: '[Continue]' }],

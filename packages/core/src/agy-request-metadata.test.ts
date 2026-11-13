@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 import { readFileSync } from 'node:fs'
+import identityProjection from '../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
 
 import {
   AgyRequestSessionStore,
@@ -36,13 +37,13 @@ const MODEL_METADATA_FIXTURES = ['1.1.3', '1.1.6', '1.1.13', '1.1.24'].map(
 )
 
 describe('agy request metadata', () => {
-  it('matches the captured signed FNV-1a session ID for an empty workspace URI', () => {
+  it('matches the agy 1.5.8 signed FNV-1a session ID for the empty string', () => {
     expect(fnv1a64Signed('')).toBe('-3750763034362895579')
     expect(fnv1a64Signed('hello')).toBe('-6615550055289275125')
   })
 
   it('keeps contexts stable by key and allocates monotonic request timestamps', () => {
-    const sessions = new AgyRequestSessionStore('file:///workspace', {
+    const sessions = new AgyRequestSessionStore({
       now: () => 100,
     })
 
@@ -57,7 +58,7 @@ describe('agy request metadata', () => {
   })
 
   it('clears all stored session contexts', () => {
-    const sessions = new AgyRequestSessionStore('file:///workspace')
+    const sessions = new AgyRequestSessionStore()
     sessions.getOrCreate('session-a')
     sessions.getOrCreate('session-b')
 
@@ -68,14 +69,14 @@ describe('agy request metadata', () => {
 
   it('creates stable session IDs with independently generated conversation and trajectory IDs', () => {
     expect(
-      createAgyRequestSessionContext('file:///workspace', {
+      createAgyRequestSessionContext({
         conversationId: 'conversation-id',
         trajectoryId: 'trajectory-id',
       }),
     ).toEqual({
       conversationId: 'conversation-id',
       trajectoryId: 'trajectory-id',
-      numericSessionId: fnv1a64Signed('file:///workspace'),
+      numericSessionId: '-3750763034362895579',
     })
   })
 
@@ -85,7 +86,6 @@ describe('agy request metadata', () => {
       sessionId: 'session',
       contents: [],
       labels: {},
-      toolConfig: {},
       tools: [],
       systemInstruction: {},
     }
@@ -96,14 +96,14 @@ describe('agy request metadata', () => {
       'contents',
       'systemInstruction',
       'tools',
-      'toolConfig',
       'labels',
       'generationConfig',
       'sessionId',
     ])
   })
 
-  it('derives last_step_index from the number of content parts', () => {
+  it('counts contents regardless of part count, as captured in agy 1.5.8', () => {
+    // agy 1.5.8 counts content entries, not thinking/tool parts or execution steps.
     const payload = {
       contents: [
         { role: 'user', parts: [{ text: 'prompt' }] },
@@ -121,12 +121,12 @@ describe('agy request metadata', () => {
       ],
     }
 
-    expect(countAgyRequestSteps(payload)).toBe(4)
-    expect(countAgyRequestSteps({ contents: [] })).toBe(1)
-    expect(countAgyRequestSteps({})).toBe(1)
+    expect(countAgyRequestSteps(payload)).toBe(3)
+    expect(countAgyRequestSteps({ contents: [] })).toBe(0)
+    expect(countAgyRequestSteps({})).toBe(0)
   })
 
-  it('counts a current function response as a native CLI execution step', () => {
+  it('counts a function response once as a content entry in agy 1.5.8', () => {
     const payload = {
       contents: [
         { role: 'user', parts: [{ text: 'prompt' }] },
@@ -146,12 +146,12 @@ describe('agy request metadata', () => {
       ],
     }
 
-    expect(countAgyRequestSteps(payload, 'contents')).toBe(3)
-    expect(countAgyRequestSteps(payload, 'cli')).toBe(4)
+    expect(countAgyRequestSteps(payload)).toBe(3)
   })
 
   it('builds captured Claude request IDs, labels, and numeric session ID', () => {
-    const session = createAgyRequestSessionContext('', {
+    // The agy 1.5.8 labels identify both cascade IDs and a generation counter.
+    const session = createAgyRequestSessionContext({
       conversationId: 'conversation-id',
       trajectoryId: 'trajectory-id',
     })
@@ -178,12 +178,15 @@ describe('agy request metadata', () => {
     )
 
     expect(metadata).toEqual({
-      requestId: 'agent/conversation-id/1784285195116/trajectory-id/5',
+      requestId: 'agent/conversation-id/1784285195116/trajectory-id/3',
       sessionId: '-3750763034362895579',
-      lastStepIndex: 4,
+      lastStepIndex: 2,
       labels: {
-        last_step_index: '4',
+        cascade_id: 'conversation-id',
+        last_step_index: '2',
         model_enum: 'MODEL_PLACEHOLDER_M35',
+        request_id: 'trajectory-id-0',
+        root_cascade_id: 'conversation-id',
         trajectory_id: 'trajectory-id',
         used_claude: 'true',
         used_claude_conservative: 'true',
@@ -233,7 +236,7 @@ describe('agy request metadata', () => {
   })
 
   it('keeps cumulative non-Gemini usage flags when a session switches back to Gemini', () => {
-    const session = createAgyRequestSessionContext('', {
+    const session = createAgyRequestSessionContext({
       conversationId: 'conversation-id',
       trajectoryId: 'trajectory-id',
     })
@@ -254,8 +257,59 @@ describe('agy request metadata', () => {
     expect(gemini.labels.used_non_gemini_model).toBe('true')
   })
 
+  it('replays the agy 1.5.8 four-turn model switch with fresh execution IDs', () => {
+    const session = createAgyRequestSessionContext()
+    let previousExecutionId: string | undefined
+    for (const [index, capture] of identityProjection.runs[
+      'r4-turns'
+    ].entries()) {
+      const contents = capture.contents_shape.map((content) => ({
+        role: content.role,
+        parts: content.parts_keys.map((keys) =>
+          Object.fromEntries(keys.map((key) => [key, 'text'])),
+        ),
+      }))
+      const metadata = buildAgyAgentRequestMetadata(
+        session,
+        { contents },
+        capture.model,
+        index + 1,
+      )
+      expect(metadata.lastStepIndex).toBe(
+        Number(capture.labels.last_step_index),
+      )
+      expect(metadata.requestId.split('/').at(-1)).toBe(
+        String(capture.contents_count),
+      )
+      expect(metadata.labels).toMatchObject({
+        cascade_id: session.conversationId,
+        root_cascade_id: session.conversationId,
+        trajectory_id: session.trajectoryId,
+        request_id: `${session.trajectoryId}-${index}`,
+        used_claude: capture.labels.used_claude,
+        used_claude_conservative: capture.labels.used_claude_conservative,
+        used_non_gemini_model: capture.labels.used_non_gemini_model,
+      })
+      if (index === 0)
+        expect(metadata.labels).not.toHaveProperty('last_execution_id')
+      else {
+        expect(metadata.labels.last_execution_id).toMatch(/^[\da-f-]{36}$/)
+        expect(metadata.labels.last_execution_id).not.toBe(previousExecutionId)
+      }
+      previousExecutionId = metadata.labels.last_execution_id
+      expect(
+        buildAgyAgentRequestMetadata(
+          session,
+          { contents },
+          capture.model,
+          index + 1,
+        ),
+      ).toEqual(metadata)
+    }
+  })
+
   it('omits an unverified model enum while retaining safe labels', () => {
-    const session = createAgyRequestSessionContext('', {
+    const session = createAgyRequestSessionContext({
       conversationId: 'conversation-id',
       trajectoryId: 'trajectory-id',
     })

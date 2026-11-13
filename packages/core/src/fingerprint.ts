@@ -9,8 +9,8 @@
 
 import * as crypto from 'node:crypto'
 
-export const AGY_CLI_VERSION = '1.3.5'
-export const AGY_CLI_CHANGE_LIST = '998863838'
+export const AGY_CLI_VERSION = '1.5.8'
+export const AGY_CLI_CHANGE_LIST = '1020628950'
 const ANTIGRAVITY_API_CLIENT = 'antigravity-cli'
 
 export interface ClientMetadata {

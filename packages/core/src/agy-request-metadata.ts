@@ -11,7 +11,6 @@ const AGY_REQUEST_FIELD_ORDER = [
   'contents',
   'systemInstruction',
   'tools',
-  'toolConfig',
   'labels',
   'generationConfig',
   'sessionId',
@@ -24,6 +23,8 @@ export interface AgyRequestSessionContext {
   usedClaude?: boolean
   usedNonGeminiModel?: boolean
   lastExecutionId?: string
+  requestCount?: number
+  lastMetadataTimestamp?: number
 }
 
 interface StoredAgyRequestSession {
@@ -44,9 +45,12 @@ export interface AgyRequestScope {
 }
 
 export interface AgyRequestLabels {
+  cascade_id: string
   last_execution_id?: string
   last_step_index: string
   model_enum?: string
+  request_id: string
+  root_cascade_id: string
   trajectory_id: string
   used_claude: 'true' | 'false'
   used_claude_conservative: 'true' | 'false'
@@ -60,10 +64,6 @@ export interface AgyAgentRequestMetadata {
   lastStepIndex: number
 }
 
-export interface AgyAgentRequestMetadataOptions {
-  stepCountMode?: 'parts' | 'contents' | 'cli'
-}
-
 export function fnv1a64Signed(input: string): string {
   let hash = FNV1A_64_OFFSET_BASIS
   for (const byte of Buffer.from(input, 'utf8')) {
@@ -74,28 +74,23 @@ export function fnv1a64Signed(input: string): string {
 }
 
 export function createAgyRequestSessionContext(
-  workspaceUri: string,
   ids: { conversationId?: string; trajectoryId?: string } = {},
 ): AgyRequestSessionContext {
   return {
     conversationId: ids.conversationId ?? randomUUID(),
     trajectoryId: ids.trajectoryId ?? randomUUID(),
-    numericSessionId: fnv1a64Signed(workspaceUri),
+    // Print-mode agy uses the empty-string offset basis in every workspace.
+    numericSessionId: fnv1a64Signed(''),
   }
 }
 
 export class AgyRequestSessionStore {
   private readonly entries = new Map<string, StoredAgyRequestSession>()
-  private readonly workspaceUri: string
   private readonly ttlMs: number
   private readonly maxEntries: number
   private readonly now: () => number
 
-  constructor(
-    workspaceUri: string,
-    options: AgyRequestSessionStoreOptions = {},
-  ) {
-    this.workspaceUri = workspaceUri
+  constructor(options: AgyRequestSessionStoreOptions = {}) {
     this.ttlMs = options.ttlMs ?? DEFAULT_SESSION_STATE_TTL_MS
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_SESSION_STATES
     this.now = options.now ?? Date.now
@@ -111,7 +106,7 @@ export class AgyRequestSessionStore {
       return existing.context
     }
 
-    const context = createAgyRequestSessionContext(this.workspaceUri)
+    const context = createAgyRequestSessionContext()
     this.entries.set(key, {
       context,
       lastAccessedAt: timestamp,
@@ -129,13 +124,6 @@ export class AgyRequestSessionStore {
     )
     stored.lastRequestTimestamp = timestamp
     return { session, timestamp }
-  }
-
-  completeExecution(key: string): void {
-    const stored = this.entries.get(key)
-    if (stored) {
-      stored.context.lastExecutionId = randomUUID()
-    }
   }
 
   has(key: string): boolean {
@@ -227,35 +215,30 @@ export function orderAgyRequestPayloadInPlace(
   Object.assign(payload, ordered)
 }
 
-export function countAgyRequestSteps(
-  payload: Record<string, unknown>,
-  mode: 'parts' | 'contents' | 'cli' = 'parts',
-): number {
-  const contents = payload.contents
-  if (!Array.isArray(contents)) return 1
-  if (mode === 'contents') return Math.max(1, contents.length)
+export function countAgyRequestSteps(payload: Record<string, unknown>): number {
+  return Array.isArray(payload.contents) ? payload.contents.length : 0
+}
 
-  let partCount = 0
-  let functionResponseCount = 0
-  for (const content of contents) {
-    if (!content || typeof content !== 'object' || Array.isArray(content))
-      continue
-    const parts = (content as Record<string, unknown>).parts
-    if (!Array.isArray(parts)) continue
-    partCount += parts.length
-    if (mode === 'cli') {
-      functionResponseCount += parts.filter((part) => {
-        if (!part || typeof part !== 'object' || Array.isArray(part))
-          return false
-        return 'functionResponse' in part
-      }).length
-    }
+function hasSecondUserTurn(payload: Record<string, unknown>): boolean {
+  if (!Array.isArray(payload.contents)) return false
+  // Claude tool responses are user-role contents, but do not start a new turn.
+  let sawUser = false
+  let sawModelAfterUser = false
+  for (const content of payload.contents) {
+    if (content?.role === 'model' && sawUser) sawModelAfterUser = true
+    if (content?.role !== 'user' || !Array.isArray(content.parts)) continue
+    const isPrompt = content.parts.some(
+      (part: unknown) =>
+        part !== null &&
+        typeof part === 'object' &&
+        !('functionResponse' in part) &&
+        (!('text' in part) || part.text !== '[Continue]'),
+    )
+    if (!isPrompt) continue
+    if (sawModelAfterUser) return true
+    sawUser = true
   }
-
-  if (mode === 'cli') {
-    return Math.max(1, contents.length + functionResponseCount)
-  }
-  return Math.max(1, partCount)
+  return false
 }
 
 export function buildAgyAgentRequestMetadata(
@@ -263,11 +246,19 @@ export function buildAgyAgentRequestMetadata(
   payload: Record<string, unknown>,
   model: string,
   timestamp = Date.now(),
-  options: AgyAgentRequestMetadataOptions = {},
 ): AgyAgentRequestMetadata {
-  const lastStepIndex =
-    countAgyRequestSteps(payload, options.stepCountMode) +
-    (session.lastExecutionId ? 1 : 0)
+  const stepCount = countAgyRequestSteps(payload)
+  const lastStepIndex = stepCount - 1
+  // A retry reuses its allocated timestamp and must not advance the generation
+  // counter or rotate the execution ID. Tool continuations get their own
+  // request timestamp and advance the generation counter.
+  if (session.lastMetadataTimestamp !== timestamp) {
+    session.requestCount = (session.requestCount ?? 0) + 1
+    session.lastMetadataTimestamp = timestamp
+    if (session.lastExecutionId || hasSecondUserTurn(payload)) {
+      session.lastExecutionId = randomUUID()
+    }
+  }
   const isClaude = model.toLowerCase().startsWith('claude-')
   const isNonGemini = isClaude || model.toLowerCase().startsWith('gpt-')
   session.usedClaude = session.usedClaude === true || isClaude
@@ -275,11 +266,14 @@ export function buildAgyAgentRequestMetadata(
     session.usedNonGeminiModel === true || isNonGemini
   const modelEnum = getAgyModelEnum(model)
   const labels: AgyRequestLabels = {
+    cascade_id: session.conversationId,
     ...(session.lastExecutionId
       ? { last_execution_id: session.lastExecutionId }
       : {}),
     last_step_index: String(lastStepIndex),
     ...(modelEnum ? { model_enum: modelEnum } : {}),
+    request_id: `${session.trajectoryId}-${(session.requestCount ?? 1) - 1}`,
+    root_cascade_id: session.conversationId,
     trajectory_id: session.trajectoryId,
     used_claude: session.usedClaude ? 'true' : 'false',
     used_claude_conservative: session.usedClaude ? 'true' : 'false',
@@ -287,7 +281,7 @@ export function buildAgyAgentRequestMetadata(
   }
 
   return {
-    requestId: `agent/${session.conversationId}/${timestamp}/${session.trajectoryId}/${lastStepIndex + 1}`,
+    requestId: `agent/${session.conversationId}/${timestamp}/${session.trajectoryId}/${stepCount}`,
     sessionId: session.numericSessionId,
     labels,
     lastStepIndex,

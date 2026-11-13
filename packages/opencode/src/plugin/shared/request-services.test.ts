@@ -26,6 +26,7 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 import { runCommandBytes } from '../../../../../test/support/run-command.ts'
 import { vaultWaitClock } from '../../../../../test/support/vault-wait-clock.test.ts'
+import identityProjection from '../../../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
 import { outageVault } from '../../../../core/src/__fixtures__/vault-outage.ts'
 import {
   createGaRawSender,
@@ -121,7 +122,7 @@ function prepareEnvelope(
   payload: Record<string, unknown>,
   sessionId = 'session',
 ): WireEnvelope {
-  const sessions = new AgySessionRegistry(testRoot())
+  const sessions = new AgySessionRegistry()
   const scope = sessions.beginRequest({ sessionId, parentSessionId: null })
   const prepared = prepareAgyWireRequest(WIRE, {
     input: modelUrl(model),
@@ -158,6 +159,7 @@ describe('prepareAgyWireRequest envelope parity', () => {
   })
 
   it('applies the shared Claude thinking and schema transform', () => {
+    // agy 1.5.8 omits toolConfig for Claude as well as Gemini.
     const envelope = prepareEnvelope('claude-sonnet-4-6-thinking', {
       contents: [
         {
@@ -196,9 +198,7 @@ describe('prepareAgyWireRequest envelope parity', () => {
     expect(
       envelope.request.contents?.[0]?.parts?.[0]?.thoughtSignature,
     ).toBeUndefined()
-    expect(envelope.request.toolConfig?.functionCallingConfig?.mode).toBe(
-      'VALIDATED',
-    )
+    expect(envelope.request).not.toHaveProperty('toolConfig')
   })
 
   it('normalizes replay signatures across parallel function calls', () => {
@@ -230,7 +230,8 @@ describe('prepareAgyWireRequest envelope parity', () => {
     ])
   })
 
-  it('injects the supported sentinel when Claude replay has no valid signature', () => {
+  it('omits function-call signatures on Claude replay', () => {
+    // agy 1.5.8 Claude calls carry neither replay signatures nor the Gemini sentinel.
     const envelope = prepareEnvelope('claude-sonnet-4-6-thinking', {
       contents: [
         {
@@ -246,12 +247,13 @@ describe('prepareAgyWireRequest envelope parity', () => {
       ],
     })
 
-    expect(envelope.request.contents?.[0]?.parts?.[0]?.thoughtSignature).toBe(
-      SKIP_THOUGHT_SIGNATURE,
+    expect(envelope.request.contents?.[0]?.parts?.[0]).not.toHaveProperty(
+      'thoughtSignature',
     )
   })
 
   it('uses the native model role for same-target function responses', () => {
+    // agy 1.5.8 ends this continuation with the function response itself.
     const envelope = prepareEnvelope('gemini-3.8-flash-medium', {
       contents: [
         { role: 'user', parts: [{ text: 'Read the file' }] },
@@ -278,14 +280,11 @@ describe('prepareAgyWireRequest envelope parity', () => {
       ],
     })
 
-    expect(envelope.request.contents?.at(-2)?.role).toBe('model')
-    expect(envelope.request.contents?.at(-2)?.parts?.[0]).toHaveProperty(
+    expect(envelope.request.contents).toHaveLength(3)
+    expect(envelope.request.contents?.at(-1)?.role).toBe('model')
+    expect(envelope.request.contents?.at(-1)?.parts?.[0]).toHaveProperty(
       'functionResponse',
     )
-    expect(envelope.request.contents?.at(-1)).toEqual({
-      role: 'user',
-      parts: [{ text: '[Continue]' }],
-    })
   })
 
   it('keeps responses to an unsigned (foreign) call in a user turn', () => {
@@ -331,7 +330,8 @@ describe('prepareAgyWireRequest envelope parity', () => {
     expect(envelope.request.generationConfig?.thinkingConfig).toBeUndefined()
   })
 
-  it('sets VALIDATED on tool requests and removes host provider options', () => {
+  it('omits toolConfig on tool requests and removes host provider options', () => {
+    // Host tool configuration is absent from the agy 1.5.8 identity.
     const envelope = prepareEnvelope('gemini-3.7-flash-medium', {
       contents: [{ role: 'user', parts: [{ text: 'Use a tool' }] }],
       providerOptions: { google: { opaque: true } },
@@ -351,25 +351,16 @@ describe('prepareAgyWireRequest envelope parity', () => {
     })
 
     expect(envelope.request.providerOptions).toBeUndefined()
-    expect(envelope.request.toolConfig).toEqual({
-      functionCallingConfig: { mode: 'VALIDATED' },
-    })
+    expect(envelope.request).not.toHaveProperty('toolConfig')
   })
 })
 
-describe('prepareAgyWireRequest against the frozen agy CLI 1.1.24 capture', () => {
-  const capture = JSON.parse(
-    readFileSync(
-      join(
-        import.meta.dir,
-        '../../../../../test-fixtures/agy-cli-1.1.24-stream-request.json',
-      ),
-      'utf8',
-    ),
-  ) as { envelopeKeys: string[]; requestKeys: string[] }
+describe('prepareAgyWireRequest against the frozen agy CLI 1.5.8 capture', () => {
+  // The old capture stays historical; current wire order follows agy 1.5.8.
+  const capture = identityProjection.runs.r2[0]!
 
   it('emits the captured envelope and request field order', () => {
-    const sessions = new AgySessionRegistry(testRoot())
+    const sessions = new AgySessionRegistry()
     const scope = sessions.beginRequest({
       sessionId: 'fixture',
       parentSessionId: null,
@@ -409,14 +400,8 @@ describe('prepareAgyWireRequest against the frozen agy CLI 1.1.24 capture', () =
       request: Record<string, unknown>
     }
 
-    expect(Object.keys(envelope)).toEqual(capture.envelopeKeys)
-    // The capture had no tool-calling config; the engine's VALIDATED
-    // toolConfig sits between tools and labels, as core orders it.
-    expect(Object.keys(envelope.request)).toEqual([
-      ...capture.requestKeys.slice(0, 3),
-      'toolConfig',
-      ...capture.requestKeys.slice(3),
-    ])
+    expect(Object.keys(envelope)).toEqual(capture.envelope_keys)
+    expect(Object.keys(envelope.request)).toEqual(capture.request_keys)
   })
 })
 
@@ -588,7 +573,7 @@ function harness(
         error instanceof Error && error.message === 'invalid_grant',
       clearStoredAuth,
     },
-    sessions: new AgySessionRegistry(testRoot()),
+    sessions: new AgySessionRegistry(),
     transport: async (url, init, transportOptions) => {
       const call = { url, init, options: transportOptions }
       calls.push(call)
