@@ -6,7 +6,8 @@
 - In vault setups, a request made while the vault is briefly unreachable now waits up to 10 seconds for it, once per outage, instead of failing at once. A credential the plugin already holds still serves without waiting.
 - In routed vault setups such as Thalamus, the plugin reports its own waits, so the agent's app can show why it's waiting and when it tries again.
 - In routed vault setups such as Thalamus, each completed streamed reply is now reported to routing as served. Before, a streamed Gemini reply that finished normally was never reported, because the plugin ends the stream at the reply's finish event without waiting for the server to close it.
-- Under the hood, embedded common-auth is now published 0.48.0, which also fixes a vault on/off switch that could leave an older account list in place.
+- Requests now match Google's current agy CLI (1.5.8) instead of 1.3.5: its version, request labels and step numbering, session id, one entry per tool, TLS protocol list, and no extra "[Continue]" after a Gemini tool result. Gemini 3.8 Flash, Claude Sonnet 5.5 and Claude Opus 5.5 send the CLI's thinking level ("LOW", "MEDIUM" or "HIGH") with no fixed token budget, so Flash Low now thinks at the server's LOW level instead of a 1,000-token budget.
+- Under the hood, embedded common-auth is now published 0.49.1. It fixes a vault on/off switch that could leave an older account list in place, and stops a settings edit from being refused when it overlaps another write on Bun 1.4.
 
 ## [3.0.42] - 2026-11-12
 
