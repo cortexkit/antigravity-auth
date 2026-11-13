@@ -513,7 +513,8 @@
       "./descriptors.js",
       "./edit.js",
       "./resolve.js",
-      "./snapshot.js"
+      "./snapshot.js",
+      "./update.js"
     ],
     "settings/handle.js": [
       "../fs/file-read-cache.js",
@@ -536,7 +537,8 @@
       "./refusal.js",
       "./resolve.js",
       "./schema.js",
-      "./snapshot.js"
+      "./snapshot.js",
+      "./update.js"
     ],
     "settings/index.js": [
       "./define.js",
@@ -581,9 +583,16 @@
     "settings/schema.d.ts": ["./define.js"],
     "settings/snapshot.d.ts": ["./define.js", "./parse.js"],
     "settings/snapshot.js": ["./define.js", "./descriptors.js", "./parse.js"],
+    "settings/update.d.ts": [
+      "./define.js",
+      "./edit.js",
+      "./handle.js",
+      "./resolve.js"
+    ],
     "settings/update.js": [
       "../fs/private-files.js",
       "../fs/with-lock.js",
+      "./descriptors.js",
       "./edit.js",
       "./fs.js",
       "./lock-errors.js",
