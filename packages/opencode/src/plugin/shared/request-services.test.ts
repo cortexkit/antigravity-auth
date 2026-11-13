@@ -25,6 +25,8 @@ import {
   TokenBucketTracker,
 } from '@cortexkit/antigravity-auth-core'
 import { runCommandBytes } from '../../../../../test/support/run-command.ts'
+import { vaultWaitClock } from '../../../../../test/support/vault-wait-clock.test.ts'
+import { outageVault } from '../../../../core/src/__fixtures__/vault-outage.ts'
 import {
   createGaRawSender,
   GA_RAW_IDLE_TIMEOUT_MS,
@@ -64,6 +66,7 @@ import {
   routeTitleModel,
   TITLE_FALLBACK_MODEL,
 } from './request-services'
+import { createVaultAccountPool } from './vault-request-credentials.ts'
 
 // =============================================================================
 // Shared fixtures
@@ -8156,7 +8159,16 @@ describe('createRequestExecutor optional vault routing', () => {
               session(`refusal-${status}`),
             )
           ).text()
-          expect(state.reports).toEqual([])
+          // Wait reports describe retries, not terminal routing outcomes.
+          expect(
+            state.reports.filter(
+              (report) =>
+                !report ||
+                typeof report !== 'object' ||
+                !('kind' in report) ||
+                report.kind !== 'wait',
+            ),
+          ).toEqual([])
         } finally {
           await executor.dispose()
         }
@@ -8734,4 +8746,485 @@ describe('createRequestExecutor vault routing served report for streamed replies
       expect(reports).toEqual([])
     })
   }
+})
+
+describe('createRequestExecutor routing wait reports', () => {
+  const key = Symbol.for('cortexkit.routing')
+  type Reason =
+    | 'account_free'
+    | 'account_limit'
+    | 'rate_limited'
+    | 'server_busy'
+  const messages: Record<Reason, string> = {
+    account_free: 'Waiting for an available account...',
+    account_limit: 'Waiting for the same account (prompt cache preserved)...',
+    rate_limited: 'Rate limited. Retrying...',
+    server_busy: 'Server busy. Retrying...',
+  }
+
+  async function runWait(
+    reason: Reason,
+    options: {
+      ending?: 'resumed' | 'cancelled' | 'deadline' | 'refusal' | 'error'
+      local?: boolean
+      accessor?: 'absent' | 'throws' | 'rejects' | 'pending'
+      noSession?: boolean
+      short?: boolean
+    } = {},
+  ) {
+    const previous = Object.getOwnPropertyDescriptor(globalThis, key)
+    const reports: Array<Record<string, unknown>> = []
+    const order: string[] = []
+    const controller = new AbortController()
+    const clock = deadlineClock()
+    let now = FIXED_NOW
+    let slept = false
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const random = spyOn(Math, 'random').mockReturnValue(0.5)
+    const nativeTimer = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      ms: number,
+    ) =>
+      nativeTimer(() => {
+        now += ms
+        if (ms >= 2000 || (reason === 'account_free' && ms === 1500)) {
+          slept = true
+          if (options.ending === 'cancelled')
+            controller.abort(new Error('caller stopped'))
+          if (options.ending === 'deadline')
+            clock.advance(PRE_RESPONSE_DEADLINE_MS)
+        }
+        callback()
+      }, 0)) as typeof setTimeout)
+    Object.defineProperty(globalThis, key, {
+      configurable: true,
+      value:
+        options.accessor === 'absent'
+          ? undefined
+          : () => ({
+              report(input: Record<string, unknown>) {
+                if (input.kind !== 'wait') return
+                reports.push(input)
+                order.push(String(input.phase))
+                if (options.accessor === 'throws')
+                  throw new Error('bridge unavailable')
+                if (options.accessor === 'rejects')
+                  return Promise.reject(new Error('bridge unavailable'))
+                if (options.accessor === 'pending') return new Promise(() => {})
+              },
+            }),
+    })
+    const h = harness({
+      config: {
+        scheduling_mode: reason === 'account_limit' ? 'cache_first' : 'balance',
+        max_cache_first_wait_seconds: 10,
+      },
+      respond: async (_call, index) => {
+        order.push('send')
+        const failures =
+          reason === 'rate_limited' || reason === 'server_busy'
+            ? options.short
+              ? 1
+              : reason === 'rate_limited'
+                ? 3
+                : 2
+            : reason === 'account_limit'
+              ? 1
+              : 0
+        if (index >= failures) return okJson()
+        const status = reason === 'server_busy' ? 503 : 429
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: status,
+              message:
+                reason === 'server_busy'
+                  ? 'Service unavailable for private-account-123'
+                  : 'Rate limit exceeded for private-account-123',
+            },
+          }),
+          {
+            status,
+            headers: {
+              'content-type': 'application/json',
+              'retry-after-ms': options.short ? '1500' : '3000',
+            },
+          },
+        )
+      },
+    })
+    Object.assign(h.deps, {
+      preResponseClock: clock,
+      assertAdmission: async () => {
+        if (slept && options.ending === 'error')
+          throw new Error('admission unavailable')
+      },
+    })
+    if (!options.local)
+      Object.assign(h.deps, {
+        credentials: {
+          domain: 'vault',
+          admit: async () => ({
+            credentialId: 'private-credential',
+            accountIdentity: 'private-account',
+            recordVersion: 1,
+            accessToken: 'private-token',
+            projectId: 'private-project',
+            report401: async () => {},
+          }),
+        },
+      })
+    // Keep these cases on their intended retry branch; separate blocked-pool
+    // cases exercise selection without replacing the request engine.
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason').mockImplementation(
+      () => 0,
+    )
+    // The pool's save debounce is not a request sleep and must not advance the test clock.
+    const save = spyOn(h.pool, 'requestSaveToDisk').mockImplementation(() => {})
+    const select = h.pool.getCurrentOrNextForFamily.bind(h.pool)
+    const selection = spyOn(
+      h.pool,
+      'getCurrentOrNextForFamily',
+    ).mockImplementation((...args) =>
+      reason === 'account_free' && !slept ? null : select(...args),
+    )
+    const minWait = spyOn(
+      h.pool,
+      'getMinSelectableWaitTimeForFamily',
+    ).mockReturnValue(options.short ? 1500 : 2000)
+    const count = h.pool.getAccountCount.bind(h.pool)
+    const accountCount = spyOn(h.pool, 'getAccountCount').mockImplementation(
+      () => (slept && options.ending === 'refusal' ? 0 : count()),
+    )
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const result = executor.execute(
+        NON_STREAM_URL,
+        CHAT_INIT(controller.signal),
+        {
+          ...(options.noSession
+            ? {}
+            : {
+                session: { sessionId: 'wait-session', parentSessionId: null },
+              }),
+          kind: 'primary',
+        },
+      )
+      if (options.ending === 'cancelled' || options.ending === 'error') {
+        await expect(result).rejects.toThrow(
+          options.ending === 'cancelled'
+            ? 'caller stopped'
+            : 'admission unavailable',
+        )
+      } else {
+        const response = await result
+        expect(response.status).toBe(
+          options.ending === 'deadline' || options.ending === 'refusal'
+            ? options.ending === 'deadline'
+              ? 412
+              : 401
+            : reason === 'rate_limited' && !options.short
+              ? 429
+              : 200,
+        )
+        await response.body?.cancel()
+      }
+      return { reports, order }
+    } finally {
+      await executor.dispose()
+      accountCount.mockRestore()
+      minWait.mockRestore()
+      selection.mockRestore()
+      save.mockRestore()
+      mark.mockRestore()
+      timer.mockRestore()
+      random.mockRestore()
+      date.mockRestore()
+      if (previous) Object.defineProperty(globalThis, key, previous)
+      else Reflect.deleteProperty(globalThis, key)
+    }
+  }
+
+  for (const reason of Object.keys(messages) as Reason[]) {
+    it(`${reason} reports one paired wait around the retry decision`, async () => {
+      const { reports, order } = await runWait(reason)
+      const nextMs =
+        FIXED_NOW +
+        (reason === 'account_free'
+          ? 2000
+          : reason === 'server_busy'
+            ? 3000
+            : 4000)
+      const attempt =
+        reason === 'rate_limited' || reason === 'server_busy' ? 2 : undefined
+      expect(reports).toHaveLength(2)
+      const start = reports[0]!
+      expect(start).toEqual({
+        kind: 'wait',
+        phase: 'start',
+        wait_id: expect.stringMatching(/^[A-Za-z0-9._:-]{1,64}$/),
+        reason,
+        next_ms: nextMs,
+        ...(attempt ? { attempt } : {}),
+        message: messages[reason],
+      })
+      expect(reports[1]).toEqual({
+        ...start,
+        phase: 'end',
+        outcome: reason === 'rate_limited' ? 'abandoned' : 'resumed',
+      })
+      expect(order.slice(-2)).toEqual(
+        reason === 'rate_limited' ? ['start', 'end'] : ['end', 'send'],
+      )
+    })
+  }
+
+  for (const ending of ['cancelled', 'deadline', 'refusal', 'error'] as const) {
+    it(`ends a wait as ${ending === 'cancelled' ? 'cancelled' : 'abandoned'} on ${ending}`, async () => {
+      const { reports } = await runWait('account_free', { ending })
+      expect(reports).toHaveLength(2)
+      expect(reports[1]).toEqual({
+        ...reports[0],
+        phase: 'end',
+        outcome: ending === 'cancelled' ? 'cancelled' : 'abandoned',
+      })
+    })
+  }
+
+  for (const options of [
+    { local: true },
+    { accessor: 'absent' as const },
+    { noSession: true },
+  ]) {
+    it(`does not report outside routed vault sessions ${JSON.stringify(options)}`, async () => {
+      expect((await runWait('account_free', options)).reports).toEqual([])
+    })
+  }
+
+  it('skips sub-floor blocked-pool and capacity waits and the quick retry', async () => {
+    for (const reason of [
+      'account_free',
+      'server_busy',
+      'rate_limited',
+    ] as const) {
+      expect((await runWait(reason, { short: true })).reports).toEqual([])
+    }
+  })
+
+  for (const accessor of ['throws', 'rejects', 'pending'] as const) {
+    it(`does not delay or fail the request when wait reporting ${accessor}`, async () => {
+      expect(
+        (await runWait('account_free', { accessor })).reports,
+      ).toHaveLength(2)
+    })
+  }
+
+  it('uses fresh wait ids for separate requests', async () => {
+    const first = await runWait('account_free')
+    const second = await runWait('account_free')
+    expect(first.reports[0]?.wait_id).toBeString()
+    expect(second.reports[0]?.wait_id).not.toBe(first.reports[0]?.wait_id)
+  })
+})
+
+/** The real vault consumer, account selector and request engine over an owned transport. */
+async function boundedVaultEngine(
+  accounts = 1,
+  deadlineMs = PRE_RESPONSE_DEADLINE_MS,
+) {
+  const clock = vaultWaitClock()
+  const vault = await outageVault('opencode', { accounts, clock })
+  const pool = createVaultAccountPool({
+    source: vault.source,
+    now: clock.now,
+    schedule: clock.schedule,
+  })
+  await pool.sync()
+  const h = harness({
+    respond: async () => okJson(),
+    config: { max_account_switches: 10 },
+  })
+  const executor = createRequestExecutor({
+    ...h.deps,
+    accounts: pool.selector,
+    credentials: pool.credentials,
+    assertAdmission: async (signal) => pool.sync(signal),
+    preResponseClock: {
+      now: () => (clock.elapsed() * PRE_RESPONSE_DEADLINE_MS) / deadlineMs,
+      schedule: (callback, ms) =>
+        clock.schedule(callback, (ms * deadlineMs) / PRE_RESPONSE_DEADLINE_MS),
+    },
+    trackers: {
+      health: pool.selector.healthTracker,
+      token: pool.selector.tokenTracker,
+    },
+  })
+  return {
+    clock,
+    vault,
+    h,
+    executor,
+    async dispose() {
+      await executor.dispose()
+      vault.dispose()
+      expect(clock.pending()).toBe(0)
+    },
+  }
+}
+
+describe('bounded vault receipt wait through the real engine', () => {
+  it('recovers a cold OpenCode request when the vault answers after one second', async () => {
+    const f = await boundedVaultEngine()
+    f.vault.unreachable()
+    try {
+      const response = await f.clock.drive(
+        f.executor.execute(NON_STREAM_URL, CHAT_INIT()),
+        () => {
+          if (f.clock.elapsed() >= 1000) f.vault.reachable()
+        },
+      )
+      expect(response.status).toBe(200)
+      expect(f.clock.elapsed()).toBeGreaterThanOrEqual(1000)
+      expect(f.clock.elapsed()).toBeLessThan(2500)
+      expect(f.h.calls).toHaveLength(1)
+    } finally {
+      await f.dispose()
+    }
+  })
+
+  it('honours caller cancellation during the vault wait and clears all timers', async () => {
+    const f = await boundedVaultEngine()
+    const caller = new AbortController()
+    const reason = new Error('caller cancelled the vault request')
+    f.vault.unreachable()
+    try {
+      const pending = f.clock.drive(
+        f.executor.execute(NON_STREAM_URL, CHAT_INIT(caller.signal)),
+        () => {
+          if (f.clock.elapsed() >= 500) caller.abort(reason)
+        },
+      )
+      await expect(pending).rejects.toBe(reason)
+      expect(f.clock.elapsed()).toBeGreaterThanOrEqual(500)
+      expect(f.clock.elapsed()).toBeLessThan(1500)
+      expect(f.h.calls).toHaveLength(0)
+      // Only the vault's background outage probe remains; no request wait or deadline timer survives cancellation.
+      expect(f.clock.pendingDelays()).toEqual([2000])
+    } finally {
+      await f.dispose()
+    }
+  })
+
+  it('the request deadline ends the vault wait before its receipt bound', async () => {
+    const f = await boundedVaultEngine(1, 500)
+    f.vault.unreachable()
+    try {
+      const response = await f.clock.drive(
+        f.executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(response.status).toBe(412)
+      expect(await response.text()).toContain(PRE_RESPONSE_TIMEOUT_MESSAGE)
+      expect(f.clock.elapsed()).toBeGreaterThanOrEqual(500)
+      expect(f.clock.elapsed()).toBeLessThan(1500)
+      expect(f.h.calls).toHaveLength(0)
+    } finally {
+      await f.dispose()
+    }
+  })
+
+  it('an unrecovered OpenCode 1 request retains the original unavailable error after the bound', async () => {
+    const f = await boundedVaultEngine()
+    f.vault.unreachable()
+    try {
+      await expect(
+        f.clock.drive(f.executor.execute(NON_STREAM_URL, CHAT_INIT())),
+      ).rejects.toMatchObject({
+        kind: 'unavailable',
+        message: 'Claustrum scoped operation unavailable',
+      })
+      expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
+      expect(f.clock.elapsed()).toBeLessThan(11_000)
+      expect(f.h.calls).toHaveLength(0)
+    } finally {
+      await f.dispose()
+    }
+  })
+
+  it('an unrecovered OpenCode 2 request retains its unavailable status and error after the bound', async () => {
+    const f = await boundedVaultEngine()
+    f.vault.unreachable()
+    const bridge = await startGaLoopbackBridge({
+      execute: createGaJobExecutor(f.executor),
+      send: async () => {
+        throw new Error('unreachable vault must not send')
+      },
+    })
+    try {
+      const request = bridge.rewrite(
+        new Request(NON_STREAM_URL, CHAT_INIT()),
+        {
+          sessionID: 'bounded-vault',
+          parentSessionID: null,
+          kind: 'primary',
+          modelID: 'gemini-3-flash',
+          variant: null,
+          url: NON_STREAM_URL,
+          body: String(CHAT_INIT().body),
+        },
+        { HTTP_PROXY: undefined, HTTPS_PROXY: undefined, ALL_PROXY: undefined },
+      )
+      const response = await f.clock.drive(fetch(request))
+      expect(response.status).toBe(502)
+      expect(await response.json()).toEqual({
+        error: {
+          code: 502,
+          status: 'UNAVAILABLE',
+          message: 'Claustrum scoped operation unavailable',
+        },
+      })
+      expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
+      expect(f.clock.elapsed()).toBeLessThan(11_000)
+    } finally {
+      await bridge.dispose()
+      await f.dispose()
+    }
+  })
+
+  it('serves a kept receipt immediately instead of waiting for the vault', async () => {
+    const f = await boundedVaultEngine()
+    try {
+      expect(
+        (await f.executor.execute(NON_STREAM_URL, CHAT_INIT())).status,
+      ).toBe(200)
+      f.vault.unreachable()
+      const response = await f.clock.drive(
+        f.executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(response.status).toBe(200)
+      expect(f.clock.elapsed()).toBeLessThan(250)
+      expect(f.h.calls).toHaveLength(2)
+    } finally {
+      await f.dispose()
+    }
+  })
+
+  it('three vault accounts in one young outage share one wait bound and retain the final error', async () => {
+    const f = await boundedVaultEngine(3)
+    f.vault.unreachable()
+    try {
+      await expect(
+        f.clock.drive(f.executor.execute(NON_STREAM_URL, CHAT_INIT())),
+      ).rejects.toMatchObject({
+        kind: 'unavailable',
+        message: 'Claustrum scoped operation unavailable',
+      })
+      expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
+      expect(f.clock.elapsed()).toBeLessThan(15_000)
+      expect(new Set(f.vault.gets.map((get) => get.credentialId)).size).toBe(3)
+      expect(f.h.calls).toHaveLength(0)
+    } finally {
+      await f.dispose()
+    }
+  })
 })

@@ -111,6 +111,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Conservative: private-mode child scripts and isolated home/config fixtures.',
   'packages/opencode/src/plugin/shared/runtime.test.ts':
     'Conservative: injected lock helper verifies the no-cross-process-lock branch.',
+  'packages/opencode/src/plugin/shared/request-services.test.ts':
+    'Real vault receipt waits use private-mode enrollment and roster files.',
   'packages/opencode/src/plugin/shared/vault-menu.test.ts':
     'Conservative: selector sync calls match the file-handle sync identifier fence.',
   'packages/opencode/src/plugin/shared/vault-request-credentials.test.ts':

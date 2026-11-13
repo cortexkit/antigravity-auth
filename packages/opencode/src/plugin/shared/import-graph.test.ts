@@ -164,7 +164,7 @@ describe('shared request engine import graph', () => {
     }
 
     expect(imports).toEqual({
-      'node:crypto': ['createHash'],
+      'node:crypto': ['createHash', 'randomUUID'],
       './after-handoff.ts': [
         'createAfterHandoff',
         'type RegisterResponseHandoff',
@@ -176,6 +176,7 @@ describe('shared request engine import graph', () => {
       '../../common-auth-embedded/claustrum/host.js': ['hasVaultHost'],
       '../../common-auth-embedded/routing-accessor/index.js': [
         'askRouting',
+        'reportRouting as reportVaultRouting',
         'type BillingRequestKind',
         'type RoutingCandidate',
         'type RoutingRefusal',

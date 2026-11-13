@@ -22,6 +22,7 @@ import {
   loadCommonAuthClaustrum,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import { vaultWaitClock } from '../../../../test/support/vault-wait-clock.test.ts'
 import {
   keptReceipts,
   outageVault,
@@ -1808,7 +1809,10 @@ describe('createFetchInterceptor', () => {
     })
 
     describe('vault outage receipts', () => {
-      async function loadedVaultInterceptor(source: VaultRequestSource) {
+      async function loadedVaultInterceptor(
+        source: VaultRequestSource,
+        clock?: ReturnType<typeof vaultWaitClock>,
+      ) {
         const interceptor = await vaultInterceptor(source)
         const lifecycle = createPluginLifecycle({
           sessionRegistry: { clear() {} },
@@ -1845,8 +1849,12 @@ describe('createFetchInterceptor', () => {
         )
         if (typeof loaded.fetch !== 'function')
           throw new Error('no loader fetch')
+        const loadedFetch = loaded.fetch
         return {
-          fetch: loaded.fetch,
+          fetch: (input: RequestInfo | URL, init?: RequestInit) => {
+            const pending = loadedFetch(input, init)
+            return clock ? clock.drive(pending) : pending
+          },
           dispose: async () => {
             await lifecycle.dispose()
           },
@@ -1967,8 +1975,9 @@ describe('createFetchInterceptor', () => {
       })
 
       it('a kept receipt 401 is not retried or reported and fences the next outage send', async () => {
-        const vault = await outageVault('opencode')
-        const interceptor = await loadedVaultInterceptor(vault.source)
+        const clock = vaultWaitClock()
+        const vault = await outageVault('opencode', { clock })
+        const interceptor = await loadedVaultInterceptor(vault.source, clock)
         transportHandler = async () => okJson()
         try {
           expect(
@@ -1999,8 +2008,9 @@ describe('createFetchInterceptor', () => {
       })
 
       it('a fresh receipt 401 followed immediately by an outage cannot retain the rejected token', async () => {
-        const vault = await outageVault('opencode')
-        const interceptor = await loadedVaultInterceptor(vault.source)
+        const clock = vaultWaitClock()
+        const vault = await outageVault('opencode', { clock })
+        const interceptor = await loadedVaultInterceptor(vault.source, clock)
         transportHandler = async () => {
           vault.unreachable()
           return new Response('{"error":{"code":401}}', { status: 401 })
@@ -2024,8 +2034,9 @@ describe('createFetchInterceptor', () => {
       })
 
       it('a fresh receipt 401 re-admits the same version without retry and drops it before an outage', async () => {
-        const vault = await outageVault('opencode')
-        const interceptor = await loadedVaultInterceptor(vault.source)
+        const clock = vaultWaitClock()
+        const vault = await outageVault('opencode', { clock })
+        const interceptor = await loadedVaultInterceptor(vault.source, clock)
         transportHandler = async () =>
           new Response('{"error":{"code":401}}', { status: 401 })
         try {
@@ -2048,8 +2059,9 @@ describe('createFetchInterceptor', () => {
       })
 
       it('an answered grant_denied drops the kept receipt instead of serving it during a later outage', async () => {
-        const vault = await outageVault('opencode')
-        const interceptor = await loadedVaultInterceptor(vault.source)
+        const clock = vaultWaitClock()
+        const vault = await outageVault('opencode', { clock })
+        const interceptor = await loadedVaultInterceptor(vault.source, clock)
         transportHandler = async () => okJson()
         try {
           expect(

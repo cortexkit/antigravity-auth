@@ -1,5 +1,8 @@
 import { expect, test } from 'bun:test'
-import { reportRouting } from '../../common-auth-embedded/routing-accessor/index.js'
+import {
+  askRouting,
+  reportRouting,
+} from '../../common-auth-embedded/routing-accessor/index.js'
 import {
   hasVaultRoutingAccessor,
   observeVaultServed,
@@ -15,6 +18,50 @@ const identity = {
   accountId: 'vault-account',
   credentialId: 'credential',
 }
+
+test('routing request bytes remain unchanged without a warm hint', async () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, key)
+  const bytes: string[] = []
+  Object.defineProperty(globalThis, key, {
+    configurable: true,
+    value: () => ({
+      accountFor: async (input: unknown) => {
+        bytes.push(JSON.stringify(input))
+        return undefined
+      },
+    }),
+  })
+  try {
+    for (const options of [
+      {},
+      { refusals: true as const },
+      { holdWaitMaxS: 12.9 },
+      { holdWaitMaxS: 12.9, refusals: true as const },
+    ]) {
+      await askRouting({
+        sessionId: 'session',
+        provider: 'antigravity',
+        modelId: 'gemini-3-flash',
+        candidates: [
+          { accountId: 'vault-account', credentialId: 'credential' },
+        ],
+        ...options,
+      })
+    }
+    expect(bytes).toEqual([
+      '{"provider":"antigravity","modelId":"gemini-3-flash"}',
+      '{"provider":"antigravity","modelId":"gemini-3-flash","refusals":true}',
+      '{"provider":"antigravity","modelId":"gemini-3-flash","hold_wait_max_s":12}',
+      '{"provider":"antigravity","modelId":"gemini-3-flash","hold_wait_max_s":12,"refusals":true}',
+    ])
+    expect(bytes.every((value) => !value.includes('warm_credential'))).toBe(
+      true,
+    )
+  } finally {
+    if (previous) Object.defineProperty(globalThis, key, previous)
+    else Reflect.deleteProperty(globalThis, key)
+  }
+})
 
 async function bridge(run: (reports: unknown[]) => Promise<void>) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, key)

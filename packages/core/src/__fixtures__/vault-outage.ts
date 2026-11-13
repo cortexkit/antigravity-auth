@@ -6,11 +6,22 @@ import { ClaustrumCredentialError } from '@cortexkit/claustrum-client'
 import {
   createAntigravityVaultAccountSource,
   loadCommonAuthClaustrum,
+  type VaultBackgroundQuotaReading,
+  type VaultConsumerOptions,
   type VaultScopedClient,
 } from '../../dist/index.js'
 
 /** Real consumer and core source; only the scoped vault transport is replaced. */
-export async function outageVault(host: 'opencode' | 'pi') {
+export async function outageVault(
+  host: 'opencode' | 'pi',
+  options: {
+    accounts?: number
+    clock?: Pick<
+      VaultConsumerOptions,
+      'now' | 'setTimeoutImpl' | 'clearTimeoutImpl'
+    >
+  } = {},
+) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'vault-outage-')))
   const tokenPath = join(root, 'enrollment-token.json')
   writeFileSync(
@@ -20,6 +31,16 @@ export async function outageVault(host: 'opencode' | 'pi') {
   )
   const claustrum = await loadCommonAuthClaustrum()
   const authorize = spyOn(claustrum.ClaustrumConsumer.prototype, 'authorize')
+  const consumerModule = options.clock
+    ? {
+        ...claustrum,
+        ClaustrumConsumer: class extends claustrum.ClaustrumConsumer<VaultBackgroundQuotaReading> {
+          constructor(input: VaultConsumerOptions) {
+            super({ ...input, ...options.clock })
+          }
+        },
+      }
+    : claustrum
   let failure: Error | undefined
   const gets: Parameters<VaultScopedClient['getScoped']>[0][] = []
   const reports: Parameters<VaultScopedClient['reportAuthFailureScoped']>[0][] =
@@ -45,21 +66,21 @@ export async function outageVault(host: 'opencode' | 'pi') {
         if (failure) throw failure
         return {
           view: 'outage-roster',
-          rows: [
-            {
-              id: 'outage-credential',
-              accountId: 'outage-account',
-              categories: ['antigravity-native'],
-              credentialType: 'oauth',
-              serves: [],
-              providerIds: [],
-              refreshAdapter: 'antigravity',
-              state: 'active',
-              recordVersion: 1,
-              operations: ['read'],
-              createdAtMs: null,
-            },
-          ],
+          rows: Array.from({ length: options.accounts ?? 1 }, (_, index) => ({
+            id:
+              index === 0 ? 'outage-credential' : `outage-credential-${index}`,
+            accountId:
+              index === 0 ? 'outage-account' : `outage-account-${index}`,
+            categories: ['antigravity-native'],
+            credentialType: 'oauth',
+            serves: [],
+            providerIds: [],
+            refreshAdapter: 'antigravity',
+            state: 'active',
+            recordVersion: 1,
+            operations: ['read'],
+            createdAtMs: null,
+          })),
           grants: undefined,
           grantTuples: undefined,
         }
@@ -75,9 +96,9 @@ export async function outageVault(host: 'opencode' | 'pi') {
         material: 'outage-bearer',
         recordVersion: 1,
         expiresAtMs: Date.now() + 3_600_000,
-        credentialId: 'outage-credential',
+        credentialId: input.credentialId,
         projectId: 'outage-project',
-        accountId: 'outage-account',
+        accountId: input.credentialId.replace('credential', 'account'),
       }
     },
     async reportAuthFailureScoped(input) {
@@ -87,7 +108,7 @@ export async function outageVault(host: 'opencode' | 'pi') {
     close() {},
   }
   const source = createAntigravityVaultAccountSource({
-    claustrum,
+    claustrum: consumerModule,
     host,
     rosterPath: join(root, 'roster.json'),
     tokenPath,

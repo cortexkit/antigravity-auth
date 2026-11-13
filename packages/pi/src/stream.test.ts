@@ -22,10 +22,12 @@ import {
 } from '@earendil-works/pi-ai'
 import type { ProviderConfig } from '@earendil-works/pi-coding-agent'
 import { ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent'
+import { vaultWaitClock } from '../../../test/support/vault-wait-clock.test.ts'
 import opusLow from '../../../test-fixtures/agy-cli-1.3.3/native-opus-low.json'
 import sonnetLow from '../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
 import schemaDerived from '../../../test-fixtures/agy-cli-1.3.3/schema-derived-thinking.json'
 import carbonLow from '../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
+import { outageVault } from '../../core/src/__fixtures__/vault-outage.ts'
 import { rememberPackedRefresh } from './credential-cache.ts'
 
 const ensureProjectContextMock = mock(async () => ({
@@ -2213,5 +2215,40 @@ describe('Pi final tool schema wire normalization', () => {
         functionCallingConfig: { mode: 'VALIDATED' },
       })
     })
+  }
+})
+
+it('recovers a cold Pi request when the vault answers inside the receipt wait bound', async () => {
+  const clock = vaultWaitClock()
+  const vault = await outageVault('pi', { clock })
+  const { createPiVaultSend } = await import('./vault-source.ts')
+  const { CUSTODY_PROVIDER_KEY_MARKER } = await import('./index.ts')
+  const send = createPiVaultSend({
+    readMode: () => ({ ok: true, record: { version: 1, mode: 'custody' } }),
+    source: async () => vault.source,
+  })
+  fetchWithAgyCliTransportMock.mockImplementationOnce(async (_url, init) => {
+    expect(new Headers(init.headers).get('authorization')).toBe(
+      'Bearer outage-bearer',
+    )
+    return terminalTextResponse()
+  })
+  vault.unreachable()
+  try {
+    const stream = createCortexKitAntigravityVaultStream(
+      send,
+      CUSTODY_PROVIDER_KEY_MARKER,
+    )(fakeModel(), userContext(), { apiKey: CUSTODY_PROVIDER_KEY_MARKER })
+    const { result } = await clock.drive(collectStream(stream), () => {
+      if (clock.elapsed() >= 1000) vault.reachable()
+    })
+    expect(result.stopReason).toBe('stop')
+    expect(result.content).toEqual([{ type: 'text', text: 'answer' }])
+    expect(clock.elapsed()).toBeGreaterThanOrEqual(1000)
+    expect(clock.elapsed()).toBeLessThan(2500)
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
+  } finally {
+    vault.dispose()
+    expect(clock.pending()).toBe(0)
   }
 })

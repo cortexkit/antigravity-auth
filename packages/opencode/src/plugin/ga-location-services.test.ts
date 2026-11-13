@@ -36,6 +36,7 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 
 import { withVaultHost } from '../../../../test/support/vault-host.ts'
+import { vaultWaitClock } from '../../../../test/support/vault-wait-clock.test.ts'
 import {
   keptReceipts,
   outageVault,
@@ -1673,7 +1674,8 @@ describe('GA composed transport', () => {
   ownedIt(
     'returns a kept receipt 401 without re-admission or retry during a vault outage',
     async (scope) => {
-      const vault = await outageVault('opencode')
+      const clock = vaultWaitClock()
+      const vault = await outageVault('opencode', { clock })
       scope.defer(async () => vault.dispose())
       const sends: GaSendInput[] = []
       const location = await transportLocation(
@@ -1717,7 +1719,9 @@ describe('GA composed transport', () => {
         expect(vault.gets).toHaveLength(2)
         expect(vault.lists()).toBe(listsBefore401)
         expect(vault.reports).toHaveLength(0)
-        await expect(execute()).rejects.toMatchObject({ kind: 'unavailable' })
+        await expect(clock.drive(execute())).rejects.toMatchObject({
+          kind: 'unavailable',
+        })
         expect(sends).toHaveLength(2)
         expect(vault.gets.length).toBeGreaterThan(2)
         expect(vault.reports).toHaveLength(0)

@@ -16,7 +16,7 @@
  * `RequestWire`, which `createRequestWire` binds to one location's signature
  * cache, debug log and logger; the raw sender is called unchanged.
  */
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   type AgyTransportOptions,
   accessTokenExpired,
@@ -59,6 +59,7 @@ import {
   type BillingRequestKind,
   type RoutingCandidate,
   type RoutingRefusal,
+  reportRouting as reportVaultRouting,
 } from '../../common-auth-embedded/routing-accessor/index.js'
 import {
   ANTIGRAVITY_ENDPOINT_DAILY,
@@ -776,6 +777,69 @@ function sleep(ms: number, signal?: AbortSignal | null): Promise<void> {
   })
 }
 
+const WAIT_MESSAGES = {
+  account_free: 'Waiting for an available account...',
+  account_limit: 'Waiting for the same account (prompt cache preserved)...',
+  rate_limited: 'Rate limited. Retrying...',
+  server_busy: 'Server busy. Retrying...',
+} as const
+type RequestWaitReason = keyof typeof WAIT_MESSAGES
+type RoutingWait = {
+  sessionId: string
+  waitId: string
+  reason: RequestWaitReason
+  nextMs: number
+  attempt?: number
+  message: string
+}
+interface RoutingWaits {
+  sleep(
+    ms: number,
+    signal: AbortSignal | null | undefined,
+    sessionId: string | undefined,
+    reason: RequestWaitReason,
+    attempt?: number,
+  ): Promise<void>
+  resumed(): void
+}
+
+/** A finished sleep is not a resumed request: resume only at the next upstream send. */
+async function withRoutingWaitReports<T>(
+  cancellation: AbortSignal,
+  run: (waits: RoutingWaits) => Promise<T>,
+): Promise<T> {
+  const pending: RoutingWait[] = []
+  let closed = false
+  const finish = (outcome: 'resumed' | 'cancelled' | 'abandoned') => {
+    for (const wait of pending.splice(0)) {
+      reportVaultRouting({ kind: 'wait', phase: 'end', ...wait, outcome })
+    }
+  }
+  try {
+    return await run({
+      sleep(ms, signal, sessionId, reason, attempt) {
+        if (!closed && ms >= 2000 && sessionId && hasVaultRoutingAccessor()) {
+          const wait: RoutingWait = {
+            sessionId,
+            waitId: randomUUID(),
+            reason,
+            nextMs: Date.now() + ms,
+            ...(attempt === undefined ? {} : { attempt }),
+            message: WAIT_MESSAGES[reason],
+          }
+          pending.push(wait)
+          reportVaultRouting({ kind: 'wait', phase: 'start', ...wait })
+        }
+        return sleep(ms, signal)
+      },
+      resumed: () => finish('resumed'),
+    })
+  } finally {
+    closed = true
+    finish(cancellation.aborted ? 'cancelled' : 'abandoned')
+  }
+}
+
 /**
  * Background quota refresh after a successful send, for rows held in a core
  * account manager. It reads the row's refresh token, so it applies to local
@@ -1065,6 +1129,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       refusal?: () => Response
       quota?: (signal: AbortSignal) => Promise<void>
     },
+    waits: RoutingWaits,
   ): Promise<Response> {
     const assertAdmission = async (): Promise<void> => {
       await deadline.wait(() => deps.assertAdmission?.(deadline.signal))
@@ -1161,9 +1226,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     // warmups included, then goes through it with the same AbortSignal.
     const sender = options.transport ?? defaultTransport
     const transport: RequestTransport = (url, sendInit, sendOptions) =>
-      deadline.open(() =>
-        sender(url, sendInit, { ...sendOptions, signal: deadline.signal }),
-      )
+      deadline.open(() => {
+        waits.resumed()
+        return sender(url, sendInit, {
+          ...sendOptions,
+          signal: deadline.signal,
+        })
+      })
     const requestSessionIdentity =
       options.session ?? extractOpenCodeSessionIdentity(init?.headers)
     // AGY conversation/trajectory/step metadata is kept per session and
@@ -1243,6 +1312,20 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     let lastFailure: FailureContext | null = null
     let lastError: Error | null = null
     const abortSignal = init?.signal ?? undefined
+    const routingSleep = (
+      ms: number,
+      reason: RequestWaitReason,
+      attempt?: number,
+    ) =>
+      waits.sleep(
+        ms,
+        abortSignal,
+        credentials.domain === 'vault'
+          ? (requestSessionIdentity.sessionId ?? undefined)
+          : undefined,
+        reason,
+        attempt,
+      )
 
     const checkAborted = () => {
       deadline.check()
@@ -1767,7 +1850,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             retryState.markSoftQuotaToastShown()
           }
 
-          await sleep(Math.min(waitMs, remainingWaitMs()), abortSignal)
+          await routingSleep(
+            Math.min(waitMs, remainingWaitMs()),
+            'account_free',
+          )
           continue
         }
 
@@ -1818,7 +1904,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           retryState.markRateLimitToastShown()
         }
 
-        await sleep(Math.min(waitMs, remainingWaitMs()), abortSignal)
+        await routingSleep(Math.min(waitMs, remainingWaitMs()), 'account_free')
         continue
       }
 
@@ -2676,7 +2762,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   'warning',
                 )
 
-                await sleep(waitMs, abortSignal)
+                await routingSleep(
+                  waitMs,
+                  'server_busy',
+                  capacityRetryCount + 1,
+                )
 
                 if (capacityRetryCount < 1) {
                   capacityRetryCount++
@@ -2761,7 +2851,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                       rateLimitReason,
                       serverRetryMs,
                     )
-                    await sleep(effectiveDelayMs, abortSignal)
+                    await routingSleep(effectiveDelayMs, 'account_limit')
                     i -= 1
                     continue
                   }
@@ -2821,7 +2911,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   `Rate limited. Retrying in ${expBackoffFormatted} (attempt ${backoff.attempt})...`,
                   'warning',
                 )
-                await sleep(expBackoffMs, abortSignal)
+                await routingSleep(
+                  expBackoffMs,
+                  'rate_limited',
+                  backoff.attempt,
+                )
               }
 
               lastFailure = createFailureContext(response)
@@ -3464,8 +3558,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       } = {}
       const selectedCredentials = new Set<string>()
       const selectedProjectIds = new Set<string>()
-      const pending = deadline
-        .wait(() =>
+      const pending = withRoutingWaitReports(cancellation.signal, (waits) =>
+        deadline.wait(() =>
           execute(
             input,
             { ...init, signal: deadline.signal },
@@ -3474,8 +3568,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             selectedProjectIds,
             deadline,
             waitPolicy,
+            waits,
           ),
-        )
+        ),
+      )
         .catch((error: unknown) => {
           cancellation.signal.throwIfAborted()
           if (error instanceof PreResponseTimeoutError) {
