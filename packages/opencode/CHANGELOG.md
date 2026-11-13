@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Vault-backed requests now wait briefly for account access to recover, instead of failing immediately when the vault is briefly unreachable or has not yet confirmed account access.
+- In vault setups, a request made while the vault is briefly unreachable now waits up to 10 seconds for it, once per outage, instead of failing at once. A credential the plugin already holds still serves without waiting.
 - In routed vault setups such as Thalamus, the plugin reports its own waits, so the agent's app can show why it's waiting and when it tries again.
 - In routed vault setups such as Thalamus, each completed streamed reply is now reported to routing as served. Before, a streamed Gemini reply that finished normally was never reported, because the plugin ends the stream at the reply's finish event without waiting for the server to close it.
 - Under the hood, embedded common-auth is now published 0.48.0, which also fixes a vault on/off switch that could leave an older account list in place.
