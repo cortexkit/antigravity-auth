@@ -9,7 +9,7 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import {
   getAntigravityOpencodeModelIds,
-  OPENCODE_MODEL_DEFINITIONS,
+  getOpencode1ModelDefinitions,
 } from './models'
 
 // =============================================================================
@@ -158,7 +158,7 @@ export async function updateOpencodeConfig(
 
     // Replace google models with the agy-supported catalog and hide built-in
     // Google models that Antigravity does not support.
-    config.provider.google.models = { ...OPENCODE_MODEL_DEFINITIONS }
+    config.provider.google.models = getOpencode1ModelDefinitions()
     config.provider.google.whitelist = getAntigravityOpencodeModelIds()
 
     // Ensure config directory exists

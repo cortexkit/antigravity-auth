@@ -256,6 +256,25 @@ describe('updateOpencodeConfig', () => {
     }
   })
 
+  test('writes Hydrogen for OpenCode 1 without xhigh, which its Google SDK cannot carry', async () => {
+    const result = await updateOpencodeConfig({ configPath })
+
+    expect(result.success).toBe(true)
+
+    const writtenConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
+    expect(
+      Object.keys(
+        writtenConfig.provider.google.models['antigravity-gemini-4-hydrogen']
+          .variants,
+      ),
+    ).toEqual(['low', 'medium', 'high'])
+    expect(
+      Object.keys(
+        OPENCODE_MODEL_DEFINITIONS['antigravity-gemini-4-hydrogen']!.variants!,
+      ),
+    ).toEqual(['low', 'medium', 'high', 'xhigh'])
+  })
+
   test('parses existing jsonc config files with comments and trailing commas', async () => {
     const jsoncPath = path.join(tempDir, 'opencode.jsonc')
     const existingJsoncConfig = `{
