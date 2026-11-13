@@ -5,7 +5,7 @@
     "": {
       "name": "common-auth-build-private",
       "dependencies": {
-        "@cortexkit/common-auth": "file:inputs/cortexkit-common-auth-0.48.0.tgz",
+        "@cortexkit/common-auth": "file:inputs/cortexkit-common-auth-0.49.1.tgz",
         "@opentui/core": "0.5.14",
         "@opentui/solid": "0.5.14",
         "solid-js": "1.9.12",
@@ -72,7 +72,7 @@
 
     "@babel/types": ["@babel/types@7.29.8", "", { "dependencies": { "@babel/helper-string-parser": "^7.29.7", "@babel/helper-validator-identifier": "^7.29.7" } }, "sha512-Vj1jF3cPfxg7OAfoI7QnVKLoILlm2JF9pnVHrX8qx7AHMiYWT+NDAA7jChlNgRS4WTLc/fD1lXLmPixluj+3Gg=="],
 
-    "@cortexkit/common-auth": ["@cortexkit/common-auth@inputs/cortexkit-common-auth-0.48.0.tgz", { "dependencies": { "@cortexkit/private-files": "^0.2.2", "jsonc-parser": "^3.3.1" }, "peerDependencies": { "@cortexkit/claustrum-client": ">=0.6.2", "@cortexkit/opencode-sidebar": "~0.1.0", "@cortexkit/subc-client": "^0.16.0 || ^0.22.0 || ^0.24.0", "@opencode/plugin": ">=2.0.21", "@opentui/core": ">=0.4.5", "@opentui/solid": ">=0.4.5", "solid-js": ">=1.9.12 <2" }, "optionalPeers": ["@cortexkit/claustrum-client", "@cortexkit/opencode-sidebar", "@cortexkit/subc-client", "@opencode/plugin", "@opentui/core", "@opentui/solid", "solid-js"] }, "sha512-j3FjDCowKBqz0z/iaDlw5eiS0eVSeSEsmNPSinDsZrtzJ+LlM0Ko8S/UPsAUedG8BARjzWncYObSgNAuyOeycw=="],
+    "@cortexkit/common-auth": ["@cortexkit/common-auth@inputs/cortexkit-common-auth-0.49.1.tgz", { "dependencies": { "@cortexkit/private-files": "^0.2.2", "jsonc-parser": "^3.3.1" }, "peerDependencies": { "@cortexkit/claustrum-client": ">=0.6.2", "@cortexkit/opencode-sidebar": "~0.1.0", "@cortexkit/subc-client": "^0.16.0 || ^0.22.0 || ^0.24.0", "@opencode/plugin": ">=2.0.21", "@opentui/core": ">=0.4.5", "@opentui/solid": ">=0.4.5", "solid-js": ">=1.9.12 <2" }, "optionalPeers": ["@cortexkit/claustrum-client", "@cortexkit/opencode-sidebar", "@cortexkit/subc-client", "@opencode/plugin", "@opentui/core", "@opentui/solid", "solid-js"] }, "sha512-bN32JvabenbUQU0HeYFzrf2PhgH9p+YO5T7jIDspMSM6lOf/jRykdX0TZ154nUo95ZbhS/4f4b4BxU7kMt6+LQ=="],
 
     "@cortexkit/private-files": ["@cortexkit/private-files@0.2.2", "", {}, "sha512-BdRxi4mzPkTUiZxKTlQV/RsESk5f34+sLk0qQLv1QlBQdkq2zw8yc0b3dm1qmZ5RfeChiBKEGgL6Qw31RCSaeA=="],
 

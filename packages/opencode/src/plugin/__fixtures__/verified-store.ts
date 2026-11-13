@@ -5,9 +5,9 @@ import { loadCommonAuthStoreModules } from '@cortexkit/antigravity-auth-core'
 
 const PIN = {
   package: '@cortexkit/common-auth',
-  version: '0.48.0',
+  version: '0.49.1',
   tarballSha256:
-    '44a289bdbb837f45cb740b5c0b36f8dad039d95228cdf9aa620e791bbecd6bc6',
+    '51f844a7cdc018ce795b642b8ac9bc3fb42e3fd5a5c23b6977bf097c854fe1ca',
 } as const
 
 async function filesBelow(root: string, dir: string): Promise<string[]> {
@@ -20,7 +20,7 @@ async function filesBelow(root: string, dir: string): Promise<string[]> {
   return out
 }
 
-/** Verify the candidate archive identity and every store/fs member before loading executable code. */
+/** Verify the published archive identity and every store/fs member before loading executable code. */
 export async function loadVerifiedStoreModules() {
   const root = dirname(
     dirname(
@@ -47,7 +47,7 @@ export async function loadVerifiedStoreModules() {
     !Array.isArray(receipt.files)
   ) {
     throw new Error(
-      `the embedded common-auth receipt is not the pinned candidate ${PIN.version}`,
+      `the embedded common-auth receipt is not the pinned published ${PIN.version}`,
     )
   }
   const recorded = receipt.files.filter((file) =>

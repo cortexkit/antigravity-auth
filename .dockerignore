@@ -4,7 +4,7 @@ node_modules
 **/dist
 **/coverage
 **/*.tgz
-!tools/common-auth-build/inputs/cortexkit-common-auth-0.48.0.tgz
+!tools/common-auth-build/inputs/cortexkit-common-auth-0.49.1.tgz
 **/*.log
 .tmp
 .alfonso

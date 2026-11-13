@@ -4,6 +4,7 @@ import { type ValueOf } from './descriptors.js';
 import type { SettingsEdit, UpdateResult } from './edit.js';
 import { type GetOptions } from './resolve.js';
 import { type ReportEntry } from './snapshot.js';
+import { type SettingsUpdatePlan } from './update.js';
 export interface LegacyProjectSource {
     readonly path: string;
     read(text: string): unknown;
@@ -22,7 +23,7 @@ export interface SettingsHandle<S extends Readonly<Record<string, SettingDeclara
     }): Promise<void>;
     get<K extends keyof S & string>(name: K, options: GetOptions): Promise<ValueOf<S[K]['value']>>;
     report(): ReportEntry[];
-    update(edits: readonly SettingsEdit[], options: Pick<GetOptions, 'host' | 'model'>): Promise<UpdateResult>;
+    update(edits: readonly SettingsEdit[] | SettingsUpdatePlan, options: Pick<GetOptions, 'host' | 'model'>): Promise<UpdateResult>;
     watch(onChange: () => void): () => void;
 }
 /** Internal test hook; not part of the settings package exports. */

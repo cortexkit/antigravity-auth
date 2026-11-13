@@ -36,4 +36,6 @@
 /packages/core/src/common-auth-embedded/** -text -eol -filter -working-tree-encoding
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.47.0.tgz -text -eol -filter -working-tree-encoding
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.48.0.tgz -text -eol -filter -working-tree-encoding
+/tools/common-auth-build/inputs/cortexkit-common-auth-0.49.0.tgz -text -eol -filter -working-tree-encoding
+/tools/common-auth-build/inputs/cortexkit-common-auth-0.49.1.tgz -text -eol -filter -working-tree-encoding
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.45.0.tgz -text -eol -filter -working-tree-encoding
