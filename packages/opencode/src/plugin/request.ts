@@ -1553,7 +1553,15 @@ function prepareAntigravityRequestIn(
   const [, rawModel = '', rawAction = ''] = match
   const requestedModel = rawModel
 
-  const resolved = resolveAntigravityModel(rawModel)
+  // Apply the selected Gemini 4 Hydrogen effort before shaping either body format.
+  const hydrogenTier = isGeminiHydrogenModel(rawModel)
+    ? options?.variant?.thinkingLevel
+    : undefined
+  const resolved = resolveAntigravityModel(
+    hydrogenTier
+      ? `${rawModel.replace(/-(low|medium|high|xhigh)$/i, '')}-${hydrogenTier}`
+      : rawModel,
+  )
   let effectiveModel = resolved.actualModel
 
   const streaming = rawAction === STREAM_ACTION

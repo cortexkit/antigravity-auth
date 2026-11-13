@@ -341,7 +341,11 @@ describe('server catalog authority', () => {
         const wire = resolveModelWithTier(selector).actualModel
         expect(
           Object.hasOwn(
-            { ...serverCatalog.models, ...carbonMetadata.models },
+            {
+              ...serverCatalog.models,
+              ...carbonMetadata.models,
+              ...hydrogen.routes,
+            },
             wire,
           ),
         ).toBe(true)

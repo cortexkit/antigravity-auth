@@ -53,7 +53,7 @@ describe('Gemini 4 Hydrogen', () => {
       ['medium', 'Medium', 'MODEL_PLACEHOLDER_M526'],
       ['high', 'High', 'MODEL_PLACEHOLDER_M525'],
       ['xhigh', 'XHigh', 'MODEL_PLACEHOLDER_M528'],
-    ]) {
+    ] as const) {
       const route = `gemini-4-hydrogen-${tier}`
       expect(getAgyNativeModel(route)).toEqual({
         displayName: `Gemini 4 Hydrogen (${displayTier})`,
