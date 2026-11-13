@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.1.0] - 2026-11-13
+
 - Gemini 4 Hydrogen offers Low, Medium and High (default) on OpenCode 1, and Low, Medium, High (default) and XHigh on OpenCode 2 and Pi. OpenCode 1 omits XHigh because its built-in Google library cannot pass that thinking level to the plugin. Hydrogen requires a Pro or Ultra subscription in Google Antigravity.
 - In vault setups, a request made while the vault is briefly unreachable now waits up to 10 seconds for it, once per outage, instead of failing at once. A credential the plugin already holds still serves without waiting.
 - In routed vault setups such as Thalamus, the plugin reports its own waits, so the agent's app can show why it's waiting and when it tries again.
