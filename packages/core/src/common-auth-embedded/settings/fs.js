@@ -3,6 +3,7 @@ const defaults = {
     readFile: fs.readFile,
     stat: fs.stat,
     lstat: fs.lstat,
+    readlink: fs.readlink,
     realpath: fs.realpath,
     open: fs.open,
     rename: fs.rename,

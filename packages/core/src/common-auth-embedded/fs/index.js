@@ -1,4 +1,7 @@
 export { writeJsonAtomic } from './atomic-write.js';
+// Canonical path of a file other processes may atomically replace: resolves
+// the folder, never the file itself (see canonical-file-path.ts).
+export { canonicalFilePath, canonicalFilePathSync, } from './canonical-file-path.js';
 export { WRITER_LOCK_CONSTANTS } from './lock-constants.js';
 export { PrivateFileError } from './private-files.js';
 // The try-once lock underneath withLock, for callers that hold a lock across

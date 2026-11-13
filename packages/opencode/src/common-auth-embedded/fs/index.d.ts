@@ -1,5 +1,6 @@
 export type { AtomicWriteOptions } from './atomic-write.js';
 export { writeJsonAtomic } from './atomic-write.js';
+export { canonicalFilePath, canonicalFilePathSync, } from './canonical-file-path.js';
 export { WRITER_LOCK_CONSTANTS } from './lock-constants.js';
 export type { PrivateWriteOutcome } from './private-files.js';
 export { PrivateFileError } from './private-files.js';

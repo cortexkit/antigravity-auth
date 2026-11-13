@@ -8,9 +8,10 @@
  * 3. Project config file
  */
 
-import { existsSync, readFileSync, realpathSync } from 'node:fs'
+import * as fs from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
+import { canonicalFilePathSync } from '@cortexkit/antigravity-auth-core/common-auth/fs'
 import { stateHomeLogsDir } from '../../runtime-paths'
 import { createLogger, type Logger } from '../logger'
 import {
@@ -72,11 +73,11 @@ function loadConfigFile(
   log: ConfigLoadLogger,
 ): Partial<AntigravityConfig> | null {
   try {
-    if (!existsSync(path)) {
+    if (!fs.existsSync(path)) {
       return null
     }
 
-    const content = readFileSync(path, 'utf-8')
+    const content = fs.readFileSync(path, 'utf-8')
     const rawConfig = JSON.parse(content)
 
     // Validate with Zod (partial - we'll merge with defaults later)
@@ -169,7 +170,7 @@ function loadConfigWithLogger(
  * Check if a config file exists at the given path.
  */
 export function configExists(path: string): boolean {
-  return existsSync(path)
+  return fs.existsSync(path)
 }
 
 /**
@@ -226,16 +227,23 @@ export function createLocationConfig(
 /**
  * Canonical identity for a file a process-shared controller owns: the
  * real path of the file, or of its nearest existing ancestor joined with
- * the missing remainder. Two spellings of one file (relative, symlinked
- * directory, `..` segments) therefore share one controller.
+ * the missing remainder. Relative paths, symlinked files and directories,
+ * and `..` segments therefore share one controller.
  */
 export function canonicalizeOwnedPath(path: string): string {
   const absolute = resolve(path)
-  const missing: string[] = []
-  let current = absolute
+  try {
+    return canonicalFilePathSync(absolute, fs)
+  } catch {
+    // Dangling links, loops and inaccessible paths keep their lexical file name.
+    // Resolve only ancestors: realpath(file) can return an unlinked inode's
+    // " (deleted)" name on Bun when another writer replaces the file by rename.
+  }
+  const missing = [basename(absolute)]
+  let current = dirname(absolute)
   for (;;) {
     try {
-      return join(realpathSync(current), ...missing.reverse())
+      return join(fs.realpathSync(current), ...missing.reverse())
     } catch {
       const parent = dirname(current)
       if (parent === current) return absolute

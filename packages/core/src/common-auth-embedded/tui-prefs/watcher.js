@@ -1,8 +1,15 @@
-import { readFileSync, realpathSync, statSync, watch, } from 'node:fs';
+import { lstatSync, readFileSync, readlinkSync, realpathSync, statSync, watch, } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
 import { clearTimeout, setTimeout } from 'node:timers';
+import { canonicalFilePathSync } from '../fs/canonical-file-path.js';
 import { PrivateFileError, readPrivateText, windowsPrivateFiles, } from '../fs/private-files.js';
+const pathFsDefaults = { lstatSync, readlinkSync, realpathSync };
+const pathFs = { ...pathFsDefaults };
+/** Internal test hook; omitted path operations use the native implementation. */
+export function setTuiPreferencesPathFsForTest(overrides) {
+    Object.assign(pathFs, pathFsDefaults, overrides);
+}
 function canonicalPath(file) {
     const path = resolve(file);
     // Leave reparse points in the path for private-files' ancestor walk to reject;
@@ -10,7 +17,7 @@ function canonicalPath(file) {
     if (windowsPrivateFiles)
         return path;
     try {
-        return realpathSync(path);
+        return canonicalFilePathSync(path, pathFs);
     }
     catch {
         // Resolve existing ancestors even when the preferences file is not yet present.
