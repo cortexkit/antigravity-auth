@@ -15,11 +15,11 @@ import {
 } from 'node:fs/promises'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { build as bundle } from 'esbuild'
 import { parse } from 'jsonc-parser'
 import ts from 'typescript'
 
 import { embedCommonAuth, sha256 } from './embed-common-auth'
+import { esbuildBinary, esbuildBundleArgs } from './esbuild-cli'
 import { type CommandResult, runCommand } from './run-command'
 
 const phaseClockKey = Symbol.for('cortexkit.build-phase-clock')
@@ -949,22 +949,27 @@ export async function buildLibrary(packageRoot = PACKAGE_ROOT) {
       ['src/cli.ts', 'cli'],
     ] as const) {
       await auditGraph(join(packageRoot, entry), { tui: false })
-      const result = await bundle({
-        absWorkingDir: packageRoot,
-        entryPoints: [entry],
-        bundle: true,
-        platform: 'node',
-        format: 'esm',
-        external: BUNDLE_EXTERNALS,
-        outfile: `dist/${name}.js`,
-        sourcemap: true,
-        metafile: true,
-        banner: name === 'cli' ? { js: '#!/usr/bin/env node' } : undefined,
-      })
-      checkMetafile(result.metafile!)
+      // The CLI closes before run resolves, including on failure. The async API
+      // would leave its idle native service alive after the build request ends.
+      await run(
+        esbuildBinary(),
+        esbuildBundleArgs({
+          entry,
+          outfile: `dist/${name}.js`,
+          external: BUNDLE_EXTERNALS,
+          sourcemap: true,
+          metafile: `dist/${name}.meta.json`,
+          banner: name === 'cli' ? '#!/usr/bin/env node' : undefined,
+        }),
+        packageRoot,
+      )
+      const metafile = JSON.parse(
+        await readFile(join(packageRoot, `dist/${name}.meta.json`), 'utf8'),
+      )
+      checkMetafile(metafile)
       await Bun.write(
         join(packageRoot, `dist/${name}.meta.json`),
-        `${JSON.stringify(result.metafile, null, 2)}\n`,
+        `${JSON.stringify(metafile, null, 2)}\n`,
       )
     }
     await run('chmod', ['0755', 'dist/cli.js'], packageRoot)

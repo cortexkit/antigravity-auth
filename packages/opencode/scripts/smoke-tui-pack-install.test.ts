@@ -1,13 +1,15 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, test } from 'bun:test'
 import { execFile } from 'node:child_process'
 import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import {
   buildPhase,
   buildPhaseNote,
   withBuildPhaseClock,
 } from '../../../scripts/build-phase-clock.ts'
+import { runCommand } from './run-command'
 import {
   assertVaultClientGraph,
   baselineRevision,
@@ -365,3 +367,88 @@ describe('packed install resolution cutoff', () => {
     expect(candidate.args).toContain('--minimum-release-age=9')
   })
 })
+
+type EsbuildReport = {
+  builder: number
+  failed: boolean
+  error: string | null
+  comparisons?: number
+  children: {
+    pid: number
+    command: string
+    service: boolean
+    closed: boolean
+  }[]
+}
+const esbuildHarness = fileURLToPath(
+  new URL('./__fixtures__/esbuild-builder.test.ts', import.meta.url),
+)
+function processAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ESRCH') return false
+    throw error
+  }
+}
+
+for (const mode of ['success', 'failure']) {
+  test.skipIf(process.platform !== 'linux')(
+    `reaps native esbuild before baseline builder exits on ${mode}`,
+    async () => {
+      const workspace = await mkdtemp(join(tmpdir(), 'esbuild-lifecycle-'))
+      let report: EsbuildReport | undefined
+      try {
+        const reportFile = join(workspace, 'processes.json')
+        const result = await runCommand(
+          process.execPath,
+          [esbuildHarness, workspace, mode, reportFile],
+          {
+            cwd: process.cwd(),
+            deadlineMs: 30_000,
+          },
+        )
+        report = JSON.parse(await readFile(reportFile, 'utf8')) as EsbuildReport
+        console.log(`ESBUILD_LIFECYCLE=${JSON.stringify(report)}`)
+        expect(result.status, result.stderr).toBe(0)
+        expect(report.failed, report.error ?? '').toBe(mode === 'failure')
+        if (mode === 'failure')
+          expect(report.error).toContain('scripts/build-tui.ts failed (23)')
+        expect(processAlive(report.builder)).toBe(false)
+        expect(report.children.length).toBeGreaterThan(0)
+        const survivors = report.children.filter(
+          ({ pid, closed }) => !closed && processAlive(pid),
+        )
+        expect(survivors).toEqual([])
+        expect(report.children.every(({ closed }) => closed)).toBe(true)
+        if (mode === 'success') {
+          const comparisonFile = join(workspace, 'comparison.json')
+          const compared = await runCommand(
+            process.execPath,
+            [esbuildHarness, workspace, 'compare', comparisonFile],
+            {
+              cwd: process.cwd(),
+              deadlineMs: 30_000,
+            },
+          )
+          expect(compared.status, compared.stderr).toBe(0)
+          const comparison = JSON.parse(
+            await readFile(comparisonFile, 'utf8'),
+          ) as EsbuildReport
+          // Two baseline JS files, plus two library JS files and their maps.
+          expect(comparison.comparisons).toBe(6)
+        }
+      } finally {
+        // A leaked service was stopped for observation after its owner exited.
+        // Kill it even when the no-survivors assertion fails.
+        for (const child of report?.children ?? []) {
+          if (!child.closed && processAlive(child.pid))
+            process.kill(child.pid, 'SIGKILL')
+        }
+        await rm(workspace, { force: true, recursive: true })
+      }
+    },
+    30_000,
+  )
+}

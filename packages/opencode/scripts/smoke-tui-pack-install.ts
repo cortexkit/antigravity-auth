@@ -10,7 +10,6 @@ import {
   writeFile,
 } from 'node:fs/promises'
 import { dirname, join, relative, resolve } from 'node:path'
-import { build as bundle } from 'esbuild'
 import sourceManifest from '../package.json'
 import {
   auditGraph,
@@ -23,6 +22,7 @@ import {
   verifyPrerequisites,
 } from './build-tui'
 import { sha256 } from './embed-common-auth'
+import { esbuildBinary, esbuildBundleArgs } from './esbuild-cli'
 import { runCommand } from './run-command'
 
 const repo = resolve(PACKAGE_ROOT, '../..')
@@ -432,16 +432,17 @@ export async function baseline(workspace: string) {
     ['src/cli.ts', 'cli'],
   ] as const)
     await buildPhase(`baseline.esbuild ${entry}`, () =>
-      bundle({
-        absWorkingDir: packageRoot,
-        entryPoints: [entry],
-        outfile: `dist/${name}.js`,
-        bundle: true,
-        platform: 'node',
-        format: 'esm',
-        external: ['zod'],
-        banner: name === 'cli' ? { js: '#!/usr/bin/env node' } : undefined,
-      }),
+      // Join the native compiler, not just an API request to an unref'd service.
+      run(
+        esbuildBinary(),
+        esbuildBundleArgs({
+          entry,
+          outfile: `dist/${name}.js`,
+          external: ['zod'],
+          banner: name === 'cli' ? '#!/usr/bin/env node' : undefined,
+        }),
+        packageRoot,
+      ),
     )
   await run('bun', ['scripts/build-tui.ts'], packageRoot)
   return packageRoot
