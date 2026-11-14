@@ -32,6 +32,17 @@ OpenCode uses `~/.config/opencode/` on **all platforms** including Windows.
 ### Auth problems
 Verify the active source and initialized/migrated store before reauthorization. Use `/antigravity` → Accounts to reauthorize or remove a local account; do not hand-edit legacy JSON. For OpenCode 2, finish [pool browser login and saved Antigravity connection selection](OPENCODE-2.md#pool-browser-login). A real native Google key/login deliberately passes through instead of using plugin accounts.
 
+### OpenCode 2 fails right after moving from OpenCode 1
+From OpenCode 2.3, a fresh OpenCode 2 database copies OpenCode 1's saved logins (`auth.json`) the first time it starts, and a single copied Google entry becomes your active Google connection. That entry isn't an Antigravity connection OpenCode 2 can use:
+- **Vault mode on OpenCode 1:** the entry is a placeholder with an empty token that never refreshes.
+- **Local accounts on OpenCode 1:** the entry is OpenCode 1's own Google login record.
+
+In both cases OpenCode 2 sends Google requests itself instead of through the plugin, so they fail. Sign in once with the plugin's own method:
+- **Local accounts:** run `opencode auth login` → Google → **Google (antigravity-auth pool, browser)**, then select the saved **Antigravity** connection.
+- **Vault mode:** run `opencode auth login` → Google → **Use approved Antigravity vault**.
+
+See [pool browser login](OPENCODE-2.md#pool-browser-login).
+
 ### "This version of Antigravity is no longer supported"
 This almost always means an outdated Antigravity `User-Agent` is still being used.
 
