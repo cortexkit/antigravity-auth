@@ -49,6 +49,7 @@ describe('harness identity rewrite', () => {
       'You are a coding assistant running inside your development environment. Help users.',
     ],
     ['RUNNING INSIDE PI', 'running inside your development environment'],
+    ['running inside Pi-Bolt.', 'running inside your development environment.'],
     ['running inside pi!', 'running inside your development environment!'],
     [
       'running inside pi now',
@@ -79,7 +80,7 @@ describe('harness identity rewrite', () => {
     'You are opencode.js',
     'You are opencodex',
     'running inside opencode.js',
-    'running inside pi-bolt',
+    'Keep this.\n\n\nKeep that.',
     'If OpenCode honestly',
     'if opencode honestly',
     'https://OPENCODE.AI/docs',

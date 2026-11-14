@@ -32,21 +32,28 @@ const HARNESS_IDENTITY_REWRITES = [
     replacement: 'running inside your development environment',
   },
   {
-    pattern: /\brunning inside (?:pi|opencode)(?!\.\w)(?=$|\s|[.,;:!?])/gi,
+    pattern:
+      /\brunning inside (?:pi-bolt|pi|opencode)(?!\.\w)(?=$|\s|[.,;:!?])/gi,
     replacement: 'running inside your development environment',
   },
 ] as const
 
 export function rewriteHarnessIdentity(text: string): string {
-  const paragraphs = text
-    .split(/\n\n+/)
-    .filter(
-      (paragraph) =>
-        !HARNESS_IDENTITY_PARAGRAPHS.some((marker) =>
-          paragraph.includes(marker),
-        ),
-    )
-    .join('\n\n')
+  // Splitting and rejoining normalises blank-line runs, so only do it when a
+  // paragraph is actually dropped; otherwise the prompt keeps its exact bytes.
+  const paragraphs = HARNESS_IDENTITY_PARAGRAPHS.some((marker) =>
+    text.includes(marker),
+  )
+    ? text
+        .split(/\n\n+/)
+        .filter(
+          (paragraph) =>
+            !HARNESS_IDENTITY_PARAGRAPHS.some((marker) =>
+              paragraph.includes(marker),
+            ),
+        )
+        .join('\n\n')
+    : text
   return HARNESS_IDENTITY_REWRITES.reduce(
     (result, { pattern, replacement }) => result.replace(pattern, replacement),
     paragraphs,
