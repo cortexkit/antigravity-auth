@@ -3603,7 +3603,7 @@ describe('issue69 legacy local upgrade', () => {
           await manager.refreshFromRepository()
           expect(
             manager.getCurrentOrNextForFamily('gemini', 'gemini-3.8-flash'),
-          ).toBe(manager.getAccounts()[0])
+          ).toBe(manager.getAccounts()[0]!)
         } finally {
           await manager.dispose()
         }

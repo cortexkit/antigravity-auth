@@ -161,6 +161,7 @@ describe('createVaultSelectionState', () => {
         const next = update(accounts[by.accountIdentity])
         if (next === undefined || next === null)
           return { status: 'unchanged' as const }
+        expect(Object.hasOwn(next, 'observed')).toBe(false)
         const state: VaultAccountState = {
           ...next,
           observed: {

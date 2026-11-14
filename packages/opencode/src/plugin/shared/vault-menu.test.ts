@@ -80,6 +80,7 @@ describe('vault menu projection', () => {
             commits++
             const next = update(current)
             if (!next) return { status: 'unchanged' }
+            expect(Object.hasOwn(next, 'observed')).toBe(false)
             current = { ...next, observed: by }
             return { status: 'written', state: current }
           },

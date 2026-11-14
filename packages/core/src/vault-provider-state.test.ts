@@ -524,7 +524,6 @@ describe('vault provider-state with the real common-auth locks', () => {
         ...input,
         verify: async () => {},
         update: (current) => ({
-          ...current,
           metadata: applyRateLimitReadingUpdate(
             current!.metadata!,
             reading,
@@ -546,7 +545,6 @@ describe('vault provider-state with the real common-auth locks', () => {
         await release.promise
       },
       update: (current) => ({
-        ...current,
         metadata: {
           ...current!.metadata!,
           rateLimitResetTimes: { [key]: 199_000_000 },

@@ -1040,11 +1040,13 @@ async function transportLocation(
     current: null,
     quotaLogger: null,
   }
+  let localStoreAccesses = 0
   const factory =
     domain === 'local' && !authority
       ? createGaLocationServices
       : createGaLocationServicesFactory({
           loadStoreModules: async () => {
+            localStoreAccesses++
             if (authority) return loadCommonAuthStoreModules()
             throw new Error('vault must not open a local store')
           },
@@ -1057,6 +1059,7 @@ async function transportLocation(
               now: Date.now,
             }),
           createPipeline: async (input) => {
+            localStoreAccesses++
             if (authority)
               return createGaLocalRequestPipeline({ ...input, accounts })
             throw new Error('vault must not construct a local pipeline')
@@ -1138,6 +1141,7 @@ async function transportLocation(
   networkCalls.length = 0
   return {
     root,
+    localStoreAccesses: () => localStoreAccesses,
     bindNotify: (next: GaRpcActivation['notify']) => {
       notify = next
     },
@@ -4429,6 +4433,82 @@ describe('GA drawer account actions through native RPC', () => {
       expect(manager.isRateLimited(row, 'gemini', 'gemini-3.8-flash')).toBe(
         false,
       )
+    },
+  )
+
+  ownedIt(
+    'issue69 vault drawer Clear limits refreshes without any local-store access',
+    async (scope) => {
+      const route = {
+        routeId: 'route-clear',
+        credentialId: 'credential-clear',
+        accountIdentity: 'identity-clear',
+        label: 'Private account',
+      }
+      const by = {
+        routeId: route.routeId,
+        credentialId: route.credentialId,
+        accountIdentity: route.accountIdentity,
+        recordVersion: 1,
+      }
+      let current: import('@cortexkit/antigravity-auth-core').VaultAccountState =
+        {
+          observed: by,
+          metadata: {
+            addedAt: 1,
+            lastUsed: 0,
+            rateLimitResetTimes: {
+              'gemini:gemini-3.8-flash': Date.now() + 99_000_000,
+            },
+          },
+        }
+      const source: import('./ga-location-services.ts').GaVaultCustodySource = {
+        refresh: async () => undefined,
+        routes: () => [route],
+        admit: async () => ({
+          ...route,
+          ...by,
+          accessToken: 'vault-access',
+          projectId: 'vault-project',
+          expiresAtMs: null,
+        }),
+        reportServedStatus: async () => false,
+        attribution: () => by,
+        send: async () => {
+          throw new Error('Clear limits must not send a request')
+        },
+        commitState: async (_by, update) => {
+          const next = update(current)
+          if (!next) return { status: 'unchanged', state: current }
+          expect(Object.hasOwn(next, 'observed')).toBe(false)
+          current = { ...next, observed: by }
+          return { status: 'written', state: current }
+        },
+      }
+      const fixture = await transportLocation(scope, 'vault', {}, 1, source)
+      const { client, view, snapshot } = await drawer(scope, fixture)
+      const item = view.menu.sections.find(
+        (section) => section.id === 'accounts',
+      )?.items[0]
+      expect(
+        item?.actions.find((action) => action.id === 'clear-limits')?.label,
+      ).toBe('Clear limits')
+      const answer = await client.apply(sessionless, {
+        request: view.request({
+          command: 'antigravity',
+          sectionId: 'accounts',
+          itemId: item!.id,
+          actionId: 'clear-limits',
+          values: {},
+        }),
+      })
+      expect(answer.ok).toBe(true)
+      expect(current.metadata?.rateLimitResetTimes).toEqual({})
+      const after = await client.pull(sessionless)
+      if (after.kind !== 'snapshot')
+        throw new Error('Missing refreshed sidebar')
+      expect(after.snapshot.readSeq).toBeGreaterThan(snapshot.readSeq)
+      expect(fixture.localStoreAccesses()).toBe(0)
     },
   )
 

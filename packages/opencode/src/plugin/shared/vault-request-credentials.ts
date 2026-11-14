@@ -243,6 +243,20 @@ function present<T>(value: T | null | undefined): T | undefined {
   return value === null ? undefined : value
 }
 
+/** Keep quota and extensions, but omit `observed`: the state writer stamps receipt attribution itself. */
+function withMetadata(
+  current: VaultAccountState | undefined,
+  metadata: VaultProviderMetadata,
+): VaultAccountStateValue {
+  return {
+    metadata,
+    ...(current?.quota !== undefined ? { quota: current.quota } : {}),
+    ...(current?.extensions !== undefined
+      ? { extensions: current.extensions }
+      : {}),
+  }
+}
+
 function storedResets(
   resets: VaultAccountRow['rateLimitResetTimes'],
 ): Record<string, number> {
@@ -665,13 +679,10 @@ export function createVaultSelectionState(
                   )
                     written[key] = row.rateLimitWrittenAt?.[key] ?? now()
                 }
-                return {
-                  ...current,
-                  metadata: {
-                    ...current.metadata,
-                    rateLimitWrittenAt: written,
-                  },
-                }
+                return withMetadata(current, {
+                  ...current.metadata,
+                  rateLimitWrittenAt: written,
+                })
               },
             )
           } catch (error) {
@@ -950,13 +961,14 @@ export function createVaultAccountPool(
       const receipt = await source.admit(row.route)
       const result = await durable.source.commitState(
         durable.source.attribution(receipt),
-        (current) => ({
-          ...current,
-          metadata: clearAccountLimits(
-            current?.metadata ?? { addedAt: clock(), lastUsed: 0 },
-            clock(),
+        (current) =>
+          withMetadata(
+            current,
+            clearAccountLimits(
+              current?.metadata ?? { addedAt: clock(), lastUsed: 0 },
+              clock(),
+            ),
           ),
-        }),
       )
       if (result.status !== 'written' && result.status !== 'unchanged')
         throw new Error('Limits could not be cleared. Refresh and try again.')
