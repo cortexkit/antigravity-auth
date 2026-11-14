@@ -1485,8 +1485,9 @@ describe('AccountManager', () => {
         expect(calculateBackoffMs('SERVER_ERROR', 0)).toBe(20_000)
       })
 
-      it('returns default backoff for UNKNOWN', () => {
-        expect(calculateBackoffMs('UNKNOWN', 0)).toBe(60_000)
+      it('returns the short unconfirmed cooldown for UNKNOWN', () => {
+        // A 429 with no stated reason is unconfirmed: 5 s, not the old 60 s ladder.
+        expect(calculateBackoffMs('UNKNOWN', 0)).toBe(5_000)
       })
     })
 
