@@ -47,13 +47,14 @@ const ensureProjectContextMock = mock(async () => ({
 }))
 const fetchWithAgyCliTransportMock = mock()
 let bypassHarnessRewrite = false
+const rewriteHarnessIdentity = actualCore.rewriteHarnessIdentity
 
 mock.module('@cortexkit/antigravity-auth-core', () => ({
   ...actualCore,
   ensureProjectContext: ensureProjectContextMock,
   fetchWithAgyCliTransport: fetchWithAgyCliTransportMock,
   rewriteHarnessIdentity: (text: string) =>
-    bypassHarnessRewrite ? text : actualCore.rewriteHarnessIdentity(text),
+    bypassHarnessRewrite ? text : rewriteHarnessIdentity(text),
 }))
 
 const {

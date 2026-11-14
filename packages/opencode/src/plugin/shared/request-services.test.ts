@@ -842,7 +842,7 @@ describe('harness rewrite and unconfirmed refusals', () => {
 
   it('does not mark or retry a recognised phrase when a wire seam bypasses the rewrite', async () => {
     const h = harness({ respond: async () => refusal() })
-    h.deps.wire = {
+    const wire: RequestWire = {
       ...WIRE,
       prepare: (...args) => {
         const prepared = WIRE.prepare(...args)
@@ -855,7 +855,7 @@ describe('harness rewrite and unconfirmed refusals', () => {
       },
     }
     const mark = spyOn(h.pool, 'markRateLimitedWithReason')
-    const executor = createRequestExecutor(h.deps)
+    const executor = createRequestExecutor({ ...h.deps, wire })
     try {
       const response = await executor.execute(NON_STREAM_URL, init())
       expect(response.status).toBe(412)

@@ -188,6 +188,7 @@ export interface RequestAccountRow {
   readonly enabled?: boolean
   readonly accountIneligible?: boolean
   readonly verificationRequired?: boolean
+  readonly coolingDownUntil?: number
   readonly fingerprint?: Fingerprint
   /** Reset to 0 by the engine after a successful send. */
   consecutiveFailures?: number
@@ -2747,21 +2748,23 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 unconfirmedRetries++
                 // Selection can rotate immediately to a ready account. Otherwise
                 // wait only for this short cooldown, never the quota backoff ladder.
-                const ready = accountManager
-                  .getAccounts()
-                  .some(
-                    (entry) =>
-                      entry.index !== account.index &&
-                      entry.enabled !== false &&
-                      !entry.accountIneligible &&
-                      !entry.verificationRequired &&
-                      !allowlistExcluded?.has(entry.index) &&
-                      !unavailableIndexes.has(entry.index) &&
-                      (eligibleIndexes === null ||
-                        eligibleIndexes.has(entry.index)) &&
-                      (entry.rateLimitResetTimes[getQuotaKey(family, model)] ??
-                        0) <= Date.now(),
+                const ready = accountManager.getAccounts().some((entry) => {
+                  const resets: Readonly<Partial<Record<string, number>>> =
+                    entry.rateLimitResetTimes
+                  return (
+                    entry.index !== account.index &&
+                    entry.enabled !== false &&
+                    !entry.accountIneligible &&
+                    !entry.verificationRequired &&
+                    !allowlistExcluded?.has(entry.index) &&
+                    !unavailableIndexes.has(entry.index) &&
+                    (eligibleIndexes === null ||
+                      eligibleIndexes.has(entry.index)) &&
+                    (entry.coolingDownUntil ?? 0) <= Date.now() &&
+                    (resets[family] ?? 0) <= Date.now() &&
+                    (resets[getQuotaKey(family, model)] ?? 0) <= Date.now()
                   )
+                })
                 if (ready) {
                   switchedForUnconfirmed = true
                   shouldSwitchAccount = true
