@@ -39,6 +39,7 @@ describe('vault menu projection', () => {
       routeId: 'route',
       credentialId: 'credential',
       accountIdentity: 'identity',
+      label: 'Private account',
     }
     const by = { ...route, recordVersion: 1 }
     const reset = 99_000_000

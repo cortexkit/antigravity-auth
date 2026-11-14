@@ -308,9 +308,12 @@ export function stampRateLimitWrites(
   now: number,
 ): string[] {
   const stamped: string[] = []
-  account.rateLimitWrittenAt ??= {}
   for (const [key, reset] of Object.entries(account.rateLimitResetTimes)) {
-    if (reset !== undefined && account.rateLimitWrittenAt[key] === undefined) {
+    if (
+      reset !== undefined &&
+      account.rateLimitWrittenAt?.[key] === undefined
+    ) {
+      account.rateLimitWrittenAt ??= {}
       account.rateLimitWrittenAt[key] = now
       stamped.push(key)
     }

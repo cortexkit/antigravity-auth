@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { applyRateLimitReadingUpdate } from './account-repository.ts'
 import {
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
@@ -489,6 +490,79 @@ describe('vault provider-state with the real common-auth locks', () => {
     await writeFile(path, text, { mode: 0o600 })
     return text
   }
+
+  it('issue69 rechecks reading clears after a newer mark wins the real vault lock', async () => {
+    const rosterPath = join(dir, 'roster.json')
+    await writeRoster(rosterPath)
+    const input = {
+      claustrum: await loadCommonAuthClaustrum(),
+      fs: await loadCommonAuthFs(),
+      rosterPath,
+      statePath,
+      attribution: A,
+    }
+    const key = 'gemini:gemini-3.8-flash'
+    await commitVaultProviderState({
+      ...input,
+      verify: async () => {},
+      update: () => ({
+        metadata: {
+          addedAt: 1,
+          lastUsed: 0,
+          rateLimitResetTimes: { [key]: 99_000_000 },
+          rateLimitWrittenAt: { [key]: 100 },
+        },
+      }),
+    })
+    const reading = {
+      kind: 'quota-reading' as const,
+      checkedAt: 200,
+      quota: { gemini: { remainingFraction: 1, modelCount: 1 } },
+    }
+    const clear = () =>
+      commitVaultProviderState({
+        ...input,
+        verify: async () => {},
+        update: (current) => ({
+          ...current,
+          metadata: applyRateLimitReadingUpdate(
+            current!.metadata!,
+            reading,
+            400,
+          ),
+        }),
+      })
+    await clear()
+    expect(
+      (await readVaultProviderState(statePath)).accounts['account-a']?.metadata
+        ?.rateLimitResetTimes?.[key],
+    ).toBeUndefined()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const writer = commitVaultProviderState({
+      ...input,
+      verify: async () => {
+        entered.resolve()
+        await release.promise
+      },
+      update: (current) => ({
+        ...current,
+        metadata: {
+          ...current!.metadata!,
+          rateLimitResetTimes: { [key]: 199_000_000 },
+          rateLimitWrittenAt: { [key]: 300 },
+        },
+      }),
+    })
+    await entered.promise
+    const clearer = clear()
+    release.resolve()
+    await Promise.all([writer, clearer])
+    expect(
+      (await readVaultProviderState(statePath)).accounts['account-a']?.metadata
+        ?.rateLimitResetTimes?.[key],
+    ).toBe(199_000_000)
+  })
 
   it('writes under the real roster and state locks without rewriting the roster', async () => {
     const rosterPath = join(dir, 'roster.json')

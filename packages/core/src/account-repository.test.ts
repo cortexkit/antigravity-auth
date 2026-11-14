@@ -100,7 +100,10 @@ describe('issue69 locked reading clears', () => {
         const key = 'gemini:gemini-3.8-flash'
         const { ref } = await repository.login(
           login('issue69', 'issue69-refresh', {
-            rateLimitResetTimes: { [key]: at + 65 * 60 * 60 * 1000 },
+            rateLimitResetTimes: {
+              [key]: at + 65 * 60 * 60 * 1000,
+              unknown: null,
+            },
             rateLimitWrittenAt: { [key]: at },
           }),
         )
@@ -119,6 +122,10 @@ describe('issue69 locked reading clears', () => {
         expect(
           (await metadataOf(repository, 'issue69')).rateLimitResetTimes?.[key],
         ).toBeUndefined()
+        expect(
+          (await metadataOf(repository, 'issue69')).rateLimitResetTimes
+            ?.unknown,
+        ).toBeNull()
 
         let unlock!: () => void
         let entered!: () => void
@@ -3555,6 +3562,51 @@ describe('native account roster publication', () => {
         if (settings.status === 'error') throw new Error(settings.reason)
         expect(settings.settings.replacementSentinel).toBe('keep')
         expect(settings.settings[MANAGEMENT_SETTINGS_KEY]).toBeUndefined()
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+})
+
+describe('issue69 legacy local upgrade', () => {
+  it(
+    'issue69 local legacy load stamps persist and a newer reading removes the stored mark',
+    async () => {
+      await withPool(async (pool) => {
+        const repository = pool.open()
+        let now = Date.now()
+        const key = 'gemini:gemini-3.8-flash'
+        await repository.login(
+          login('issue69-legacy', 'issue69-legacy-refresh', {
+            rateLimitResetTimes: { [key]: now + 65 * 60 * 60 * 1000 },
+          }),
+        )
+        const manager = AccountManager.fromRepository(await repository.read(), {
+          repository,
+          now: () => now,
+        })
+        try {
+          await manager.flushSaveToDisk()
+          expect(
+            (await metadataOf(repository, 'issue69-legacy'))
+              .rateLimitWrittenAt?.[key],
+          ).toBe(now)
+          now += 1
+          manager.updateQuotaCache(0, {
+            gemini: { remainingFraction: 1, modelCount: 1 },
+          })
+          await manager.flushSaveToDisk()
+          expect(
+            (await metadataOf(repository, 'issue69-legacy'))
+              .rateLimitResetTimes?.[key],
+          ).toBeUndefined()
+          await manager.refreshFromRepository()
+          expect(
+            manager.getCurrentOrNextForFamily('gemini', 'gemini-3.8-flash'),
+          ).toBe(manager.getAccounts()[0])
+        } finally {
+          await manager.dispose()
+        }
       })
     },
     STORE_TEST_TIMEOUT_MS,

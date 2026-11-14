@@ -2110,7 +2110,7 @@ describe('createRequestExecutor quota reset text', () => {
       expect(small.status).toBe(200)
       await small.text()
       expect(h.calls).toHaveLength(3)
-      expect(h.refreshedAccounts.at(-1)).toBe(first)
+      expect(h.checkedGrants.at(-1)?.account).toBe(first)
     } finally {
       await executor.dispose()
       date.mockRestore()

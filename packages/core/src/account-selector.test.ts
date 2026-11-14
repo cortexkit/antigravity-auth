@@ -134,6 +134,49 @@ describe('issue69 dated quota evidence', () => {
     expect(pool.getCurrentOrNextForFamily('gemini', model)).toBeNull()
     expect(pool.getMinWaitTimeForFamily('gemini', model)).toBe(long - 1)
   })
+
+  it('issue69 uses the account-specific Argon pool and leaves other pools marked', () => {
+    const { pool, row, advance } = manager(0)
+    const argon = 'gemini-4-argon-medium'
+    row.cachedQuota = {
+      gemini: { remainingFraction: 1, modelCount: 1 },
+      'gemini-argon': { remainingFraction: 0, modelCount: 1 },
+    }
+    expect(
+      pool.markRateLimitedWithReason(
+        row,
+        'gemini',
+        argon,
+        'QUOTA_EXHAUSTED',
+        long,
+      ),
+    ).toBe(long)
+    pool.markRateLimited(row, long, 'claude', 'claude-sonnet-5-5-low')
+    pool.markRateLimited(row, long, 'gemini', model)
+    advance(1)
+    pool.updateQuotaCache(0, {
+      gemini: { remainingFraction: 1, modelCount: 1 },
+      'gemini-argon': { remainingFraction: 0, modelCount: 1 },
+    })
+    expect(pool.isRateLimited(row, 'gemini', model)).toBe(false)
+    expect(pool.isRateLimited(row, 'gemini', argon)).toBe(true)
+    expect(pool.isRateLimited(row, 'claude', 'claude-sonnet-5-5-low')).toBe(
+      true,
+    )
+    pool.updateQuotaCache(0, {
+      gemini: { remainingFraction: 1, modelCount: 1 },
+    })
+    expect(pool.isRateLimited(row, 'gemini', argon)).toBe(false)
+    expect(
+      pool.markRateLimitedWithReason(
+        row,
+        'gemini',
+        argon,
+        'QUOTA_EXHAUSTED',
+        long,
+      ),
+    ).toBe(300_000)
+  })
 })
 
 // ---------------------------------------------------------------------------

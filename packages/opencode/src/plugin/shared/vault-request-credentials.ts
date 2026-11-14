@@ -495,14 +495,17 @@ function stampLoadedLegacyLimits(
   legacy: LegacyLimitStamps,
 ): VaultProviderMetadata {
   const written = { ...metadata.rateLimitWrittenAt }
+  let changed = false
   for (const [key, stamp] of Object.entries(legacy)) {
     if (
       metadata.rateLimitResetTimes?.[key] === stamp.reset &&
       written[key] == null
-    )
+    ) {
       written[key] = stamp.writtenAt
+      changed = true
+    }
   }
-  return { ...metadata, rateLimitWrittenAt: written }
+  return changed ? { ...metadata, rateLimitWrittenAt: written } : metadata
 }
 
 /**
@@ -546,11 +549,17 @@ export function createVaultSelectionState(
             ...selection,
             rateLimitResetTimes: current?.metadata?.rateLimitResetTimes,
             rateLimitWrittenAt: current?.metadata?.rateLimitWrittenAt,
-            rateLimitClearedAt:
-              Math.max(
-                current?.metadata?.rateLimitClearedAt ?? 0,
-                selection.rateLimitClearedAt ?? 0,
-              ) || undefined,
+            ...(Math.max(
+              current?.metadata?.rateLimitClearedAt ?? 0,
+              selection.rateLimitClearedAt ?? 0,
+            ) > 0
+              ? {
+                  rateLimitClearedAt: Math.max(
+                    current?.metadata?.rateLimitClearedAt ?? 0,
+                    selection.rateLimitClearedAt ?? 0,
+                  ),
+                }
+              : {}),
           },
           selection.rateLimitResetTimes ?? {},
           selection.rateLimitWrittenAt ?? {},

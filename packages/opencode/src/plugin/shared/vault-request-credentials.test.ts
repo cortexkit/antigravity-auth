@@ -283,10 +283,13 @@ describe('createVaultSelectionState', () => {
       source: {
         commitState: async (by, update) => {
           const current = file.accounts['identity-a']!
-          current.metadata = {
-            ...current.metadata!,
-            rateLimitResetTimes: { [key]: 199_000 },
-            rateLimitWrittenAt: { [key]: 300 },
+          file.accounts['identity-a'] = {
+            ...current,
+            metadata: {
+              ...current.metadata!,
+              rateLimitResetTimes: { [key]: 199_000 },
+              rateLimitWrittenAt: { [key]: 300 },
+            },
           }
           return file.commitState(by, update)
         },

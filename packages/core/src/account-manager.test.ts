@@ -913,6 +913,7 @@ describe('repository-backed AccountManager', () => {
           other: 1,
           gemini: now + 2_000,
         },
+        rateLimitWrittenAt: { claude: now, gemini: now },
         coolingDownUntil: now + 3_000,
         cooldownReason: 'network-error',
         lastSwitchReason: 'rate-limit',
@@ -1532,7 +1533,7 @@ describe('repository writes oracle', () => {
       ["flush"],
     ],
     applied: [
-      [{"id":"a","credentialEpoch":1,"identity":"acct-a"},{"kind":"set","metadata":{"addedAt":10,"lastUsed":1791374400000,"rateLimitResetTimes":{"claude":1791374402000},"lastSwitchReason":"rate-limit"}}],
+      [{"id":"a","credentialEpoch":1,"identity":"acct-a"},{"kind":"set","metadata":{"addedAt":10,"lastUsed":1791374400000,"rateLimitResetTimes":{"claude":1791374402000},"rateLimitWrittenAt":{"claude":1791374400000},"lastSwitchReason":"rate-limit"}}],
       [{"id":"b","credentialEpoch":1,"identity":"acct-b"},{"kind":"set","metadata":{"addedAt":10,"lastUsed":1791374403000,"lastSwitchReason":"rotation"}}],
       [{"id":"c","credentialEpoch":1},{"kind":"set","metadata":{"addedAt":10,"lastUsed":20}}],
     ],

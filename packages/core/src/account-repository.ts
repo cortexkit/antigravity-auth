@@ -631,10 +631,11 @@ function mergeSameCredential(
       incoming.rateLimitWrittenAt,
     )
   }
-  out.rateLimitClearedAt = latest(
+  const clearedAt = latest(
     stored.rateLimitClearedAt,
     incoming.rateLimitClearedAt,
   )
+  if (clearedAt !== undefined) out.rateLimitClearedAt = clearedAt
   const extensions = mergeExtensions(stored.extensions, incoming.extensions)
   if (extensions !== undefined) out.extensions = extensions
   return out
@@ -866,9 +867,25 @@ export function applyRateLimitReadingUpdate(
     rateLimitClearedAt: metadata.rateLimitClearedAt ?? undefined,
   }
   reconcileManualLimitClear(state)
-  if (reconcileRateLimitsFromReading(state, reading, now).length === 0)
-    return metadata
-  return { ...metadata, ...state }
+  const changed = reconcileRateLimitsFromReading(state, reading, now)
+  if (changed.length === 0) return metadata
+  const resets = { ...metadata.rateLimitResetTimes }
+  const written = { ...metadata.rateLimitWrittenAt }
+  for (const key of changed) {
+    const reset = state.rateLimitResetTimes[key]
+    if (reset === undefined) {
+      delete resets[key]
+      delete written[key]
+    } else {
+      resets[key] = reset
+      written[key] = state.rateLimitWrittenAt[key] ?? null
+    }
+  }
+  return {
+    ...metadata,
+    rateLimitResetTimes: resets,
+    rateLimitWrittenAt: written,
+  }
 }
 
 export function rateLimitReadingUpdateOf(
