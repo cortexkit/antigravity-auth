@@ -65,7 +65,8 @@ describe('vault menu projection', () => {
             ...by,
             accessToken: 'vault-access',
             projectId: 'vault-project',
-          } as Awaited<ReturnType<VaultRequestSource['admit']>>
+            expiresAtMs: null,
+          }
         },
         reportServedStatus: async () => false,
       },
