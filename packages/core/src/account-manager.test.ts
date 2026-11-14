@@ -1691,3 +1691,42 @@ describe('AccountManager account identity across refresh and replacement', () =>
     ])
   })
 })
+
+describe('issue69 pool-file reading persistence', () => {
+  it('issue69 a positive reading clears marks through store.mutate', async () => {
+    let now = 1_700_000_000_000
+    const key = 'gemini:gemini-3.8-flash'
+    const seeded: AccountStorageV4 = {
+      version: 4,
+      accounts: [
+        {
+          refreshToken: 'pool-file-refresh',
+          addedAt: 1,
+          lastUsed: 0,
+          rateLimitResetTimes: { [key]: now + 99_000_000 },
+          rateLimitWrittenAt: { [key]: now },
+        },
+      ],
+      activeIndex: 0,
+    }
+    const memory = createStore(seeded)
+    const manager = new AccountManager(undefined, seeded, {
+      store: memory.store,
+      now: () => now,
+    })
+    try {
+      now++
+      manager.updateQuotaCache(0, {
+        gemini: { remainingFraction: 1, modelCount: 1 },
+      })
+      await manager.saveToDiskReplace()
+      expect(memory.mutations()).toBe(1)
+      expect(
+        memory.state()?.accounts[0]?.rateLimitResetTimes?.[key],
+      ).toBeUndefined()
+      expect(memory.state()?.accounts[0]?.cachedQuotaUpdatedAt).toBe(now)
+    } finally {
+      await manager.dispose()
+    }
+  })
+})

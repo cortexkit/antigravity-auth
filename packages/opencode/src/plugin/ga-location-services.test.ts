@@ -4664,9 +4664,12 @@ describe('GA drawer account actions through native RPC', () => {
               (section) => section.id === 'accounts',
             )
             expect(accounts?.actions).toEqual([])
-            expect(accounts?.items.flatMap((entry) => entry.actions)).toEqual(
-              [],
-            )
+            // Clear limits changes vault provider state, not local credentials.
+            expect(
+              accounts?.items.flatMap((entry) =>
+                entry.actions.map((action) => action.id),
+              ),
+            ).toEqual(mode === 'unreadable' ? [] : ['clear-limits'])
             expect(
               answer.menu.sections.find((section) => section.id === 'accounts')
                 ?.actions,

@@ -694,10 +694,11 @@ export class AccountSelector<A extends SelectableAccount> {
     return result
   }
 
-  reconcileQuotaReading(account: A): void {
+  /** Disable persistence when the caller already writes the reading under its lock. */
+  reconcileQuotaReading(account: A, persist = true): void {
     reconcileManualLimitClear(account)
     const stamped = stampRateLimitWrites(account, this.now())
-    for (const key of stamped) {
+    for (const key of persist ? stamped : []) {
       this.sink.rateLimit?.(
         account,
         key as QuotaKey,
@@ -712,13 +713,14 @@ export class AccountSelector<A extends SelectableAccount> {
     const cleared = reconcileRateLimitsFromReading(account, reading, this.now())
     // Even an empty local map may hide a mark written by another process.
     if (
+      persist &&
       reading.checkedAt !== undefined &&
       reading.checkedAt > 0 &&
       reading.checkedAt <= this.now() &&
       Number.isFinite(reading.checkedAt)
     )
       this.sink.readingUpdate?.(account, reading)
-    if (stamped.length || cleared.length) this.sink.requestSave?.()
+    if (persist && (stamped.length || cleared.length)) this.sink.requestSave?.()
   }
 
   /**

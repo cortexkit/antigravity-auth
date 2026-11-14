@@ -732,6 +732,7 @@ for (const scenario of [
       let quotaSignal: AbortSignal | undefined
       let disposeLocal: (() => Promise<void>) | undefined
       let recordQuotaAttempts = 0
+      let metadataAttemptsAfterSwitch = 0
       let underlyingQuotaWrites = 0
       let failRequiredRefresh = false
       let tokenRefreshes = 0
@@ -871,6 +872,13 @@ for (const scenario of [
           }
           const repository = new Proxy(input.repository, {
             get(target, key) {
+              if (key === 'updateMetadata')
+                return (
+                  ...args: Parameters<AccountRepository['updateMetadata']>
+                ) => {
+                  if (mode !== 'local') metadataAttemptsAfterSwitch++
+                  return target.updateMetadata(...args)
+                }
               return key === 'recordQuota'
                 ? recordQuota
                 : Reflect.get(target, key)
@@ -1249,6 +1257,7 @@ for (const scenario of [
         ])
       }
       expect(underlyingQuotaWrites).toBe(0)
+      expect(metadataAttemptsAfterSwitch).toBe(0)
       expect(refusals).toHaveLength(hungQuota || expiredQuota ? 0 : 1)
       if (!hungQuota && !expiredQuota) {
         expect(refusals[0]).toBeInstanceOf(Error)

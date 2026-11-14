@@ -3569,6 +3569,93 @@ describe('native account roster publication', () => {
 })
 
 describe('issue69 legacy local upgrade', () => {
+  for (const pendingMark of [false, true]) {
+    it(
+      pendingMark
+        ? 'issue69 a stale pending mark cannot resurrect after recordQuota clears it'
+        : 'issue69 quota cache reading clears persisted marks with exactly one metadata write',
+      async () => {
+        await withPool(async (pool) => {
+          let metadataWrites = 0
+          const repository = pool.open(
+            undefined,
+            {},
+            {
+              fs: pool.fs,
+              store: {
+                ...pool.module,
+                openPoolStore: (options) => {
+                  const store = pool.module.openPoolStore(options)
+                  return new Proxy(store, {
+                    get(target, key) {
+                      const value: unknown = Reflect.get(target, key, target)
+                      if (key === 'updateProviderState')
+                        return (
+                          ...args: Parameters<typeof store.updateProviderState>
+                        ) => {
+                          metadataWrites++
+                          return store.updateProviderState(...args)
+                        }
+                      return typeof value === 'function'
+                        ? value.bind(target)
+                        : value
+                    },
+                  })
+                },
+              },
+            },
+          )
+          let now = Date.now()
+          const key = 'gemini:gemini-3.8-flash'
+          await repository.login(
+            login('issue69-single-write', 'issue69-single-refresh', {
+              rateLimitResetTimes: { [key]: now + 99_000_000 },
+              rateLimitWrittenAt: { [key]: now - 1 },
+            }),
+          )
+          const manager = AccountManager.fromRepository(
+            await repository.read(),
+            {
+              repository,
+              now: () => now,
+            },
+          )
+          try {
+            await manager.flushSaveToDisk()
+            metadataWrites = 0
+            if (pendingMark)
+              manager.markRateLimited(
+                manager.getAccounts()[0]!,
+                99_000_000,
+                'gemini',
+                'gemini-3.8-flash',
+              )
+            now++
+            manager.updateQuotaCache(0, {
+              gemini: { remainingFraction: 1, modelCount: 1 },
+            })
+            // Let recordQuota clear persisted state before the older queued mark lands.
+            await repository.settled()
+            expect(
+              (await metadataOf(repository, 'issue69-single-write'))
+                .rateLimitResetTimes?.[key],
+            ).toBeUndefined()
+            expect(metadataWrites).toBe(1)
+            await manager.flushSaveToDisk()
+            expect(
+              (await metadataOf(repository, 'issue69-single-write'))
+                .rateLimitResetTimes?.[key],
+            ).toBeUndefined()
+            expect(metadataWrites).toBe(pendingMark ? 2 : 1)
+          } finally {
+            await manager.dispose()
+          }
+        })
+      },
+      STORE_TEST_TIMEOUT_MS,
+    )
+  }
+
   it(
     'issue69 local legacy load stamps persist and a newer reading removes the stored mark',
     async () => {

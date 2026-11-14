@@ -1993,7 +1993,20 @@ export class AccountManager {
       account.parts.refreshToken,
     )
     account.cachedQuotaUpdatedAt = this.now()
-    this.selection.reconcileQuotaReading(account)
+    // recordQuota reconciles repository metadata under its lock; do not queue a
+    // second write. Without a repository, the selector must request a file save.
+    this.selection.reconcileQuotaReading(account, this.repository === undefined)
+    const pending = account.ref
+      ? this.pendingRowWrites.get(rowRefKey(account.ref))
+      : undefined
+    // An older queued mark may land after recordQuota, so reconcile it again
+    // when the queued write takes the metadata lock.
+    if (pending)
+      pending.readingUpdate = structuredClone({
+        kind: 'quota-reading',
+        checkedAt: account.cachedQuotaUpdatedAt,
+        quota: account.cachedQuota,
+      })
     // A separate attributed write from the tier; the per-model readings the
     // store keeps are left as they are because this reading carries none.
     const reading: QuotaState = {
