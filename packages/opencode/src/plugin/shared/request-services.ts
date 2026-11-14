@@ -2711,6 +2711,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               )
 
               if (response.status === 429 && rateLimitReason === 'UNKNOWN') {
+                await logResponseBody(debugContext, response, 429)
                 // Inspect the actual wire instruction, not conversation or tool text.
                 const outgoing = JSON.parse(String(prepared.init.body))
                 const recognised = systemInstructionHasHarnessIdentity(

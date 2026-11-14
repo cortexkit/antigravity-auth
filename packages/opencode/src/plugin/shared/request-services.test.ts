@@ -8484,6 +8484,13 @@ describe('createRequestExecutor optional vault routing', () => {
   for (const status of [401, 403, 404, 503, 429]) {
     it(`does not report a terminal ${status} refusal`, async () =>
       routing(async (state) => {
+        const clock = vaultWaitClock()
+        const timer = spyOn(globalThis, 'setTimeout').mockImplementation(
+          clock.setTimeoutImpl as typeof setTimeout,
+        )
+        const clear = spyOn(globalThis, 'clearTimeout').mockImplementation(
+          clock.clearTimeoutImpl as typeof clearTimeout,
+        )
         const h = harness({
           config: { max_account_switches: 0, max_rate_limit_wait_seconds: 0 },
           respond: async () =>
@@ -8497,10 +8504,12 @@ describe('createRequestExecutor optional vault routing', () => {
         )
         try {
           await (
-            await executor.execute(
-              NON_STREAM_URL,
-              CHAT_INIT(),
-              session(`refusal-${status}`),
+            await clock.drive(
+              executor.execute(
+                NON_STREAM_URL,
+                CHAT_INIT(),
+                session(`refusal-${status}`),
+              ),
             )
           ).text()
           // Wait reports describe retries, not terminal routing outcomes.
@@ -8515,6 +8524,8 @@ describe('createRequestExecutor optional vault routing', () => {
           ).toEqual([])
         } finally {
           await executor.dispose()
+          timer.mockRestore()
+          clear.mockRestore()
         }
       }))
   }
