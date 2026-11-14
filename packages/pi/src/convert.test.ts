@@ -660,3 +660,134 @@ describe('Pi tool schema wire normalization', () => {
     })
   })
 })
+
+describe('Pi system prompt sanitization', () => {
+  function systemText(request: ReturnType<typeof buildGeminiRequest>) {
+    const part = request.systemInstruction?.parts[0]
+    return part && 'text' in part ? part.text : undefined
+  }
+
+  const cases: Array<[string, string, string]> = [
+    [
+      'default Pi preamble',
+      'You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.',
+      'You are a coding assistant running inside your development environment. Help users inspect files, run commands, and modify code.',
+    ],
+    [
+      'short Pi preamble',
+      'You are a coding assistant running inside pi. Be brief.',
+      'You are a coding assistant running inside your development environment. Be brief.',
+    ],
+    [
+      'uppercase Pi preamble',
+      'You are a coding assistant RUNNING INSIDE PI.',
+      'You are a coding assistant running inside your development environment.',
+    ],
+    [
+      'coding agent inside pi',
+      'A coding agent inside pi should be concise.',
+      'A coding agent inside your development environment should be concise.',
+    ],
+    [
+      'default Pi-Bolt preamble',
+      'You are a coding assistant running inside Pi-Bolt, a build of pi (a coding agent harness) compiled ahead of time. Help users inspect files, run commands, and modify code.',
+      'You are a coding assistant running inside your development environment. Help users inspect files, run commands, and modify code.',
+    ],
+    [
+      'short Pi-Bolt preamble',
+      'You are a coding assistant running inside Pi-Bolt. Be brief.',
+      'You are a coding assistant running inside your development environment. Be brief.',
+    ],
+    [
+      'coding agent inside Pi-Bolt',
+      'A coding agent inside Pi-Bolt should be concise.',
+      'A coding agent inside your development environment should be concise.',
+    ],
+    [
+      'standalone Pi-Bolt build phrase',
+      'inside Pi-Bolt, a build of pi (a coding agent harness) compiled ahead of time',
+      'inside your development environment',
+    ],
+    [
+      'standalone running inside pi',
+      'running inside pi',
+      'running inside your development environment',
+    ],
+    [
+      'standalone running inside Pi-Bolt',
+      'running inside Pi-Bolt',
+      'running inside your development environment',
+    ],
+    [
+      'standalone RUNNING INSIDE PI',
+      'RUNNING INSIDE PI',
+      'running inside your development environment',
+    ],
+  ]
+
+  for (const [name, input, expected] of cases) {
+    it(`rewrites the ${name} in a flat systemPrompt`, () => {
+      const request = buildGeminiRequest(ctx({ systemPrompt: input }))
+      expect(systemText(request)).toBe(expected)
+    })
+  }
+
+  it('rewrites the default Pi preamble replayed from a SystemMessage transcript', () => {
+    const request = buildGeminiRequest(
+      normalizeContext({
+        systemPrompt:
+          'You are a coding assistant running inside pi, a coding agent harness. Help users inspect files, run commands, and modify code.',
+        messages: [{ role: 'user', content: 'hi', timestamp: 1 }],
+      }),
+    )
+    expect(systemText(request)).toBe(
+      'You are a coding assistant running inside your development environment. Help users inspect files, run commands, and modify code.',
+    )
+  })
+
+  it('rewrites the default Pi-Bolt preamble replayed from a SystemMessage transcript', () => {
+    const request = buildGeminiRequest(
+      normalizeContext({
+        systemPrompt:
+          'You are a coding assistant running inside Pi-Bolt, a build of pi (a coding agent harness) compiled ahead of time. Help users inspect files, run commands, and modify code.',
+        messages: [{ role: 'user', content: 'hi', timestamp: 1 }],
+      }),
+    )
+    expect(systemText(request)).toBe(
+      'You are a coding assistant running inside your development environment. Help users inspect files, run commands, and modify code.',
+    )
+  })
+
+  it('leaves identifiers and filenames in the systemPrompt unchanged', () => {
+    const input =
+      'Keep files running inside pi.js and running inside pi-bolt.js untouched.'
+    const request = buildGeminiRequest(ctx({ systemPrompt: input }))
+    expect(systemText(request)).toBe(input)
+  })
+
+  it('leaves user and assistant message contents unchanged', () => {
+    const phrase = 'You are a coding assistant running inside pi.'
+    const request = buildGeminiRequest(
+      ctx({
+        systemPrompt: phrase,
+        messages: [
+          { role: 'user', content: phrase, timestamp: 0 },
+          assistant({
+            content: [{ type: 'text', text: phrase }],
+            api: 'google-generative-ai',
+            provider: 'google',
+            model: 'antigravity-gemini-3.5-flash',
+            stopReason: 'stop',
+          }),
+        ],
+      }),
+    )
+    expect(systemText(request)).toBe(
+      'You are a coding assistant running inside your development environment.',
+    )
+    expect(request.contents).toEqual([
+      { role: 'user', parts: [{ text: phrase }] },
+      { role: 'model', parts: [{ text: phrase }] },
+    ])
+  })
+})

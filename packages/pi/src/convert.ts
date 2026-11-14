@@ -52,6 +52,34 @@ function sanitize(text: string): string {
   return text.replace(/[\uD800-\uDFFF]/gu, '\uFFFD')
 }
 
+function sanitizeSystemPrompt(text: string): string {
+  return text
+    .replace(
+      /running inside pi-bolt,\s*a build of pi\s*\(a coding agent harness\)\s*compiled ahead of time/gi,
+      'running inside your development environment',
+    )
+    .replace(
+      /inside pi-bolt,\s*a build of pi\s*\(a coding agent harness\)\s*compiled ahead of time/gi,
+      'inside your development environment',
+    )
+    .replace(
+      /running inside pi(?:-bolt)?,\s*a coding agent harness/gi,
+      'running inside your development environment',
+    )
+    .replace(
+      /inside pi(?:-bolt)?,\s*a coding agent harness/gi,
+      'inside your development environment',
+    )
+    .replace(
+      /\brunning inside pi(?:-bolt)?(?=[.,!?;:\s]|$)(?!\.\w)/gi,
+      'running inside your development environment',
+    )
+    .replace(
+      /(coding agent )inside pi(?:-bolt)?(?=[.,!?;:\s]|$)(?!\.\w)/gi,
+      '$1inside your development environment',
+    )
+}
+
 function convertUserParts(
   content: Array<TextContent | ImageContent>,
 ): GeminiPart[] {
@@ -295,7 +323,7 @@ export function buildGeminiRequest(
   if (systemPrompt.trim()) {
     request.systemInstruction = {
       role: 'system',
-      parts: [{ text: sanitize(systemPrompt) }],
+      parts: [{ text: sanitizeSystemPrompt(sanitize(systemPrompt)) }],
     }
   }
 
