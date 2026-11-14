@@ -57,7 +57,8 @@ export const ANTIGRAVITY_MENU_DISABLED_REASON = 'disabled from the command menu'
 export type AntigravityMenuAccounts = Pick<
   AccountRepository,
   'read' | 'setEnabled' | 'remove' | 'selectAccount'
->
+> &
+  Partial<Pick<AccountRepository, 'updateMetadata'>>
 
 /** Account selection and killswitch values shown by the settings sections. */
 export interface AntigravityMenuSettings {
@@ -653,6 +654,25 @@ function accountsSection(
           ...(options.reauthorize
             ? [reauthorizeAction(options.reauthorize, ref)]
             : []),
+          ...(accounts.updateMetadata
+            ? [
+                clearLimitsAction(async () => {
+                  await accounts.updateMetadata!(ref, (metadata) =>
+                    metadata
+                      ? {
+                          kind: 'set',
+                          metadata: {
+                            ...metadata,
+                            rateLimitResetTimes: {},
+                            rateLimitWrittenAt: {},
+                            rateLimitClearedAt: now(),
+                          },
+                        }
+                      : { kind: 'keep' },
+                  )
+                }),
+              ]
+            : []),
         ]
         return {
           id: ids.idFor(ref),
@@ -676,6 +696,27 @@ function accountsSection(
             : [`${items.length} accounts`],
         items,
         actions: sectionActions,
+      }
+    },
+  }
+}
+
+/** Fixed text keeps account identity and upstream error details out of refusals. */
+export function clearLimitsAction(
+  clear: () => Promise<void>,
+): ActionDefinition {
+  return {
+    id: 'clear-limits',
+    label: 'Clear limits',
+    run: async () => {
+      try {
+        await clear()
+        return 'Limits cleared.'
+      } catch {
+        return failure(
+          'Limits could not be cleared. Refresh and try again.',
+          'refused',
+        )
       }
     },
   }

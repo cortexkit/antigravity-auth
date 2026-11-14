@@ -117,6 +117,11 @@ import {
   type TierObservation,
   type UsageObservation,
 } from './account-repository-types.ts'
+import {
+  type RateLimitReadingUpdate,
+  reconcileManualLimitClear,
+  reconcileRateLimitsFromReading,
+} from './account-selector.ts'
 
 // ---------------------------------------------------------------------------
 // The store capabilities this repository uses
@@ -620,6 +625,16 @@ function mergeSameCredential(
       incoming.rateLimitResetTimes,
     )
   }
+  if (incoming.rateLimitWrittenAt !== undefined) {
+    out.rateLimitWrittenAt = mergeRateLimitResets(
+      stored.rateLimitWrittenAt,
+      incoming.rateLimitWrittenAt,
+    )
+  }
+  out.rateLimitClearedAt = latest(
+    stored.rateLimitClearedAt,
+    incoming.rateLimitClearedAt,
+  )
   const extensions = mergeExtensions(stored.extensions, incoming.extensions)
   if (extensions !== undefined) out.extensions = extensions
   return out
@@ -802,14 +817,91 @@ export function applyCooldownObservation(
 export function applyRateLimitObservation(
   metadata: ProviderMetadata,
   resets: Readonly<StoredRateLimitResetTimes>,
+  writtenAt: Readonly<StoredRateLimitResetTimes> = {},
 ): ProviderMetadata {
-  return {
+  const next = {
     ...metadata,
     rateLimitResetTimes: mergeRateLimitResets(
       metadata.rateLimitResetTimes,
       resets,
     ),
+    rateLimitWrittenAt: mergeRateLimitResets(
+      metadata.rateLimitWrittenAt,
+      writtenAt,
+    ),
   }
+  if (metadata.rateLimitClearedAt != null) {
+    const state = {
+      rateLimitResetTimes: numericLimits(next.rateLimitResetTimes),
+      rateLimitWrittenAt: numericLimits(next.rateLimitWrittenAt),
+      rateLimitClearedAt: metadata.rateLimitClearedAt,
+    }
+    reconcileManualLimitClear(state)
+    return { ...next, ...state }
+  }
+  return next
+}
+
+export function clearAccountLimits(
+  metadata: ProviderMetadata,
+  at: number,
+): ProviderMetadata {
+  return {
+    ...metadata,
+    rateLimitResetTimes: {},
+    rateLimitWrittenAt: {},
+    rateLimitClearedAt: at,
+  }
+}
+
+/** Explicit reading-driven changes, called with metadata read under the row/state lock. */
+export function applyRateLimitReadingUpdate(
+  metadata: ProviderMetadata,
+  reading: RateLimitReadingUpdate,
+  now: number,
+): ProviderMetadata {
+  const state = {
+    rateLimitResetTimes: numericLimits(metadata.rateLimitResetTimes),
+    rateLimitWrittenAt: numericLimits(metadata.rateLimitWrittenAt),
+    rateLimitClearedAt: metadata.rateLimitClearedAt ?? undefined,
+  }
+  reconcileManualLimitClear(state)
+  if (reconcileRateLimitsFromReading(state, reading, now).length === 0)
+    return metadata
+  return { ...metadata, ...state }
+}
+
+export function rateLimitReadingUpdateOf(
+  quota: QuotaState,
+): RateLimitReadingUpdate {
+  const groups: NonNullable<RateLimitReadingUpdate['quota']> = {}
+  for (const name of ['gemini', 'non-gemini', 'gemini-argon'] as const) {
+    const group = quota.cachedQuota?.[name]
+    if (group)
+      groups[name] = {
+        modelCount: group.modelCount,
+        ...(group.remainingFraction != null
+          ? { remainingFraction: group.remainingFraction }
+          : {}),
+        ...(group.resetTime != null ? { resetTime: group.resetTime } : {}),
+        ...(group.windows != null ? { windows: group.windows } : {}),
+      }
+  }
+  return {
+    kind: 'quota-reading',
+    checkedAt: quota.cachedQuotaUpdatedAt ?? undefined,
+    quota: groups,
+  }
+}
+
+function numericLimits(
+  values: StoredRateLimitResetTimes | null | undefined,
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(values ?? {}).filter(
+      (entry): entry is [string, number] => typeof entry[1] === 'number',
+    ),
+  )
 }
 
 export function applySwitch(
@@ -2478,7 +2570,11 @@ class StoreAccountRepository implements AccountRepository {
 
   recordRateLimits(ref: RowRef, resets: Readonly<StoredRateLimitResetTimes>) {
     return this.applyToMetadata('recordRateLimits', ref, (m) =>
-      applyRateLimitObservation(m, resets),
+      applyRateLimitObservation(
+        m,
+        resets,
+        Object.fromEntries(Object.keys(resets).map((key) => [key, this.now()])),
+      ),
     )
   }
 
@@ -2564,6 +2660,18 @@ class StoreAccountRepository implements AccountRepository {
         )
       }
       await this.store.recordQuota(ref.id, credentialFenceOf(ref), encoded)
+      await this.updateMetadata(ref, (metadata) =>
+        metadata
+          ? {
+              kind: 'set',
+              metadata: applyRateLimitReadingUpdate(
+                metadata,
+                rateLimitReadingUpdateOf(observation),
+                this.now(),
+              ),
+            }
+          : { kind: 'keep' },
+      )
     })
   }
 

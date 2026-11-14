@@ -4391,6 +4391,48 @@ describe('GA drawer account actions through native RPC', () => {
   )
 
   ownedIt(
+    'issue69 drawer Clear limits refreshes the sidebar and live routing state',
+    async (scope) => {
+      const fixture = await transportLocation(scope, 'local', {}, 1)
+      const { client, view, snapshot } = await drawer(scope, fixture)
+      const manager = fixture.runtime.accounts()
+      if (!(manager instanceof AccountManager))
+        throw new Error('Missing local manager')
+      const row = manager.getAccounts()[0]!
+      manager.markRateLimited(
+        row,
+        65 * 60 * 60 * 1000,
+        'gemini',
+        'gemini-3.8-flash',
+      )
+      await manager.flushSaveToDisk()
+      const item = view.menu.sections.find(
+        (section) => section.id === 'accounts',
+      )?.items[0]
+      expect(
+        item?.actions.find((action) => action.id === 'clear-limits')?.label,
+      ).toBe('Clear limits')
+      const result = await client.apply(sessionless, {
+        request: view.request({
+          command: 'antigravity',
+          sectionId: 'accounts',
+          itemId: item!.id,
+          actionId: 'clear-limits',
+          values: {},
+        }),
+      })
+      expect(result.ok).toBe(true)
+      const after = await client.pull(sessionless)
+      if (after.kind !== 'snapshot')
+        throw new Error('Missing refreshed sidebar')
+      expect(after.snapshot.readSeq).toBeGreaterThan(snapshot.readSeq)
+      expect(manager.isRateLimited(row, 'gemini', 'gemini-3.8-flash')).toBe(
+        false,
+      )
+    },
+  )
+
+  ownedIt(
     'drawer account routing and settings controls dispatch the issued server actions',
     async (scope) => {
       const fixture = await transportLocation(scope, 'local', {}, 2)

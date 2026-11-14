@@ -4,6 +4,7 @@ import {
   AccountRepositoryError,
   applyCooldownObservation,
   applyRateLimitObservation,
+  applyRateLimitReadingUpdate,
   applySwitch,
 } from './account-repository.ts'
 import type {
@@ -28,6 +29,8 @@ import {
   AccountSelector,
   type AccountSessionIdentity,
   clampNonNegativeInt,
+  type RateLimitReadingUpdate,
+  reconcileManualLimitClear,
   type SelectableAccount,
   type SelectionSink,
 } from './account-selector.ts'
@@ -214,6 +217,8 @@ interface PendingRowWrite {
   ref: RowRef
   /** Per rate-limit key: a reset time to merge, or `clear` to drop it. */
   rateLimits: Map<string, number | 'clear'>
+  rateLimitWrittenAt?: Record<string, number>
+  readingUpdate?: RateLimitReadingUpdate
   cooldown?: { value: CooldownObservation }
   switchReason?: LastSwitchReason
   lastUsed?: number
@@ -223,6 +228,7 @@ interface PendingRowWrite {
 function applyPendingRowWrite(
   metadata: ProviderMetadata,
   pending: PendingRowWrite,
+  now: number,
 ): ProviderMetadata {
   let next = metadata
   const resets: Record<string, number> = {}
@@ -232,13 +238,17 @@ function applyPendingRowWrite(
     else resets[key] = value
   }
   if (Object.keys(resets).length > 0) {
-    next = applyRateLimitObservation(next, resets)
+    next = applyRateLimitObservation(next, resets, pending.rateLimitWrittenAt)
   }
   if (cleared.length > 0 && next.rateLimitResetTimes != null) {
     const rates = { ...next.rateLimitResetTimes }
     for (const key of cleared) delete rates[key]
-    next = { ...next, rateLimitResetTimes: rates }
+    const written = { ...next.rateLimitWrittenAt }
+    for (const key of cleared) delete written[key]
+    next = { ...next, rateLimitResetTimes: rates, rateLimitWrittenAt: written }
   }
+  if (pending.readingUpdate)
+    next = applyRateLimitReadingUpdate(next, pending.readingUpdate, now)
   if (pending.cooldown !== undefined) {
     next = applyCooldownObservation(next, pending.cooldown.value)
   }
@@ -523,6 +533,8 @@ export class AccountManager {
             expires: matchesFallback ? authFallback?.expires : undefined,
             enabled: acc.enabled !== false,
             rateLimitResetTimes: acc.rateLimitResetTimes ?? {},
+            rateLimitWrittenAt: { ...acc.rateLimitWrittenAt },
+            rateLimitClearedAt: acc.rateLimitClearedAt,
             lastSwitchReason: acc.lastSwitchReason,
             coolingDownUntil: acc.coolingDownUntil,
             cooldownReason: acc.cooldownReason,
@@ -648,6 +660,15 @@ export class AccountManager {
       rateLimit: (account, key, resetAt) =>
         this.queueRowWrite(account, (pending) => {
           pending.rateLimits.set(key, resetAt)
+          const at = account.rateLimitWrittenAt?.[key]
+          if (at !== undefined) {
+            pending.rateLimitWrittenAt ??= {}
+            pending.rateLimitWrittenAt[key] = at
+          }
+        }),
+      readingUpdate: (account, reading) =>
+        this.queueRowWrite(account, (pending) => {
+          pending.readingUpdate = structuredClone(reading)
         }),
       cooldown: (account, value) =>
         this.queueRowWrite(account, (pending) => {
@@ -759,6 +780,12 @@ export class AccountManager {
       expires: credential.expiresAt,
       enabled: row.enabled,
       rateLimitResetTimes,
+      rateLimitWrittenAt: Object.fromEntries(
+        Object.entries(meta?.rateLimitWrittenAt ?? {}).filter(
+          (entry): entry is [string, number] => typeof entry[1] === 'number',
+        ),
+      ),
+      rateLimitClearedAt: meta?.rateLimitClearedAt ?? undefined,
       lastSwitchReason: present(meta?.lastSwitchReason),
       coolingDownUntil: present(meta?.coolingDownUntil),
       cooldownReason: present(meta?.cooldownReason),
@@ -986,7 +1013,11 @@ export class AccountManager {
     prior.enabled = fresh.enabled
 
     const rates: RateLimitStateV3 = { ...fresh.rateLimitResetTimes }
+    const written: RateLimitStateV3 = { ...fresh.rateLimitWrittenAt }
     for (const [key, value] of Object.entries(prior.rateLimitResetTimes)) {
+      written[key] =
+        Math.max(written[key] ?? 0, prior.rateLimitWrittenAt?.[key] ?? 0) ||
+        undefined
       const stored = rates[key]
       if (value !== undefined && (stored === undefined || value > stored)) {
         rates[key] = value
@@ -996,6 +1027,11 @@ export class AccountManager {
       if (value === 'clear') delete rates[key]
     }
     prior.rateLimitResetTimes = rates
+    prior.rateLimitWrittenAt = written
+    prior.rateLimitClearedAt =
+      Math.max(prior.rateLimitClearedAt ?? 0, fresh.rateLimitClearedAt ?? 0) ||
+      undefined
+    reconcileManualLimitClear(prior)
     if (pending?.cooldown === undefined) {
       prior.coolingDownUntil = fresh.coolingDownUntil
       prior.cooldownReason = fresh.cooldownReason
@@ -1134,6 +1170,11 @@ export class AccountManager {
         if (!newer.rateLimits.has(rateKey)) newer.rateLimits.set(rateKey, value)
       }
       newer.cooldown ??= failed.cooldown
+      newer.rateLimitWrittenAt = {
+        ...failed.rateLimitWrittenAt,
+        ...newer.rateLimitWrittenAt,
+      }
+      newer.readingUpdate ??= failed.readingUpdate
       newer.switchReason ??= failed.switchReason
       if (
         failed.lastUsed !== undefined &&
@@ -1194,6 +1235,7 @@ export class AccountManager {
           metadata: applyPendingRowWrite(
             current ?? { addedAt: row.storeAddedAt ?? this.now(), lastUsed: 0 },
             pending,
+            this.now(),
           ),
         }))
         .catch((error: unknown) => {
@@ -1315,6 +1357,7 @@ export class AccountManager {
       ...a,
       parts: { ...a.parts },
       rateLimitResetTimes: { ...a.rateLimitResetTimes },
+      rateLimitWrittenAt: { ...a.rateLimitWrittenAt },
     }))
   }
 
@@ -1726,6 +1769,8 @@ export class AccountManager {
         // for a different account after an index shift.
         cachedQuotaAccountId: a.cachedQuotaAccountId,
         cachedQuotaUpdatedAt: a.cachedQuotaUpdatedAt,
+        rateLimitWrittenAt: a.rateLimitWrittenAt,
+        rateLimitClearedAt: a.rateLimitClearedAt,
         capturedTierId: a.capturedTierId,
         capturedPaidTierId: a.capturedPaidTierId,
         capturedTierAt: a.capturedTierAt,
@@ -1948,6 +1993,7 @@ export class AccountManager {
       account.parts.refreshToken,
     )
     account.cachedQuotaUpdatedAt = this.now()
+    this.selection.reconcileQuotaReading(account)
     // A separate attributed write from the tier; the per-model readings the
     // store keeps are left as they are because this reading carries none.
     const reading: QuotaState = {

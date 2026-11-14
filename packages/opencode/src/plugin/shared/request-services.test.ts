@@ -2066,6 +2066,57 @@ describe('createRequestExecutor quota reset text', () => {
   const message =
     'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 4h9m10s.  [Debug Info] Requested Model: antigravity-gemini-3.8-flash'
 
+  it('issue69 long refusal with positive quota takes the ladder and later sends a small request', async () => {
+    let now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const h = harness({
+      pool: makePool(2),
+      respond: async (_call, index) =>
+        index === 0
+          ? new Response(
+              JSON.stringify({
+                error: {
+                  code: 429,
+                  status: 'RESOURCE_EXHAUSTED',
+                  message: 'Individual quota reached. Quota resets in 65h.',
+                  details: [
+                    {
+                      '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                      reason: 'QUOTA_EXHAUSTED',
+                    },
+                  ],
+                },
+              }),
+              { status: 429 },
+            )
+          : okJson(),
+      config: { max_rate_limit_wait_seconds: 1 },
+    })
+    const first = h.pool.getAccounts()[0]!
+    h.pool.updateQuotaCache(0, {
+      gemini: { remainingFraction: 0.8, modelCount: 1 },
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(200)
+      await response.text()
+      expect(first.rateLimitResetTimes[`gemini:${model}`]).toBe(
+        FIXED_NOW + 60_000,
+      )
+      h.pool.setAccountEnabled(1, false)
+      now += 60_001
+      const small = await executor.execute(url, CHAT_INIT())
+      expect(small.status).toBe(200)
+      await small.text()
+      expect(h.calls).toHaveLength(3)
+      expect(h.refreshedAccounts.at(-1)).toBe(first)
+    } finally {
+      await executor.dispose()
+      date.mockRestore()
+    }
+  })
+
   async function assertHold(
     text: string,
     expectedDelayMs: number,
@@ -2073,6 +2124,7 @@ describe('createRequestExecutor quota reset text', () => {
     headers?: HeadersInit,
   ) {
     let now = FIXED_NOW
+    const storedDelayMs = expectedDelayMs > 7_200_000 ? 60_000 : expectedDelayMs
     const date = spyOn(Date, 'now').mockImplementation(() => now)
     const h = harness({
       pool: makePool(2),
@@ -2127,15 +2179,15 @@ describe('createRequestExecutor quota reset text', () => {
         h.deps.config.failure_ttl_seconds * 1000,
       )
       expect(first.rateLimitResetTimes).toEqual({
-        [`gemini:${model}`]: FIXED_NOW + expectedDelayMs,
+        [`gemini:${model}`]: FIXED_NOW + storedDelayMs,
       })
       expect(first.enabled).toBe(true)
       expect(selectFirst('antigravity-gemini-3.1-pro')).toBe(first)
-      now = FIXED_NOW + expectedDelayMs - 1
+      now = FIXED_NOW + storedDelayMs - 1
       expect(h.pool.isRateLimited(first, 'gemini', model)).toBe(true)
       expect(selectFirst()).toBeNull()
       expect(h.pool.getCurrentOrNextForFamily('gemini', model)).toBe(second)
-      now = FIXED_NOW + expectedDelayMs + 1
+      now = FIXED_NOW + storedDelayMs + 1
       expect(h.pool.isRateLimited(first, 'gemini', model)).toBe(false)
       expect(selectFirst()).toBe(first)
     } finally {
@@ -2145,11 +2197,44 @@ describe('createRequestExecutor quota reset text', () => {
     }
   }
 
-  it('individual quota Resets in holds the account model until the supplied reset', async () => {
+  it('issue69 a newer positive reading unblocks the next engine send', async () => {
+    let now = FIXED_NOW
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const h = harness({
+      respond: async () => okJson(),
+      config: { max_rate_limit_wait_seconds: 1 },
+    })
+    const row = h.pool.getAccounts()[0]!
+    h.pool.markRateLimited(row, 65 * 60 * 60 * 1000, 'gemini', model)
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const blocked = await executor.execute(url, CHAT_INIT())
+      expect(blocked.status).toBe(412)
+      await blocked.body?.cancel()
+      expect(h.calls).toHaveLength(0)
+      now += 1
+      h.pool.updateQuotaCache(0, {
+        gemini: {
+          remainingFraction: 1,
+          modelCount: 1,
+          resetTime: new Date(now + 65 * 60 * 60 * 1000).toISOString(),
+        },
+      })
+      const response = await executor.execute(url, CHAT_INIT())
+      expect(response.status).toBe(200)
+      await response.text()
+      expect(h.calls).toHaveLength(1)
+    } finally {
+      await executor.dispose()
+      date.mockRestore()
+    }
+  })
+
+  it('individual quota Resets in without empty evidence uses the failure ladder', async () => {
     await assertHold(message, 14_950_000)
   })
 
-  it('reset after retains its existing account model hold', async () => {
+  it('reset after without empty evidence uses the failure ladder', async () => {
     await assertHold(
       'Individual quota reached. reset after 4h9m10s.',
       14_950_000,

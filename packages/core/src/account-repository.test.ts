@@ -90,6 +90,69 @@ function fingerprint(seed: string): StoredFingerprint {
   }
 }
 
+describe('issue69 locked reading clears', () => {
+  it(
+    'issue69 removes a postdated mark but retains concurrent newer marks',
+    async () => {
+      await withPool(async (pool) => {
+        const repository = pool.open()
+        const at = Date.now() - 10_000
+        const key = 'gemini:gemini-3.8-flash'
+        const { ref } = await repository.login(
+          login('issue69', 'issue69-refresh', {
+            rateLimitResetTimes: { [key]: at + 65 * 60 * 60 * 1000 },
+            rateLimitWrittenAt: { [key]: at },
+          }),
+        )
+        const reading = {
+          schemaVersion: 1 as const,
+          cachedQuotaUpdatedAt: at + 1,
+          cachedQuota: {
+            gemini: {
+              remainingFraction: 0.8,
+              modelCount: 1,
+              resetTime: new Date(at + 65 * 60 * 60 * 1000).toISOString(),
+            },
+          },
+        }
+        await repository.recordQuota(ref, reading)
+        expect(
+          (await metadataOf(repository, 'issue69')).rateLimitResetTimes?.[key],
+        ).toBeUndefined()
+
+        let unlock!: () => void
+        let entered!: () => void
+        const locked = new Promise<void>((resolve) => {
+          entered = resolve
+        })
+        const release = new Promise<void>((resolve) => {
+          unlock = resolve
+        })
+        const writer = repository.updateMetadata(ref, async (metadata) => {
+          entered()
+          await release
+          return {
+            kind: 'set',
+            metadata: {
+              ...metadata!,
+              rateLimitResetTimes: { [key]: at + 99_000_000 },
+              rateLimitWrittenAt: { [key]: at + 2 },
+            },
+          }
+        })
+        await locked
+        const clearer = repository.recordQuota(ref, reading)
+        unlock()
+        await Promise.all([writer, clearer])
+        expect(
+          (await metadataOf(repository, 'issue69')).rateLimitResetTimes?.[key],
+        ).toBe(at + 99_000_000)
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+})
+
 function envelope(metadata: ProviderMetadata): ProviderStateEnvelope {
   return { schemaVersion: 1, metadata }
 }

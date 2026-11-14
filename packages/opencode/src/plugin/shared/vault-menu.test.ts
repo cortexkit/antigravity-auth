@@ -2,6 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   ACCOUNT_MODELS_REFUSAL_TEXT,
   VAULT_ACCOUNT_REMEDY,
+  type VaultAccountState,
 } from '@cortexkit/antigravity-auth-core'
 import { createVaultAccountMenuSections } from './vault-menu'
 import {
@@ -33,6 +34,75 @@ function fixture(empty = false) {
 }
 
 describe('vault menu projection', () => {
+  it('issue69 Clear limits writes only vault state and refreshes the selected row', async () => {
+    const route = {
+      routeId: 'route',
+      credentialId: 'credential',
+      accountIdentity: 'identity',
+    }
+    const by = { ...route, recordVersion: 1 }
+    const reset = 99_000_000
+    let current: VaultAccountState = {
+      observed: by,
+      metadata: {
+        addedAt: 1,
+        lastUsed: 0,
+        rateLimitResetTimes: { 'gemini:gemini-3.8-flash': reset },
+        rateLimitWrittenAt: { 'gemini:gemini-3.8-flash': 1 },
+      },
+    }
+    let admissions = 0
+    let commits = 0
+    const pool = createVaultAccountPool({
+      now: () => 10_000,
+      source: {
+        refresh: async () => undefined,
+        routes: () => [route],
+        admit: async () => {
+          admissions++
+          return {
+            ...by,
+            accessToken: 'vault-access',
+            projectId: 'vault-project',
+          } as Awaited<ReturnType<VaultRequestSource['admit']>>
+        },
+        reportServedStatus: async () => false,
+      },
+      durable: {
+        readState: async () => ({
+          schemaVersion: 1,
+          accounts: { identity: current },
+        }),
+        source: {
+          attribution: () => by,
+          commitState: async (_by, update) => {
+            commits++
+            const next = update(current)
+            if (!next) return { status: 'unchanged' }
+            current = { ...next, observed: by }
+            return { status: 'written', state: current }
+          },
+        },
+      },
+    })
+    await pool.sync()
+    const sections = createVaultAccountMenuSections(pool, () => 'opaque-choice')
+    const invocation = { notify: () => {} }
+    const before = await sections.accounts.build(invocation)
+    const action = before.items?.[0]?.actions?.find(
+      (action) => action.id === 'clear-limits',
+    )
+    expect(action?.label).toBe('Clear limits')
+    expect(await action?.run({ values: {}, invocation })).toBe(
+      'Limits cleared.',
+    )
+    expect(current.metadata?.rateLimitResetTimes).toEqual({})
+    expect(pool.selector.rows[0]?.rateLimitResetTimes).toEqual({})
+    expect(admissions).toBe(1)
+    expect(commits).toBe(1)
+    await sections.accounts.build(invocation)
+    expect(pool.selector.rows[0]?.rateLimitResetTimes).toEqual({})
+  })
   it('renders committed routes while a first roster read is pending', async () => {
     const read = Promise.withResolvers<void>()
     let routes: ReturnType<VaultRequestSource['routes']> = []
@@ -97,7 +167,7 @@ describe('vault menu projection', () => {
         throw new Error('rendering must not notify')
       },
     })
-    expect(accounts).toEqual({
+    expect(accounts).toMatchObject({
       lines: ['1 account served from the vault'],
       items: [
         {

@@ -491,6 +491,8 @@ const metadataShape = {
     nullable(enumOf(['rate-limit', 'initial', 'rotation'] as const)),
   ),
   rateLimitResetTimes: optional(nullable(mapOf(nullable(finiteNumber)))),
+  rateLimitWrittenAt: optional(nullable(mapOf(nullable(finiteNumber)))),
+  rateLimitClearedAt: optional(nullable(finiteNumber)),
   coolingDownUntil: optional(nullable(finiteNumber)),
   cooldownReason: optional(
     nullable(

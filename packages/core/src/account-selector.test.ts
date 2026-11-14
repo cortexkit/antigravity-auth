@@ -18,6 +18,124 @@ import type {
 } from './account-types.ts'
 import { HealthScoreTracker, TokenBucketTracker } from './rotation.ts'
 
+describe('issue69 dated quota evidence', () => {
+  const start = Date.UTC(2026, 9, 7)
+  const long = 65 * 60 * 60 * 1000
+  const model = 'gemini-3.8-flash'
+  const key = `gemini:${model}`
+  function manager(fraction?: number, dated = true, legacy = false) {
+    let now = start
+    const pool = new AccountManager(
+      undefined,
+      {
+        version: 4,
+        activeIndex: 0,
+        accounts: [
+          {
+            refreshToken: 'issue69-refresh',
+            addedAt: 1,
+            lastUsed: 0,
+            ...(legacy ? { rateLimitResetTimes: { [key]: start + long } } : {}),
+            ...(fraction !== undefined
+              ? {
+                  cachedQuota: {
+                    gemini: {
+                      remainingFraction: fraction,
+                      modelCount: 1,
+                      resetTime: new Date(start + long).toISOString(),
+                    },
+                  },
+                }
+              : {}),
+            ...(dated ? { cachedQuotaUpdatedAt: start - 1 } : {}),
+          },
+        ],
+      },
+      { now: () => now, store: memoryStore() },
+    )
+    return {
+      pool,
+      row: pool.getAccounts()[0]!,
+      advance: (ms: number) => {
+        now += ms
+      },
+    }
+  }
+
+  for (const [label, fraction, dated] of [
+    ['positive', 1, true],
+    ['missing', undefined, true],
+    ['undated empty', 0, false],
+  ] as const) {
+    it(`issue69 uses the ordinary ladder with ${label} evidence`, () => {
+      const { pool, row, advance } = manager(fraction, dated)
+      expect(
+        pool.markRateLimitedWithReason(
+          row,
+          'gemini',
+          model,
+          'QUOTA_EXHAUSTED',
+          long,
+        ),
+      ).toBe(60_000)
+      expect(row.rateLimitResetTimes[key]).toBe(start + 60_000)
+      advance(60_001)
+      expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
+    })
+  }
+
+  it('issue69 keeps a long reset with a dated empty pool', () => {
+    const { pool, row, advance } = manager(0)
+    expect(
+      pool.markRateLimitedWithReason(
+        row,
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        long,
+      ),
+    ).toBe(long)
+    advance(long - 1)
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBeNull()
+    advance(1)
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
+  })
+
+  for (const legacy of [false, true]) {
+    it(`issue69 a newer positive reading clears ${legacy ? 'a legacy' : 'a current'} mark immediately`, () => {
+      const { pool, row, advance } = manager(undefined, true, legacy)
+      if (!legacy) pool.markRateLimited(row, long, 'gemini', model)
+      expect(pool.isRateLimited(row, 'gemini', model)).toBe(true)
+      advance(1)
+      pool.updateQuotaCache(0, {
+        gemini: {
+          remainingFraction: 0.9,
+          modelCount: 1,
+          resetTime: new Date(start + long).toISOString(),
+        },
+      })
+      expect(pool.isRateLimited(row, 'gemini', model)).toBe(false)
+      expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
+    })
+  }
+
+  it('issue69 a later dated empty reading walls through its own reset', () => {
+    const { pool, advance, row } = manager(1)
+    pool.markRateLimited(row, 60_000, 'gemini', model)
+    advance(1)
+    pool.updateQuotaCache(0, {
+      gemini: {
+        remainingFraction: 0,
+        modelCount: 1,
+        resetTime: new Date(start + long).toISOString(),
+      },
+    })
+    expect(row.rateLimitResetTimes[key]).toBe(start + long)
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBeNull()
+    expect(pool.getMinWaitTimeForFamily('gemini', model)).toBe(long - 1)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Selection oracle
 //

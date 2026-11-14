@@ -20,11 +20,16 @@ import {
   AccountSelector,
   type AntigravityQuotaCheckReport,
   type AntigravityVaultAccountSource,
+  applyRateLimitObservation,
+  applyRateLimitReadingUpdate,
+  clearAccountLimits,
   type EmptyVaultRosterCause,
   type QuotaState,
   type QuotaSummary,
+  rateLimitReadingUpdateOf,
   type SelectableAccount,
   type SelectionSink,
+  stampRateLimitWrites,
   type VaultAccountState,
   type VaultAccountStateValue,
   type VaultProviderMetadata,
@@ -217,6 +222,8 @@ type DurableSelection = Pick<
   | 'lastUsed'
   | 'lastSwitchReason'
   | 'rateLimitResetTimes'
+  | 'rateLimitWrittenAt'
+  | 'rateLimitClearedAt'
   | 'coolingDownUntil'
   | 'cooldownReason'
   | 'fingerprint'
@@ -283,6 +290,10 @@ function durableSelectionOf(row: VaultAccountRow): DurableSelection {
       ? { lastSwitchReason: row.lastSwitchReason }
       : {}),
     rateLimitResetTimes: storedResets(row.rateLimitResetTimes),
+    rateLimitWrittenAt: storedResets(row.rateLimitWrittenAt ?? {}),
+    ...(row.rateLimitClearedAt !== undefined
+      ? { rateLimitClearedAt: row.rateLimitClearedAt }
+      : {}),
     ...(row.coolingDownUntil !== undefined
       ? { coolingDownUntil: row.coolingDownUntil }
       : {}),
@@ -340,6 +351,12 @@ function applyDurableSelection(
       if (typeof at === 'number') copy[key] = at
     row.rateLimitResetTimes = copy
   }
+  row.rateLimitWrittenAt = Object.fromEntries(
+    Object.entries(metadata.rateLimitWrittenAt ?? {}).filter(
+      (entry): entry is [string, number] => typeof entry[1] === 'number',
+    ),
+  )
+  row.rateLimitClearedAt = metadata.rateLimitClearedAt ?? undefined
   const until = present(metadata.coolingDownUntil)
   const cooldownReason = present(metadata.cooldownReason)
   if (until !== undefined && cooldownReason !== undefined) {
@@ -440,16 +457,52 @@ export interface VaultQuotaRecord {
 }
 
 /** Replaces an account's stored quota and keeps its other state. */
+type LegacyLimitStamps = Record<string, { reset: number; writtenAt: number }>
+
+function legacyLimitKey(
+  by: Pick<
+    VaultStateAttribution,
+    'accountIdentity' | 'routeId' | 'credentialId'
+  >,
+): string {
+  return JSON.stringify([by.accountIdentity, by.routeId, by.credentialId])
+}
+
 function quotaUpdate(
   quota: QuotaState,
+  now: () => number,
+  legacy: LegacyLimitStamps = {},
 ): (current: VaultAccountState | undefined) => VaultAccountStateValue {
   return (current) => ({
-    ...(current?.metadata !== undefined ? { metadata: current.metadata } : {}),
+    ...(current?.metadata !== undefined
+      ? {
+          metadata: applyRateLimitReadingUpdate(
+            stampLoadedLegacyLimits(current.metadata, legacy),
+            rateLimitReadingUpdateOf(quota),
+            now(),
+          ),
+        }
+      : {}),
     quota,
     ...(current?.extensions !== undefined
       ? { extensions: current.extensions }
       : {}),
   })
+}
+
+function stampLoadedLegacyLimits(
+  metadata: VaultProviderMetadata,
+  legacy: LegacyLimitStamps,
+): VaultProviderMetadata {
+  const written = { ...metadata.rateLimitWrittenAt }
+  for (const [key, stamp] of Object.entries(legacy)) {
+    if (
+      metadata.rateLimitResetTimes?.[key] === stamp.reset &&
+      written[key] == null
+    )
+      written[key] = stamp.writtenAt
+  }
+  return { ...metadata, rateLimitWrittenAt: written }
 }
 
 /**
@@ -464,6 +517,8 @@ export function createVaultSelectionState(
   const now = options.now ?? (() => Date.now())
   const attributions = new WeakMap<VaultAccountRow, VaultStateAttribution>()
   const changed = new Set<VaultAccountRow>()
+  const clears = new WeakMap<VaultAccountRow, Set<string>>()
+  const legacyLoads = new Map<string, LegacyLimitStamps>()
   let writing: Promise<void> = Promise.resolve()
   const mark = (row: VaultAccountRow) => {
     changed.add(row)
@@ -481,17 +536,52 @@ export function createVaultSelectionState(
     if (attribution === undefined) return
     changed.delete(row)
     const selection = durableSelectionOf(row)
+    const cleared = clears.get(row)
+    clears.delete(row)
     try {
-      await options.source.commitState(attribution, (current) => ({
-        metadata: {
-          ...(current?.metadata ?? { addedAt: now() }),
-          ...selection,
-        },
-        ...(current?.quota !== undefined ? { quota: current.quota } : {}),
-        ...(current?.extensions !== undefined
-          ? { extensions: current.extensions }
-          : {}),
-      }))
+      await options.source.commitState(attribution, (current) => {
+        let metadata = applyRateLimitObservation(
+          {
+            ...(current?.metadata ?? { addedAt: now() }),
+            ...selection,
+            rateLimitResetTimes: current?.metadata?.rateLimitResetTimes,
+            rateLimitWrittenAt: current?.metadata?.rateLimitWrittenAt,
+            rateLimitClearedAt:
+              Math.max(
+                current?.metadata?.rateLimitClearedAt ?? 0,
+                selection.rateLimitClearedAt ?? 0,
+              ) || undefined,
+          },
+          selection.rateLimitResetTimes ?? {},
+          selection.rateLimitWrittenAt ?? {},
+        )
+        if (cleared) {
+          const resets = { ...metadata.rateLimitResetTimes }
+          const written = { ...metadata.rateLimitWrittenAt }
+          for (const key of cleared) {
+            delete resets[key]
+            delete written[key]
+          }
+          metadata = {
+            ...metadata,
+            rateLimitResetTimes: resets,
+            rateLimitWrittenAt: written,
+          }
+        }
+        if (current?.quota)
+          metadata = applyRateLimitReadingUpdate(
+            metadata,
+            rateLimitReadingUpdateOf(current.quota),
+            now(),
+          )
+        return {
+          metadata,
+          ...(current?.quota !== undefined ? { quota: current.quota } : {}),
+          ...(current?.extensions !== undefined
+            ? { extensions: current.extensions }
+            : {}),
+        }
+      })
     } catch (error) {
       report(error)
     }
@@ -506,7 +596,17 @@ export function createVaultSelectionState(
 
   return {
     sink: {
-      rateLimit: mark,
+      rateLimit(row, key, resetAt) {
+        if (resetAt === 'clear') {
+          let keys = clears.get(row)
+          if (!keys) {
+            keys = new Set()
+            clears.set(row, keys)
+          }
+          keys.add(key)
+        } else clears.get(row)?.delete(key)
+        mark(row)
+      },
       cooldown: mark,
       switched: mark,
       lastUsed: mark,
@@ -529,6 +629,46 @@ export function createVaultSelectionState(
         if (state === undefined || !stateBelongsTo(state, row)) continue
         if (state.metadata !== undefined)
           applyDurableSelection(row, state.metadata)
+        const stamped = stampRateLimitWrites(row, now())
+        if (stamped.length) {
+          const legacyKey = legacyLimitKey({
+            ...state.observed,
+            accountIdentity: identity,
+          })
+          const legacy = legacyLoads.get(legacyKey) ?? {}
+          for (const key of stamped)
+            legacy[key] = {
+              reset: row.rateLimitResetTimes[key]!,
+              writtenAt: row.rateLimitWrittenAt![key]!,
+            }
+          legacyLoads.set(legacyKey, legacy)
+          try {
+            await options.source.commitState(
+              { ...state.observed, accountIdentity: identity },
+              (current) => {
+                if (!current?.metadata) return undefined
+                const written = { ...current.metadata.rateLimitWrittenAt }
+                for (const key of stamped) {
+                  if (
+                    current.metadata.rateLimitResetTimes?.[key] ===
+                      row.rateLimitResetTimes[key] &&
+                    written[key] == null
+                  )
+                    written[key] = row.rateLimitWrittenAt?.[key] ?? now()
+                }
+                return {
+                  ...current,
+                  metadata: {
+                    ...current.metadata,
+                    rateLimitWrittenAt: written,
+                  },
+                }
+              },
+            )
+          } catch (error) {
+            report(error)
+          }
+        }
         if (state.quota !== undefined) {
           const cached = cachedQuotaOf(state.quota)
           if (cached !== undefined) row.cachedQuota = cached
@@ -539,12 +679,20 @@ export function createVaultSelectionState(
     },
     flush,
     recordQuota(attribution, quota, signal) {
-      return options.source.commitState(attribution, quotaUpdate(quota), signal)
+      return options.source.commitState(
+        attribution,
+        quotaUpdate(quota, now, legacyLoads.get(legacyLimitKey(attribution))),
+        signal,
+      )
     },
     async recordQuotas(readings, signal) {
       const entries = readings.map(({ attribution, quota }) => ({
         attribution,
-        update: quotaUpdate(quota),
+        update: quotaUpdate(
+          quota,
+          now,
+          legacyLoads.get(legacyLimitKey(attribution)),
+        ),
       }))
       if (options.source.commitStates)
         return options.source.commitStates(entries, signal)
@@ -626,6 +774,8 @@ export interface VaultAccountPool {
   refresh(signal?: AbortSignal): Promise<void>
   /** Writes pending selection state. */
   flush(): Promise<void>
+  /** Clears only this vault account's stored marks. */
+  clearLimits(row: VaultAccountRow): Promise<void>
 }
 
 /**
@@ -784,6 +934,26 @@ export function createVaultAccountPool(
     selector,
     credentials,
     state,
+    async clearLimits(row) {
+      if (!selector.has(row) || !durable)
+        throw new Error('Limits could not be cleared. Refresh and try again.')
+      await state?.flush()
+      const receipt = await source.admit(row.route)
+      const result = await durable.source.commitState(
+        durable.source.attribution(receipt),
+        (current) => ({
+          ...current,
+          metadata: clearAccountLimits(
+            current?.metadata ?? { addedAt: clock(), lastUsed: 0 },
+            clock(),
+          ),
+        }),
+      )
+      if (result.status !== 'written' && result.status !== 'unchanged')
+        throw new Error('Limits could not be cleared. Refresh and try again.')
+      if (result.state?.metadata)
+        applyDurableSelection(row, result.state.metadata)
+    },
     async sync(signal) {
       const pending = firstRead
       await waitForFirstRoster(signal)
@@ -967,6 +1137,7 @@ export async function checkVaultQuota(input: {
       const cached = cachedQuotaOf(reading)
       if (cached !== undefined) live.cachedQuota = cached
       live.cachedQuotaUpdatedAt = reading.cachedQuotaUpdatedAt ?? undefined
+      input.pool.selector.reconcileQuotaReading(live)
     }
   }
   return { checked, notChecked: rows.length - checked }

@@ -120,6 +120,47 @@ async function accountItemIds(
 }
 
 describe('createAntigravityCommandMenu', () => {
+  it('issue69 Clear limits removes only the selected account marks and rebuilds the menu', async () => {
+    const [first, second] = await readyRows()
+    if (!first || !second) throw new Error('missing rows')
+    const reset = Date.now() + 65 * 60 * 60 * 1000
+    await repository.recordRateLimits(first.ref, {
+      'gemini:gemini-3.8-flash': reset,
+    })
+    await repository.recordRateLimits(second.ref, { claude: reset })
+    const built = await menu()
+    const [item] = await accountItemIds(built)
+    const opened = await built.open(invocation)
+    expect(
+      opened.menu.sections[0]?.items[0]?.actions.find(
+        (action) => action.id === 'clear-limits',
+      )?.label,
+    ).toBe('Clear limits')
+    const result = await built.apply(
+      {
+        command: 'antigravity',
+        sectionId: 'accounts',
+        itemId: item,
+        actionId: 'clear-limits',
+      },
+      invocation,
+    )
+    expect(result.ok).toBe(true)
+    expect(result.text).toBe('Limits cleared.')
+    const [cleared, untouched] = await readyRows()
+    expect(
+      cleared?.metadata.status === 'present' &&
+        cleared.metadata.metadata.rateLimitResetTimes,
+    ).toEqual({})
+    expect(
+      untouched?.metadata.status === 'present' &&
+        untouched.metadata.metadata.rateLimitResetTimes,
+    ).toEqual({ claude: reset })
+    expect((await built.open(invocation)).menu.sections[0]?.items).toHaveLength(
+      2,
+    )
+  })
+
   it('shows the four account slots in order without row ids, emails or tokens', async () => {
     const built = await menu()
     const payload = await built.open(invocation)

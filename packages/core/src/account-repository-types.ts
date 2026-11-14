@@ -242,6 +242,10 @@ export interface ProviderMetadata {
   enabled?: boolean | null
   lastSwitchReason?: LastSwitchReason | null
   rateLimitResetTimes?: StoredRateLimitResetTimes | null
+  /** Per-key write time; older readers preserve it as an extension. */
+  rateLimitWrittenAt?: StoredRateLimitResetTimes | null
+  /** Last operator clear; fences stale in-memory snapshots from resurrecting limits. */
+  rateLimitClearedAt?: number | null
   coolingDownUntil?: number | null
   cooldownReason?: CooldownReason | null
   /** Display label; may hold personal data and must stay out of telemetry. */

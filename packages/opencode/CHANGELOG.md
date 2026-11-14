@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- A stored quota reset no longer blocks a model after Google gives new quota; a long reset is kept only when the quota reading shows the pool empty. `/antigravity` can clear an account's limits.
 - Concurrent settings saves are no longer refused by mistake on Linux under Bun, using published common-auth 0.49.2 and its shared path helper.
 
 ## [3.1.0] - 2026-11-13

@@ -44,6 +44,7 @@ import {
   type AccountWithMetrics,
   calculateBackoffMs,
   HealthScoreTracker,
+  QUOTA_EXHAUSTED_BACKOFFS,
   type RateLimitReason,
   selectHybridAccount,
   TokenBucketTracker,
@@ -69,6 +70,8 @@ export interface SelectableAccount {
    * optionally with a model. Unknown legacy keys remain inert persisted data.
    */
   rateLimitResetTimes: RateLimitStateV3
+  rateLimitWrittenAt?: RateLimitStateV3
+  rateLimitClearedAt?: number
   lastSwitchReason?: LastSwitchReason
   coolingDownUntil?: number
   cooldownReason?: CooldownReason
@@ -107,6 +110,7 @@ export interface AccountSessionIdentity {
 export interface SelectionSink<A> {
   /** A rate-limit reset time was set for `key`, or (`'clear'`) dropped. */
   rateLimit?(row: A, key: QuotaKey, resetAt: number | 'clear'): void
+  readingUpdate?(row: A, reading: RateLimitReadingUpdate): void
   /** A cooldown was set, or (`null`) cleared. */
   cooldown?(row: A, value: CooldownObservation): void
   /** The row was switched to for `reason`. */
@@ -288,6 +292,142 @@ export function resolveQuotaGroup(
   return family === 'claude' ? 'non-gemini' : 'gemini'
 }
 
+/** A reading can change marks only through this explicit, dated transition. */
+export interface RateLimitReadingUpdate {
+  kind: 'quota-reading'
+  checkedAt: number | undefined
+  quota: SelectableAccount['cachedQuota']
+}
+
+/** Stamp legacy marks once, before any reading is allowed to clear them. */
+export function stampRateLimitWrites(
+  account: Pick<
+    SelectableAccount,
+    'rateLimitResetTimes' | 'rateLimitWrittenAt'
+  >,
+  now: number,
+): string[] {
+  const stamped: string[] = []
+  account.rateLimitWrittenAt ??= {}
+  for (const [key, reset] of Object.entries(account.rateLimitResetTimes)) {
+    if (reset !== undefined && account.rateLimitWrittenAt[key] === undefined) {
+      account.rateLimitWrittenAt[key] = now
+      stamped.push(key)
+    }
+  }
+  return stamped
+}
+
+/** An operator clear also invalidates stale snapshots of the removed marks. */
+export function reconcileManualLimitClear(
+  account: Pick<
+    SelectableAccount,
+    'rateLimitResetTimes' | 'rateLimitWrittenAt' | 'rateLimitClearedAt'
+  >,
+): void {
+  if (account.rateLimitClearedAt === undefined) return
+  for (const key of Object.keys(account.rateLimitResetTimes)) {
+    if ((account.rateLimitWrittenAt?.[key] ?? 0) > account.rateLimitClearedAt)
+      continue
+    delete account.rateLimitResetTimes[key]
+    if (account.rateLimitWrittenAt) delete account.rateLimitWrittenAt[key]
+  }
+}
+
+/** Re-evaluate the write-time fence on the state held under the writer's lock.
+ * Positive quota removes a mark; empty quota extends an existing mark only.
+ */
+export function reconcileRateLimitsFromReading(
+  account: Pick<
+    SelectableAccount,
+    'rateLimitResetTimes' | 'rateLimitWrittenAt'
+  >,
+  reading: RateLimitReadingUpdate,
+  now: number,
+): string[] {
+  const at = reading.checkedAt
+  if (at === undefined || !Number.isFinite(at) || at <= 0 || at > now) return []
+  const cleared: string[] = []
+  for (const key of Object.keys(account.rateLimitResetTimes)) {
+    const match = /^(claude|gemini)(?::(.+))?$/.exec(key)
+    const writtenAt = account.rateLimitWrittenAt?.[key]
+    if (!match || writtenAt === undefined || writtenAt >= at) continue
+    const group = resolveQuotaGroup(
+      match[1] as ModelFamily,
+      match[2],
+      reading.quota,
+    )
+    const quota = reading.quota?.[group]
+    if (quota?.remainingFraction === 0) {
+      const reset = quotaExhaustedUntil(
+        { cachedQuota: reading.quota, cachedQuotaUpdatedAt: at },
+        match[1] as ModelFamily,
+        match[2],
+        now,
+      )
+      if (reset > (account.rateLimitResetTimes[key] ?? 0) && reset > now) {
+        account.rateLimitResetTimes[key] = reset
+        account.rateLimitWrittenAt![key] = at
+        cleared.push(key)
+      }
+      continue
+    }
+    if (
+      quota?.remainingFraction === undefined ||
+      !Number.isFinite(quota.remainingFraction) ||
+      quota.remainingFraction <= 0
+    )
+      continue
+    delete account.rateLimitResetTimes[key]
+    if (account.rateLimitWrittenAt) delete account.rateLimitWrittenAt[key]
+    cleared.push(key)
+  }
+  return cleared
+}
+
+/** Only a dated empty pool supports an upstream reset beyond the failure ladder. */
+export function quotaRetryAfter(
+  account: Pick<SelectableAccount, 'cachedQuota' | 'cachedQuotaUpdatedAt'>,
+  family: ModelFamily,
+  model: string | null | undefined,
+  reason: RateLimitReason,
+  retryAfterMs: number | null | undefined,
+  now: number,
+): number | null | undefined {
+  const maximum = QUOTA_EXHAUSTED_BACKOFFS[QUOTA_EXHAUSTED_BACKOFFS.length - 1]
+  if (reason !== 'QUOTA_EXHAUSTED' || !(retryAfterMs && retryAfterMs > maximum))
+    return retryAfterMs
+  const at = account.cachedQuotaUpdatedAt
+  const group = resolveQuotaGroup(family, model, account.cachedQuota)
+  return at !== undefined &&
+    Number.isFinite(at) &&
+    at > 0 &&
+    at <= now &&
+    account.cachedQuota?.[group]?.remainingFraction === 0
+    ? retryAfterMs
+    : undefined
+}
+
+/** Find the reset supported by the dated empty reading, without creating a mark. */
+export function quotaExhaustedUntil(
+  account: Pick<SelectableAccount, 'cachedQuota' | 'cachedQuotaUpdatedAt'>,
+  family: ModelFamily,
+  model: string | null | undefined,
+  now: number,
+): number {
+  const at = account.cachedQuotaUpdatedAt
+  if (at === undefined || !Number.isFinite(at) || at <= 0 || at > now) return 0
+  const group = resolveQuotaGroup(family, model, account.cachedQuota)
+  const quota = account.cachedQuota?.[group]
+  if (quota?.remainingFraction !== 0) return 0
+  const resets =
+    quota.windows
+      ?.filter((w) => w.remainingFraction === 0)
+      .map((w) => Date.parse(w.resetTime)) ?? []
+  if (quota.resetTime) resets.push(Date.parse(quota.resetTime))
+  return Math.max(0, ...resets.filter(Number.isFinite))
+}
+
 function reportsArgon(account: SelectableAccount): boolean {
   return (
     account.cachedQuotaUpdatedAt !== undefined &&
@@ -366,7 +506,14 @@ export function refreshSelectableRow<A extends SelectableAccount>(
 ): void {
   const lastUsed = Math.max(prior.lastUsed, fresh.lastUsed)
   const rates: RateLimitStateV3 = { ...fresh.rateLimitResetTimes }
+  const written: RateLimitStateV3 = { ...fresh.rateLimitWrittenAt }
+  const clearedAt =
+    Math.max(prior.rateLimitClearedAt ?? 0, fresh.rateLimitClearedAt ?? 0) ||
+    undefined
   for (const [key, value] of Object.entries(prior.rateLimitResetTimes)) {
+    written[key] =
+      Math.max(written[key] ?? 0, prior.rateLimitWrittenAt?.[key] ?? 0) ||
+      undefined
     const stored = rates[key]
     if (value !== undefined && (stored === undefined || value > stored)) {
       rates[key] = value
@@ -382,6 +529,9 @@ export function refreshSelectableRow<A extends SelectableAccount>(
   }
   prior.lastUsed = lastUsed
   prior.rateLimitResetTimes = rates
+  prior.rateLimitWrittenAt = written
+  prior.rateLimitClearedAt = clearedAt
+  reconcileManualLimitClear(prior)
 }
 
 interface AccountSessionState {
@@ -499,6 +649,7 @@ export class AccountSelector<A extends SelectableAccount> {
     selection?: Partial<Record<ModelFamily, number>>,
   ): void {
     this.accounts = accounts
+    for (const account of accounts) this.reconcileQuotaReading(account)
     for (const family of FAMILIES) {
       const index = selection?.[family]
       if (index === undefined) continue
@@ -528,12 +679,41 @@ export class AccountSelector<A extends SelectableAccount> {
     options: ReplaceAccountsOptions<A>,
   ): AccountsReplaced<A> {
     const fallback = options.selectionFallback
-    return this.reconcile(
+    const result = this.reconcile(
       next,
       options.keyOf,
       options.refresh ?? refreshSelectableRow,
       (family, _former, accounts) => fallback?.(family, accounts) ?? -1,
     )
+    for (const account of this.accounts) this.reconcileQuotaReading(account)
+    return result
+  }
+
+  reconcileQuotaReading(account: A): void {
+    reconcileManualLimitClear(account)
+    const stamped = stampRateLimitWrites(account, this.now())
+    for (const key of stamped) {
+      this.sink.rateLimit?.(
+        account,
+        key as QuotaKey,
+        account.rateLimitResetTimes[key]!,
+      )
+    }
+    const reading: RateLimitReadingUpdate = {
+      kind: 'quota-reading',
+      checkedAt: account.cachedQuotaUpdatedAt,
+      quota: account.cachedQuota,
+    }
+    const cleared = reconcileRateLimitsFromReading(account, reading, this.now())
+    // Even an empty local map may hide a mark written by another process.
+    if (
+      reading.checkedAt !== undefined &&
+      reading.checkedAt > 0 &&
+      reading.checkedAt <= this.now() &&
+      Number.isFinite(reading.checkedAt)
+    )
+      this.sink.readingUpdate?.(account, reading)
+    if (stamped.length || cleared.length) this.sink.requestSave?.()
   }
 
   /**
@@ -1222,6 +1402,8 @@ export class AccountSelector<A extends SelectableAccount> {
 
   private setRateLimit(account: A, key: QuotaKey, resetAt: number): void {
     account.rateLimitResetTimes[key] = resetAt
+    account.rateLimitWrittenAt ??= {}
+    account.rateLimitWrittenAt[key] = this.now()
     const report = this.sink.rateLimit
     if (report !== undefined && this.isLoaded(account, 'state change')) {
       report.call(this.sink, account, key, resetAt)
@@ -1230,6 +1412,7 @@ export class AccountSelector<A extends SelectableAccount> {
 
   private clearRateLimit(account: A, key: QuotaKey): void {
     delete account.rateLimitResetTimes[key]
+    if (account.rateLimitWrittenAt) delete account.rateLimitWrittenAt[key]
     const report = this.sink.rateLimit
     if (report !== undefined && this.isLoaded(account, 'state change')) {
       report.call(this.sink, account, key, 'clear')
@@ -1393,7 +1576,7 @@ export class AccountSelector<A extends SelectableAccount> {
     const backoffMs = calculateBackoffMs(
       reason,
       failures - 1,
-      retryAfterMs,
+      quotaRetryAfter(account, family, model, reason, retryAfterMs, now),
       this.random,
     )
     const key = getQuotaKey(family, model)

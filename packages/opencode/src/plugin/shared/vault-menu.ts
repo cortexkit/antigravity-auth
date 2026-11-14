@@ -3,6 +3,7 @@ import {
   type AntigravityQuotaCheckReport,
   accountModelsAction,
   accountModelsText,
+  clearLimitsAction,
   formatAntigravityQuota,
   quotaCheckOutcome,
   VAULT_ACCOUNT_REMEDY,
@@ -26,7 +27,8 @@ export interface VaultAccountModels {
 
 /** Show accounts and quotas from the same vault account pool that selects request routes. */
 export function createVaultAccountMenuSections(
-  pool: Pick<VaultAccountPool, 'selector' | 'syncForDisplay'>,
+  pool: Pick<VaultAccountPool, 'selector' | 'syncForDisplay'> &
+    Partial<Pick<VaultAccountPool, 'clearLimits'>>,
   selectorOf: (row: VaultAccountRow) => string,
   checkQuota?: (signal: AbortSignal) => Promise<AntigravityQuotaCheckReport>,
   models?: VaultAccountModels,
@@ -44,11 +46,15 @@ export function createVaultAccountMenuSections(
               : `${rows.length} ${rows.length === 1 ? 'account' : 'accounts'} served from the vault`,
           ],
           items: rows.map((row, position) => {
+            const clear = pool.clearLimits
+              ? [clearLimitsAction(() => pool.clearLimits!(row))]
+              : []
             if (!models)
               return {
                 id: selectorOf(row),
                 label: `Account ${position + 1}`,
                 detail: 'served from the vault',
+                actions: clear,
               }
             const routeId = row.route.routeId
             const list = accountModelList(models.settings, routeId)
@@ -57,19 +63,25 @@ export function createVaultAccountMenuSections(
               label: `Account ${position + 1}`,
               detail: `served from the vault · ${accountModelsText(list)}`,
               facts: { models: accountModelsText(list) },
-              actions: models.writable()
-                ? [
-                    accountModelsAction({
-                      catalog: knownModelIds(),
-                      current: list,
-                      label: `Account ${position + 1}`,
-                      write: async (next) => {
-                        await models.settings.updateAccountModels(routeId, next)
-                        return 'applied'
-                      },
-                    }),
-                  ]
-                : [],
+              actions: [
+                ...clear,
+                ...(models.writable()
+                  ? [
+                      accountModelsAction({
+                        catalog: knownModelIds(),
+                        current: list,
+                        label: `Account ${position + 1}`,
+                        write: async (next) => {
+                          await models.settings.updateAccountModels(
+                            routeId,
+                            next,
+                          )
+                          return 'applied'
+                        },
+                      }),
+                    ]
+                  : []),
+              ],
             }
           }),
         }

@@ -219,6 +219,128 @@ describe('createVaultSelectionState', () => {
     expect(other.coolingDownUntil).toBeUndefined()
   })
 
+  it('issue69 kept older insula evidence cannot clear a fresh vault mark, but newer quota can', async () => {
+    let now = 10_000
+    const file = stateFile()
+    const state = createVaultSelectionState({
+      source: file,
+      readState: file.read,
+      now: () => now,
+    })
+    const selector = new AccountSelector({ sink: state.sink, now: () => now })
+    selector.resetAccounts(vaultAccountRows([route('credential-1')]))
+    const row = selector.getAccounts()[0]!
+    state.admitted(row, attribution(1))
+    const key = 'gemini:gemini-3.8-flash'
+    selector.markRateLimited(
+      row,
+      65 * 60 * 60 * 1000,
+      'gemini',
+      'gemini-3.8-flash',
+    )
+    await state.flush()
+    const reading = (at: number) => ({
+      schemaVersion: 1 as const,
+      cachedQuotaUpdatedAt: at,
+      cachedQuota: { gemini: { remainingFraction: 0.9, modelCount: 1 } },
+    })
+    // A kept reading retains the producer's old checkedAt, not the poll time.
+    await state.recordQuota(attribution(1), reading(now - 1))
+    expect(
+      file.accounts['identity-a']?.metadata?.rateLimitResetTimes?.[key],
+    ).toBe(now + 65 * 60 * 60 * 1000)
+    now += 1
+    await state.recordQuota(attribution(1), reading(now))
+    expect(
+      file.accounts['identity-a']?.metadata?.rateLimitResetTimes?.[key],
+    ).toBeUndefined()
+    // A stale queued selection snapshot must not resurrect the cleared mark.
+    state.sink.lastUsed?.(row, now)
+    await state.flush()
+    expect(
+      file.accounts['identity-a']?.metadata?.rateLimitResetTimes?.[key],
+    ).toBeUndefined()
+  })
+
+  it('issue69 vault clear rechecks the current mark inside the commit callback', async () => {
+    const key = 'gemini:gemini-3.8-flash'
+    const file = stateFile({
+      'identity-a': {
+        observed: {
+          routeId: 'route-a',
+          credentialId: 'credential-1',
+          recordVersion: 1,
+        },
+        metadata: {
+          addedAt: 1,
+          lastUsed: 0,
+          rateLimitResetTimes: { [key]: 99_000 },
+          rateLimitWrittenAt: { [key]: 100 },
+        },
+      },
+    })
+    const state = createVaultSelectionState({
+      source: {
+        commitState: async (by, update) => {
+          const current = file.accounts['identity-a']!
+          current.metadata = {
+            ...current.metadata!,
+            rateLimitResetTimes: { [key]: 199_000 },
+            rateLimitWrittenAt: { [key]: 300 },
+          }
+          return file.commitState(by, update)
+        },
+      },
+      readState: file.read,
+      now: () => 400,
+    })
+    await state.recordQuota(attribution(1), {
+      schemaVersion: 1,
+      cachedQuotaUpdatedAt: 200,
+      cachedQuota: { gemini: { remainingFraction: 1, modelCount: 1 } },
+    })
+    expect(
+      file.accounts['identity-a']?.metadata?.rateLimitResetTimes?.[key],
+    ).toBe(199_000)
+  })
+
+  it('issue69 legacy vault marks are stamped on load and clear after a newer poll', async () => {
+    const key = 'gemini:gemini-3.8-flash'
+    const file = stateFile({
+      'identity-a': {
+        observed: {
+          routeId: 'route-a',
+          credentialId: 'credential-1',
+          recordVersion: 1,
+        },
+        metadata: {
+          addedAt: 1,
+          lastUsed: 0,
+          rateLimitResetTimes: { [key]: 99_000_000 },
+        },
+      },
+    })
+    let now = 1_000
+    const state = createVaultSelectionState({
+      source: file,
+      readState: file.read,
+      now: () => now,
+    })
+    await state.hydrate(vaultAccountRows([route('credential-1')]))
+    expect(
+      file.accounts['identity-a']?.metadata?.rateLimitWrittenAt?.[key],
+    ).toBe(1_000)
+    now += 1
+    await state.recordQuota(attribution(1), {
+      schemaVersion: 1,
+      cachedQuotaUpdatedAt: now,
+      cachedQuota: { gemini: { remainingFraction: 1, modelCount: 1 } },
+    })
+    expect(
+      file.accounts['identity-a']?.metadata?.rateLimitResetTimes?.[key],
+    ).toBeUndefined()
+  })
+
   it('saves selector transitions attributed to the receipt that last served the row', async () => {
     const file = stateFile()
     const state = createVaultSelectionState({

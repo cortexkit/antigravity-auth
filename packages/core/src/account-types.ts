@@ -41,6 +41,8 @@ export interface AccountMetadataV3 {
   enabled?: boolean
   lastSwitchReason?: 'rate-limit' | 'initial' | 'rotation'
   rateLimitResetTimes?: RateLimitStateV3
+  rateLimitWrittenAt?: RateLimitStateV3
+  rateLimitClearedAt?: number
   coolingDownUntil?: number
   cooldownReason?: CooldownReason
   /**

@@ -5,7 +5,7 @@ export type RateLimitReason =
   | 'SERVER_ERROR'
   | 'UNKNOWN'
 
-const QUOTA_EXHAUSTED_BACKOFFS = [
+export const QUOTA_EXHAUSTED_BACKOFFS = [
   60_000, 300_000, 1_800_000, 7_200_000,
 ] as const
 const RATE_LIMIT_EXCEEDED_BACKOFF = 30_000

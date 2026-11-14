@@ -1031,6 +1031,11 @@ export function buildGaMenu(snapshot: GaSnapshot, now: number): MenuModel {
               'Use for Gemini',
               'Make this the current Gemini account.',
             ),
+            use(
+              'clear-limits',
+              'Clear limits',
+              'Remove stored quota reset limits.',
+            ),
             ...(snapshot.vaultHostStatus ||
             settings.selectionStrategy === 'vault'
               ? []
