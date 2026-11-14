@@ -267,6 +267,7 @@ describe('rpc / tui flow (e2e)', () => {
           'remove',
           'limit',
           'models',
+          'clear-limits',
         ])
         // The store row's secrets never reach the payload.
         expect(JSON.stringify(payload)).not.toContain('refresh-rpc')
