@@ -3635,7 +3635,7 @@ describe('issue69 legacy local upgrade', () => {
               gemini: { remainingFraction: 1, modelCount: 1 },
             })
             // Let recordQuota clear persisted state before the older queued mark lands.
-            await repository.settled()
+            expect((await repository.flush()).failures).toEqual([])
             expect(
               (await metadataOf(repository, 'issue69-single-write'))
                 .rateLimitResetTimes?.[key],
