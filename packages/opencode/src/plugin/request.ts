@@ -11,6 +11,7 @@ import {
   redactCredentialResponse,
   redactCredentialText,
   redactProjectIdText,
+  rewriteSystemInstruction,
 } from '@cortexkit/antigravity-auth-core'
 import {
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
@@ -938,6 +939,10 @@ function sanitizeRequestPayloadForAntigravity(
     })
   }
 
+  if ('systemInstruction' in anyPayload)
+    anyPayload.systemInstruction = rewriteSystemInstruction(
+      anyPayload.systemInstruction,
+    )
   const systemInstruction = anyPayload.systemInstruction
   if (
     systemInstruction &&

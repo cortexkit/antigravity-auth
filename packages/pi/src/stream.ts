@@ -15,11 +15,13 @@ import {
   orderAgyRequestPayloadInPlace,
   type PreResponseClock,
   PreResponseDeadline,
+  parseRateLimitReason,
   parseRefreshParts,
   RETIRED_AGY_MODEL_MESSAGE,
   redactCredentialError,
   redactCredentialText,
   resolveAntigravityModel,
+  UNCONFIRMED_RATE_LIMIT_MESSAGE,
 } from '@cortexkit/antigravity-auth-core'
 import {
   type Api,
@@ -679,8 +681,33 @@ function runAntigravityStream(
       if (response.ok) deadline.acceptHeaders()
 
       if (!response.ok) {
+        const body = await deadline.wait(() => response!.text())
+        if (response.status === 429) {
+          let error: Record<string, unknown> | undefined
+          try {
+            error = asRecord(asRecord(JSON.parse(body))?.error)
+          } catch {
+            // Non-JSON refusals have no structured reason either.
+          }
+          const details = Array.isArray(error?.details) ? error.details : []
+          const reason = details
+            .map(asRecord)
+            .find(
+              (detail) =>
+                typeof detail?.['@type'] === 'string' &&
+                detail['@type'].includes('google.rpc.ErrorInfo'),
+            )?.reason
+          if (
+            parseRateLimitReason(
+              typeof reason === 'string' ? reason : undefined,
+              typeof error?.message === 'string' ? error.message : undefined,
+              response.status,
+            ) === 'UNKNOWN'
+          )
+            throw new Error(UNCONFIRMED_RATE_LIMIT_MESSAGE)
+        }
         throw new Error(
-          `Antigravity request failed: HTTP ${response.status} ${await deadline.wait(() => response!.text())}`,
+          `Antigravity request failed: HTTP ${response.status} ${body}`,
         )
       }
 

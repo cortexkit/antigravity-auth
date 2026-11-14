@@ -1,0 +1,12 @@
+[
+  {
+    "host": "OpenCode Gemini",
+    "input": "You are opencode, an interactive CLI agent specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools.",
+    "output": "You are an interactive CLI agent specializing in software engineering tasks. Your primary goal is to help users safely and efficiently, adhering strictly to the following instructions and utilizing your available tools."
+  },
+  {
+    "host": "OpenCode Anthropic",
+    "input": "You are OpenCode, the best coding agent on the planet.",
+    "output": "You are the best coding agent on the planet."
+  }
+]

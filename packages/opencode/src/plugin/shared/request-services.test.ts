@@ -27,6 +27,7 @@ import {
 import { runCommandBytes } from '../../../../../test/support/run-command.ts'
 import { vaultWaitClock } from '../../../../../test/support/vault-wait-clock.test.ts'
 import identityProjection from '../../../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
+import realHarnessPrompts from '../../../../../test-fixtures/harness-identities.json'
 import { outageVault } from '../../../../core/src/__fixtures__/vault-outage.ts'
 import {
   createGaRawSender,
@@ -627,6 +628,279 @@ function okJson(): Response {
 const NON_STREAM_URL = modelUrl('gemini-3-flash', 'generateContent')
 const STREAM_URL = modelUrl('gemini-3-flash')
 const CLAUDE_URL = modelUrl('claude-sonnet-5-5-low', 'generateContent')
+
+describe('harness rewrite and unconfirmed refusals', () => {
+  const phrase =
+    'You are a coding assistant running inside pi, a coding agent harness.'
+  const init = (): RequestInit => ({
+    ...CHAT_INIT(),
+    body: JSON.stringify({
+      systemInstruction: {
+        parts: [{ text: phrase, cache_control: { type: 'ephemeral' } }],
+      },
+      contents: [
+        { role: 'user', parts: [{ text: phrase }] },
+        { role: 'model', parts: [{ text: phrase }] },
+        {
+          role: 'user',
+          parts: [
+            {
+              functionResponse: { name: 'read', response: { output: phrase } },
+            },
+          ],
+        },
+      ],
+      tools: [
+        {
+          functionDeclarations: [
+            {
+              name: 'read',
+              description: phrase,
+              parameters: {
+                type: 'object',
+                properties: { path: { type: 'string' } },
+              },
+            },
+          ],
+        },
+      ],
+    }),
+  })
+  for (const kind of [undefined, 'primary'] as const) {
+    it(`harness rewrite preserves non-system text and cache prefix across turns (${kind ?? 'OpenCode 1'})`, async () => {
+      const h = harness({ respond: async () => okJson() })
+      const executor = createRequestExecutor(h.deps)
+      try {
+        const bodies: Record<string, any>[] = []
+        for (let turn = 0; turn < 2; turn++) {
+          const response = await executor.execute(NON_STREAM_URL, init(), {
+            ...(kind ? { kind } : {}),
+            session: { sessionId: `rewrite-${kind}`, parentSessionId: null },
+          })
+          expect(response.status).toBe(200)
+          await response.body?.cancel()
+          bodies.push(JSON.parse(String(h.calls.at(-1)?.init?.body)).request)
+        }
+        const first = bodies[0]!
+        expect(JSON.stringify(first.systemInstruction)).not.toContain(
+          'running inside pi',
+        )
+        expect(first.systemInstruction.parts[0].text).toContain(
+          'running inside your development environment',
+        )
+        expect(JSON.stringify(bodies[1]!.systemInstruction)).toBe(
+          JSON.stringify(first.systemInstruction),
+        )
+        expect(first.contents[0].parts[0].text).toBe(phrase)
+        expect(first.contents[1].parts[0].text).toBe(phrase)
+        expect(
+          first.contents[2].parts[0].functionResponse.response.output,
+        ).toBe(phrase)
+        expect(first.tools[0].functionDeclarations[0].description).toBe(phrase)
+        expect(
+          JSON.parse(String(init().body)).systemInstruction.parts[0].text,
+        ).toBe(phrase)
+      } finally {
+        await executor.dispose()
+      }
+    })
+  }
+
+  for (const kind of [undefined, 'primary'] as const) {
+    for (const fixture of realHarnessPrompts) {
+      it(`harness rewrite sends the real ${fixture.host} identity neutrally (${kind ?? 'OpenCode 1'})`, async () => {
+        const h = harness({ respond: async () => okJson() })
+        const executor = createRequestExecutor(h.deps)
+        try {
+          for (let turn = 0; turn < 2; turn++) {
+            const response = await executor.execute(
+              fixture.host === 'OpenCode Anthropic'
+                ? CLAUDE_URL
+                : NON_STREAM_URL,
+              {
+                ...CHAT_INIT(),
+                body: JSON.stringify({
+                  contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
+                  systemInstruction: { parts: [{ text: fixture.input }] },
+                }),
+              },
+              {
+                ...(kind ? { kind } : {}),
+                session: {
+                  sessionId: `real-harness-${kind}-${fixture.host}`,
+                  parentSessionId: null,
+                },
+              },
+            )
+            expect(response.status).toBe(200)
+            const sent = JSON.parse(String(h.calls.at(-1)?.init?.body)).request
+              .systemInstruction
+            expect(sent.parts[0].text).toBe(fixture.output)
+            await response.body?.cancel()
+          }
+        } finally {
+          await executor.dispose()
+        }
+      })
+    }
+  }
+
+  function refusal(retryAfter?: string, structured = false) {
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: 429,
+          status: 'RESOURCE_EXHAUSTED',
+          message: 'Request refused',
+          ...(structured
+            ? {
+                details: [
+                  {
+                    '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                    reason: 'RATE_LIMIT_EXCEEDED',
+                  },
+                ],
+              }
+            : {}),
+        },
+      }),
+      {
+        status: 429,
+        headers: {
+          'content-type': 'application/json',
+          ...(retryAfter ? { 'retry-after': retryAfter } : {}),
+        },
+      },
+    )
+  }
+
+  for (const [header, delay] of [
+    [undefined, 5000],
+    ['12', 12_000],
+    ['90', 30_000],
+  ] as const) {
+    it(`caps unconfirmed refusals at exactly two retries with Retry-After ${header ?? 'absent'}`, async () => {
+      const clock = vaultWaitClock()
+      const date = spyOn(Date, 'now').mockImplementation(clock.now)
+      const timer = spyOn(globalThis, 'setTimeout').mockImplementation(
+        clock.setTimeoutImpl as typeof setTimeout,
+      )
+      const clear = spyOn(globalThis, 'clearTimeout').mockImplementation(
+        clock.clearTimeoutImpl as typeof clearTimeout,
+      )
+      const h = harness({
+        respond: async () => refusal(header),
+        config: { max_rate_limit_wait_seconds: 300 },
+      })
+      const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+      const executor = createRequestExecutor(h.deps)
+      try {
+        const response = await clock.drive(
+          executor.execute(NON_STREAM_URL, CHAT_INIT()),
+        )
+        expect(h.calls).toHaveLength(3)
+        expect(response.status).toBe(412)
+        const text = await response.text()
+        expect(text).toContain('FAILED_PRECONDITION')
+        expect(text).not.toMatch(/429|500|502|503|504|524/)
+        expect(clock.elapsed()).toBeGreaterThanOrEqual(2 * delay)
+        expect(clock.elapsed()).toBeLessThan(2 * delay + 2000)
+        expect(mark).toHaveBeenCalledTimes(3)
+        expect(mark.mock.calls.map((call) => call.slice(1, 5))).toEqual(
+          Array(3).fill(['gemini', 'gemini-3-flash', 'UNKNOWN', delay]),
+        )
+        expect(h.pool.getAccounts()[0]!.consecutiveFailures ?? 0).toBe(0)
+      } finally {
+        await executor.dispose()
+        mark.mockRestore()
+        timer.mockRestore()
+        clear.mockRestore()
+        date.mockRestore()
+      }
+    })
+  }
+
+  it('rotates an unconfirmed refusal to a ready account without waiting', async () => {
+    const h = harness({
+      pool: makePool(2),
+      respond: async (_call, index) => (index === 0 ? refusal() : okJson()),
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(h.calls).toHaveLength(2)
+      expect(
+        h.pool.getAccounts()[0]!.rateLimitResetTimes['gemini:gemini-3-flash'],
+      ).toBeGreaterThan(Date.now())
+      expect(h.pool.getAccounts()[1]!.consecutiveFailures ?? 0).toBe(0)
+      await response.body?.cancel()
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('does not mark or retry a recognised phrase when a wire seam bypasses the rewrite', async () => {
+    const h = harness({ respond: async () => refusal() })
+    h.deps.wire = {
+      ...WIRE,
+      prepare: (...args) => {
+        const prepared = WIRE.prepare(...args)
+        const body = JSON.parse(String(prepared.init.body))
+        body.request.systemInstruction = { parts: [{ text: phrase }] }
+        return {
+          ...prepared,
+          init: { ...prepared.init, body: JSON.stringify(body) },
+        }
+      },
+    }
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, init())
+      expect(response.status).toBe(412)
+      expect(h.calls).toHaveLength(1)
+      expect(mark).not.toHaveBeenCalled()
+      expect(h.pool.getAccounts()[0]!.rateLimitResetTimes).toEqual({})
+      expect(await response.text()).not.toMatch(/429|500|502|503|504|524/)
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+    }
+  })
+
+  it('keeps the structured rate-limit quick retry unchanged', async () => {
+    const clock = vaultWaitClock()
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(
+      clock.setTimeoutImpl as typeof setTimeout,
+    )
+    const clear = spyOn(globalThis, 'clearTimeout').mockImplementation(
+      clock.clearTimeoutImpl as typeof clearTimeout,
+    )
+    const h = harness({
+      respond: async (_call, index) =>
+        index === 0 ? refusal('12', true) : okJson(),
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await clock.drive(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(response.status).toBe(200)
+      expect(h.calls).toHaveLength(2)
+      expect(clock.elapsed()).toBeGreaterThanOrEqual(1000)
+      expect(clock.elapsed()).toBeLessThan(2000)
+      expect(mark).not.toHaveBeenCalled()
+      await response.body?.cancel()
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      timer.mockRestore()
+      clear.mockRestore()
+    }
+  })
+})
 
 describe('createRequestExecutor vault billing', () => {
   const symbol = Symbol.for('cortexkit.routing')

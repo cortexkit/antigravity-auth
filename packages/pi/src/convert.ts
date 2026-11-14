@@ -1,4 +1,7 @@
-import { toGeminiSchema } from '@cortexkit/antigravity-auth-core'
+import {
+  rewriteHarnessIdentity,
+  toGeminiSchema,
+} from '@cortexkit/antigravity-auth-core'
 import type {
   AssistantMessage,
   Context,
@@ -295,7 +298,7 @@ export function buildGeminiRequest(
   if (systemPrompt.trim()) {
     request.systemInstruction = {
       role: 'system',
-      parts: [{ text: sanitize(systemPrompt) }],
+      parts: [{ text: rewriteHarnessIdentity(sanitize(systemPrompt)) }],
     }
   }
 

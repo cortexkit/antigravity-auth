@@ -62,6 +62,37 @@ describe('issue69 dated quota evidence', () => {
     }
   }
 
+  it('unconfirmed refusals cool only the family/model key without escalating failures', () => {
+    const { pool, row } = manager()
+    row.consecutiveFailures = 4
+    row.lastFailureTime = start - 1
+    for (let attempt = 0; attempt < 3; attempt++) {
+      expect(
+        pool.markRateLimitedWithReason(row, 'gemini', model, 'UNKNOWN'),
+      ).toBe(5000)
+      expect(row.rateLimitResetTimes).toEqual({ [key]: start + 5000 })
+      expect(row.consecutiveFailures).toBe(4)
+      expect(row.lastFailureTime).toBe(start - 1)
+      expect(row.coolingDownUntil).toBeUndefined()
+    }
+    expect(
+      pool.markRateLimitedWithReason(row, 'gemini', model, 'UNKNOWN', 12_000),
+    ).toBe(12_000)
+    expect(
+      pool.markRateLimitedWithReason(row, 'gemini', model, 'UNKNOWN', 90_000),
+    ).toBe(30_000)
+    expect(
+      pool.markRateLimitedWithReason(
+        row,
+        'gemini',
+        model,
+        'RATE_LIMIT_EXCEEDED',
+        60_000,
+      ),
+    ).toBe(60_000)
+    expect(row.consecutiveFailures).toBe(5)
+  })
+
   for (const [label, fraction, dated] of [
     ['positive', 1, true],
     ['missing', undefined, true],

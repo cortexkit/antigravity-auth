@@ -31,6 +31,7 @@ import {
   isClaudeThinkingModel,
   isImageGenerationModel,
   isRetiredAgyModel,
+  MAX_UNCONFIRMED_RATE_LIMIT_RETRIES,
   type ManagedAccount,
   type OAuthAuthDetails,
   PRE_RESPONSE_DEADLINE_MS,
@@ -50,7 +51,10 @@ import {
   redactCredentialResponse,
   redactCredentialText,
   resolveQuotaGroup,
+  systemInstructionHasHarnessIdentity,
   type TokenBucketTracker,
+  UNCONFIRMED_RATE_LIMIT_MESSAGE,
+  unconfirmedRateLimitDelayMs,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
 import { hasVaultHost } from '../../common-auth-embedded/claustrum/host.js'
@@ -1377,6 +1381,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     }
 
     let accountSwitchCount = 0
+    let unconfirmedRetries = 0
     const maxAccountSwitches = config.max_account_switches ?? 2
     let previousAccountIndex = -1
     let needsCacheWarmup = false
@@ -2414,6 +2419,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       // that rotation is not a failed attempt and does not count toward
       // max_account_switches.
       let skippedForModelUnavailable = false
+      let switchedForUnconfirmed = false
       if (account.fingerprint) {
         pushDebug(
           `fingerprint: deviceId=${account.fingerprint.deviceId.slice(0, 8)}...`,
@@ -2702,6 +2708,69 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 reasonInfo.message,
                 response.status,
               )
+
+              if (response.status === 429 && rateLimitReason === 'UNKNOWN') {
+                // Inspect the actual wire instruction, not conversation or tool text.
+                const outgoing = JSON.parse(String(prepared.init.body))
+                const recognised = systemInstructionHasHarnessIdentity(
+                  outgoing.request?.systemInstruction,
+                )
+                const terminal = () =>
+                  new Response(
+                    JSON.stringify({
+                      error: {
+                        code: 412,
+                        status: 'FAILED_PRECONDITION',
+                        message: UNCONFIRMED_RATE_LIMIT_MESSAGE,
+                      },
+                    }),
+                    {
+                      status: 412,
+                      headers: { 'Content-Type': 'application/json' },
+                    },
+                  )
+                void response.body?.cancel().catch(() => {})
+                if (recognised) return terminal()
+                const delayMs = unconfirmedRateLimitDelayMs(
+                  response.headers.get('retry-after'),
+                )
+                accountManager.markRateLimitedWithReason(
+                  account,
+                  family,
+                  model,
+                  'UNKNOWN',
+                  delayMs,
+                )
+                accountManager.requestSaveToDisk()
+                if (unconfirmedRetries >= MAX_UNCONFIRMED_RATE_LIMIT_RETRIES)
+                  return terminal()
+                unconfirmedRetries++
+                // Selection can rotate immediately to a ready account. Otherwise
+                // wait only for this short cooldown, never the quota backoff ladder.
+                const ready = accountManager
+                  .getAccounts()
+                  .some(
+                    (entry) =>
+                      entry.index !== account.index &&
+                      entry.enabled !== false &&
+                      !entry.accountIneligible &&
+                      !entry.verificationRequired &&
+                      !allowlistExcluded?.has(entry.index) &&
+                      !unavailableIndexes.has(entry.index) &&
+                      (eligibleIndexes === null ||
+                        eligibleIndexes.has(entry.index)) &&
+                      (entry.rateLimitResetTimes[getQuotaKey(family, model)] ??
+                        0) <= Date.now(),
+                  )
+                if (ready) {
+                  switchedForUnconfirmed = true
+                  shouldSwitchAccount = true
+                  break
+                }
+                await routingSleep(delayMs, 'rate_limited', unconfirmedRetries)
+                i -= 1
+                continue
+              }
 
               if (
                 credentials.domain === 'vault' &&
@@ -3417,6 +3486,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       }
 
       if (shouldSwitchAccount) {
+        // Unconfirmed refusals have their own request-wide retry budget.
+        if (switchedForUnconfirmed) continue
         accountSwitchCount++
 
         if (accountSwitchCount > maxAccountSwitches) {

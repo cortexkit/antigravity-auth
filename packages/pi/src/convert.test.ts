@@ -36,6 +36,65 @@ function assistant(
 }
 
 describe('buildGeminiRequest', () => {
+  it('rewrites harness identity only in systemInstruction for flat and transcript contexts', () => {
+    const phrase =
+      'You are a coding assistant running inside pi, a coding agent harness.'
+    const context = ctx({
+      systemPrompt: phrase,
+      tools: [
+        {
+          name: 'read',
+          description: phrase,
+          parameters: Type.Object({ path: Type.String() }),
+        },
+      ],
+      messages: [
+        { role: 'user', content: phrase, timestamp: 1 },
+        assistant({
+          content: [{ type: 'text', text: phrase }],
+          api: 'google-generative-ai',
+          provider: 'google',
+          model: 'gemini-3.8-flash',
+          stopReason: 'stop',
+        }),
+        {
+          role: 'toolResult',
+          toolCallId: 'c1',
+          toolName: 'read',
+          content: [{ type: 'text', text: phrase }],
+          isError: false,
+          timestamp: 2,
+        },
+      ],
+    })
+    for (const input of [context, normalizeContext(context)]) {
+      const request = buildGeminiRequest(input)
+      expect(request.systemInstruction?.parts).toEqual([
+        {
+          text: 'You are a coding assistant running inside your development environment.',
+        },
+      ])
+      expect(request.contents[0]?.parts).toEqual([{ text: phrase }])
+      expect(request.contents[1]?.parts).toEqual([{ text: phrase }])
+      expect(request.contents[2]?.parts).toEqual([
+        {
+          functionResponse: {
+            name: 'read',
+            response: { output: phrase },
+            id: 'c1',
+          },
+        },
+      ])
+      expect(request.tools?.[0]?.functionDeclarations[0]?.description).toBe(
+        phrase,
+      )
+      const next = buildGeminiRequest(input)
+      expect(JSON.stringify(next.systemInstruction)).toBe(
+        JSON.stringify(request.systemInstruction),
+      )
+    }
+    expect(context.systemPrompt).toBe(phrase)
+  })
   it('converts a string user message into a Gemini user content', () => {
     const request = buildGeminiRequest(
       ctx({ messages: [{ role: 'user', content: 'hello', timestamp: 0 }] }),

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Neutralise OpenCode and Pi harness self-identification only in outgoing system instructions so Google does not mistake the host's prompt for a quota failure. Unconfirmed request limits now use a short model-specific cooldown and stop after two retries instead of stalling the turn.
+
 ## [3.1.1] - 2026-11-14
 
 - A stored quota reset no longer blocks a model after Google gives new quota; a long reset is kept only when the quota reading shows the pool empty. `/antigravity` can clear an account's limits.

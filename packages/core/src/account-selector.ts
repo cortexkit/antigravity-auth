@@ -1568,6 +1568,12 @@ export class AccountSelector<A extends SelectableAccount> {
   ): number {
     const now = this.now()
 
+    if (reason === 'UNKNOWN') {
+      const backoffMs = calculateBackoffMs(reason, 0, retryAfterMs)
+      this.setRateLimit(account, getQuotaKey(family, model), now + backoffMs)
+      return backoffMs
+    }
+
     // TTL-based reset: if last failure was more than failureTtlMs ago, reset count
     if (
       account.lastFailureTime !== undefined &&

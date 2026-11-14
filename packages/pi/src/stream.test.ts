@@ -46,11 +46,14 @@ const ensureProjectContextMock = mock(async () => ({
   effectiveProjectId: 'test-project',
 }))
 const fetchWithAgyCliTransportMock = mock()
+let bypassHarnessRewrite = false
 
 mock.module('@cortexkit/antigravity-auth-core', () => ({
   ...actualCore,
   ensureProjectContext: ensureProjectContextMock,
   fetchWithAgyCliTransport: fetchWithAgyCliTransportMock,
+  rewriteHarnessIdentity: (text: string) =>
+    bypassHarnessRewrite ? text : actualCore.rewriteHarnessIdentity(text),
 }))
 
 const {
@@ -241,6 +244,123 @@ function terminalTextResponse(): Response {
 }
 
 describe('selected credential boundary', () => {
+  it('sends identical rewritten harness instructions on consecutive turns of one Pi session', async () => {
+    const phrase =
+      'You are a coding assistant running inside pi, a coding agent harness.'
+    const bodies: Record<string, any>[] = []
+    fetchWithAgyCliTransportMock.mockImplementation(
+      async (_url: string, init: RequestInit) => {
+        bodies.push(JSON.parse(String(init.body)).request)
+        return terminalTextResponse()
+      },
+    )
+    for (let turn = 0; turn < 2; turn++) {
+      const { result } = await collectStream(
+        streamCortexKitAntigravity(
+          fakeModel(),
+          {
+            ...userContext(),
+            systemPrompt: phrase,
+          },
+          { apiKey: 'test-token', sessionId: 'harness-stable-session' },
+        ),
+      )
+      expect(result.stopReason).toBe('stop')
+    }
+    expect(bodies).toHaveLength(2)
+    expect(JSON.stringify(bodies[0]!.systemInstruction)).not.toContain(
+      'running inside pi',
+    )
+    expect(bodies[0]!.systemInstruction.parts[0].text).toBe(
+      'You are a coding assistant running inside your development environment.',
+    )
+    expect(JSON.stringify(bodies[1]!.systemInstruction)).toBe(
+      JSON.stringify(bodies[0]!.systemInstruction),
+    )
+  })
+
+  it('terminates an unconfirmed HTTP refusal without local retries or quota marks', async () => {
+    const { events, result } = await runStream(
+      fakeModel(),
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            status: 'RESOURCE_EXHAUSTED',
+            message: 'Request refused',
+          },
+        }),
+        { status: 429, headers: { 'retry-after': '90' } },
+      ),
+      'unconfirmed-pi',
+    )
+    expect(events.map((event) => event.type)).toEqual(['start', 'error'])
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
+    expect(result.errorMessage).toBe(
+      'Antigravity could not confirm a temporary request limit. Try again later or change the agent system prompt.',
+    )
+    expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
+  })
+
+  it('keeps structured rate-limit HTTP handling unchanged', async () => {
+    const body = JSON.stringify({
+      error: {
+        code: 429,
+        message: 'Request refused',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            reason: 'RATE_LIMIT_EXCEEDED',
+          },
+        ],
+      },
+    })
+    const { result } = await runStream(
+      fakeModel(),
+      new Response(body, { status: 429 }),
+      'structured-pi',
+    )
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
+    expect(result.errorMessage).toBe(
+      `Antigravity request failed: HTTP 429 ${body}`,
+    )
+  })
+
+  it('leaves no mark or retry when a Pi rewrite seam sends a recognised phrase', async () => {
+    bypassHarnessRewrite = true
+    const phrase = 'You are a coding assistant running inside pi.'
+    fetchWithAgyCliTransportMock.mockImplementationOnce(
+      async (_url: string, init: RequestInit) => {
+        expect(
+          JSON.parse(String(init.body)).request.systemInstruction.parts[0].text,
+        ).toBe(phrase)
+        return new Response(
+          JSON.stringify({ error: { status: 'RESOURCE_EXHAUSTED' } }),
+          { status: 429 },
+        )
+      },
+    )
+    try {
+      const { result } = await collectStream(
+        streamCortexKitAntigravity(
+          fakeModel(),
+          {
+            ...userContext(),
+            systemPrompt: phrase,
+          },
+          { apiKey: 'test-token', sessionId: 'bypassed-rewrite' },
+        ),
+      )
+      expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
+      expect(result.stopReason).toBe('error')
+      expect(result.errorMessage).toBe(
+        'Antigravity could not confirm a temporary request limit. Try again later or change the agent system prompt.',
+      )
+      expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
+    } finally {
+      bypassHarnessRewrite = false
+    }
+  })
   it('refuses local dispatch when enrollment changes during project resolution', async () => {
     let admitted = true
     ensureProjectContextMock.mockImplementationOnce(async () => {
@@ -805,6 +925,7 @@ describe('Pi pre-response deadline', () => {
 })
 
 afterEach(() => {
+  bypassHarnessRewrite = false
   fetchWithAgyCliTransportMock.mockReset()
   ensureProjectContextMock.mockClear()
 })

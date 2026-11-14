@@ -38,6 +38,7 @@ export {
 export * from './fetch-timeout.ts'
 export * from './file-lock.ts'
 export * from './fingerprint.ts'
+export * from './harness-identity.ts'
 export * from './logger.ts'
 export * from './model-registry.ts'
 export * from './model-types.ts'

@@ -18,6 +18,32 @@ const SERVER_ERROR_BACKOFF = 20_000
 const UNKNOWN_BACKOFF = 60_000
 const MIN_BACKOFF_MS = 2_000
 
+// An unconfirmed refusal warrants a brief model-key cooldown, not the quota
+// failure ladder. Honour Retry-After without letting one refusal stall a turn.
+export const UNCONFIRMED_RATE_LIMIT_MIN_MS = 5_000
+export const UNCONFIRMED_RATE_LIMIT_MAX_MS = 30_000
+export const MAX_UNCONFIRMED_RATE_LIMIT_RETRIES = 2
+export const UNCONFIRMED_RATE_LIMIT_MESSAGE =
+  'Antigravity could not confirm a temporary request limit. Try again later or change the agent system prompt.'
+
+export function unconfirmedRateLimitDelayMs(
+  retryAfter: string | null,
+  now = Date.now(),
+): number {
+  const value = retryAfter?.trim()
+  const delay = value
+    ? /^\d+(?:\.\d+)?$/.test(value)
+      ? Number(value) * 1000
+      : Date.parse(value) - now
+    : Number.NaN
+  return Number.isFinite(delay)
+    ? Math.min(
+        UNCONFIRMED_RATE_LIMIT_MAX_MS,
+        Math.max(UNCONFIRMED_RATE_LIMIT_MIN_MS, delay),
+      )
+    : UNCONFIRMED_RATE_LIMIT_MIN_MS
+}
+
 export function parseRateLimitReason(
   reason: string | undefined,
   message: string | undefined,
@@ -65,6 +91,12 @@ export function calculateBackoffMs(
   retryAfterMs?: number | null,
   random: () => number = Math.random,
 ): number {
+  if (reason === 'UNKNOWN') {
+    return Math.min(
+      UNCONFIRMED_RATE_LIMIT_MAX_MS,
+      Math.max(UNCONFIRMED_RATE_LIMIT_MIN_MS, retryAfterMs ?? 0),
+    )
+  }
   if (retryAfterMs && retryAfterMs > 0) {
     return Math.max(retryAfterMs, MIN_BACKOFF_MS)
   }

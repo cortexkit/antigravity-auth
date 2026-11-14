@@ -10,9 +10,22 @@ import {
   selectHybridAccount,
   sortByLruWithHealth,
   TokenBucketTracker,
+  unconfirmedRateLimitDelayMs,
 } from './rotation.ts'
 
 describe('rotation primitives', () => {
+  it('bounds unconfirmed Retry-After without a quota failure ladder', () => {
+    const now = Date.UTC(2026, 10, 14)
+    for (const value of [null, '', 'invalid', '-12', '0', '1'])
+      expect(unconfirmedRateLimitDelayMs(value, now)).toBe(5000)
+    expect(unconfirmedRateLimitDelayMs('12', now)).toBe(12_000)
+    expect(unconfirmedRateLimitDelayMs('90', now)).toBe(30_000)
+    expect(calculateBackoffMs('UNKNOWN', 100)).toBe(5000)
+    expect(calculateBackoffMs('UNKNOWN', 100, 90_000)).toBe(30_000)
+    expect(
+      unconfirmedRateLimitDelayMs(new Date(now + 12_000).toUTCString(), now),
+    ).toBe(12_000)
+  })
   it('parses rate-limit reasons and calculates deterministic backoff', () => {
     expect(parseRateLimitReason(undefined, 'service overloaded', 503)).toBe(
       'MODEL_CAPACITY_EXHAUSTED',

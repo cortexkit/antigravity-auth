@@ -190,10 +190,12 @@ describe('shared request engine import graph', () => {
       ],
       './vault-routing-purpose': ['isPrimaryVaultRequest'],
       '@cortexkit/antigravity-auth-core': [
+        'MAX_UNCONFIRMED_RATE_LIMIT_RETRIES',
         'PRE_RESPONSE_DEADLINE_MS',
         'PreResponseDeadline',
         'PreResponseTimeoutError',
         'RETIRED_AGY_MODEL_MESSAGE',
+        'UNCONFIRMED_RATE_LIMIT_MESSAGE',
         'VAULT_ACCOUNT_REMEDY',
         'accessTokenExpired',
         'calculateBackoffMs',
@@ -212,6 +214,7 @@ describe('shared request engine import graph', () => {
         'redactCredentialResponse',
         'redactCredentialText',
         'resolveQuotaGroup',
+        'systemInstructionHasHarnessIdentity',
         'type AccountManager as CoreAccountManager',
         'type AgyTransportOptions',
         'type Fingerprint',
@@ -224,6 +227,7 @@ describe('shared request engine import graph', () => {
         'type QuotaGroupSummary',
         'type QuotaManager',
         'type TokenBucketTracker',
+        'unconfirmedRateLimitDelayMs',
       ],
       '../../constants': [
         'ANTIGRAVITY_ENDPOINT_DAILY',
