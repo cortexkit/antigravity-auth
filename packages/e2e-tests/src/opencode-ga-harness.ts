@@ -6783,7 +6783,8 @@ export async function runGaPtyScenario(
 /**
  * Every action createAntigravityCommandMenu (packages/core) can put on an
  * account item: enable or disable, select for routing, remove, the
- * per-account quota floor (`limit`) and `reauthorize`. A test in
+ * per-account quota floor (`limit`), `reauthorize` and `clear-limits` (drops
+ * the account's stored quota reset limits). A test in
  * opencode-ga-inputs.test.ts fails if the real menu offers any other one, so
  * a new account action cannot go unnoticed by these cases.
  */
@@ -6794,6 +6795,7 @@ export const GA_KNOWN_ACCOUNT_ITEM_ACTIONS = new Set([
   'remove',
   'limit',
   'reauthorize',
+  'clear-limits',
 ])
 
 /**
