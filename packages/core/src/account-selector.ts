@@ -44,7 +44,7 @@ import {
   type AccountWithMetrics,
   calculateBackoffMs,
   HealthScoreTracker,
-  QUOTA_EXHAUSTED_BACKOFFS,
+  MAX_QUOTA_EXHAUSTED_BACKOFF_MS,
   type RateLimitReason,
   selectHybridAccount,
   TokenBucketTracker,
@@ -394,8 +394,10 @@ export function quotaRetryAfter(
   retryAfterMs: number | null | undefined,
   now: number,
 ): number | null | undefined {
-  const maximum = QUOTA_EXHAUSTED_BACKOFFS[QUOTA_EXHAUSTED_BACKOFFS.length - 1]
-  if (reason !== 'QUOTA_EXHAUSTED' || !(retryAfterMs && retryAfterMs > maximum))
+  if (
+    reason !== 'QUOTA_EXHAUSTED' ||
+    !(retryAfterMs && retryAfterMs > MAX_QUOTA_EXHAUSTED_BACKOFF_MS)
+  )
     return retryAfterMs
   const at = account.cachedQuotaUpdatedAt
   const group = resolveQuotaGroup(family, model, account.cachedQuota)
