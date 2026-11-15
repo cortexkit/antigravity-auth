@@ -9886,8 +9886,9 @@ describe('retained main-attempt failure precedence', () => {
           origin,
         })),
       ])
-      // If stock returns the earlier 429, validate its preserved identity and
-      // classification before the one intentional newest-transport assertion.
+      // If the code without this fix returns the earlier 429, check that response's
+      // identity and classification first, so the only failing assertion is the
+      // intended one: the newest failure is the transport error.
       if (outcome.kind === 'response')
         await expectQuotaResponse(outcome, 'http-first')
       expect(outcome.kind).toBe('error')
