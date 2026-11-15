@@ -514,7 +514,7 @@ export async function verifyPrerequisites(): Promise<void> {
     )
     const expected =
       name === '@cortexkit/common-auth'
-        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.49.2.tgz'
+        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.50.0.tgz'
         : `${pkg.name}@${pkg.version}`
     if (entry[0] !== expected)
       throw new Error(
@@ -900,6 +900,7 @@ async function admitExistingMap(mapFile: string) {
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.49.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.49.1' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.49.2' &&
+        metadata.compiler !== '@cortexkit/common-auth/tui-build@0.50.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')
     )
       throw new Error('build: existing TUI map is not owned generated metadata')

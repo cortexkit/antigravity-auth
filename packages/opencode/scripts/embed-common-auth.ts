@@ -12,14 +12,14 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.49.2.tgz'
-export const producerVersion = '0.49.2'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.50.0.tgz'
+export const producerVersion = '0.50.0'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  shasum: '3b7fc671e107350e62c529567465e3ccd9f134f2',
-  sha256: 'b7e8f8da2b91b920507362f88d8329b5f002bc77df9738773d69ef4045985557',
-  sri: 'sha512-gY3AWxr1UPLsENzm5uj5IF1LNnAwXUay/wsgqhJZLgcZX2SlO8fOSKL2UPEGh+pOpvZ6h8zkmxeWz1pP7J+yDA==',
+  shasum: 'f83862cf8bff04848eb523cd00c56a95bd29a1c6',
+  sha256: '702354411ac071087977826325327d6473857eb5341099ae69aa557ea71980d6',
+  sri: 'sha512-F5u9B24VedALgT8BFmCIaCOvkBP/4iEUEHMcZ/NkiDv3poL8RN5qdX+W69pmUKtKLLvqf2NJMoyoL8e9sTnsSw==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -442,8 +442,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/canonical-file-path.js',
-    2058,
-    '459c381a274053cefe98cf5e88a8d4a5554b222a744365ba44fa3b7970fe382c',
+    2287,
+    'c5a4b4ebb3468681bb237d45bb12284a165dc5faf18cfbb9d19cc19531020f40',
   ],
   [
     'fs/file-read-cache.js',
@@ -1177,13 +1177,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/index.d.ts',
-    2165,
-    'd2fb560fa7f3849b647936f930b1ca3bd4e62c6cfd3ad465ce579d4dd3baa03c',
+    2185,
+    'a5d088d5b80d7b06a6a32c59be3ca5586f28998319a7bb65e8e515f34097c462',
   ],
   [
     'store/index.js',
-    534,
-    'ec9782b6e92e9fb2fe3b17b13d5dbbed0792c30cd0f04b84c1cdaa642f785db8',
+    554,
+    '26ed0d3c05e44cb0d98564f7759f46831c170f7ce7f331f3c8f83a13977d9d55',
   ],
   [
     'store/limits-namespace.d.ts',
@@ -1307,13 +1307,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/settings.d.ts',
-    3144,
-    'a9ca8fd8d0729647b338ba2c160e09879faf5a363b548505d69da73a743e93b2',
+    3600,
+    'ea25fc84311df778fb4ac1c6bc5379c13bd074eaf6653c45795999a14201b674',
   ],
   [
     'store/settings.js',
-    6395,
-    '5fb7fc8af7966be2aee5aca72fd863a9f78f5fed22ce33871145da07f4813b33',
+    6839,
+    '693d023ecb7015bb065b349fd2ea83c358634ecf3968c5074fb97726a12bb7a6',
   ],
   [
     'store/torn.d.ts',
@@ -1548,7 +1548,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '5a4dc12e550f7c22a5d84363f4d52e4a93615c755f034b0756abe3a8aaa75f3f'
+    '82f7c4ac9d2f5829b7e69b76d1506939b98a53de63ceb596df90c6deac686b33'
   )
     throw new Error('publication: manifest bytes')
 }
