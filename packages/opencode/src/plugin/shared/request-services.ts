@@ -1230,12 +1230,33 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     // loopback bridge) supplies it per request; every send of this request,
     // warmups included, then goes through it with the same AbortSignal.
     const sender = options.transport ?? defaultTransport
-    const transport: RequestTransport = (url, sendInit, sendOptions) =>
+    const transport = (
+      url: string,
+      sendInit: RequestInit,
+      sendOptions: AgyTransportOptions,
+      onSenderRejection?: (error: unknown) => void,
+    ) =>
       deadline.open(() => {
         waits.resumed()
-        return sender(url, sendInit, {
+        const optionsWithSignal = {
           ...sendOptions,
           signal: deadline.signal,
+        }
+        if (!onSenderRejection) return sender(url, sendInit, optionsWithSignal)
+
+        let pending: Promise<Response>
+        try {
+          // Keep this observer at the raw sender boundary. Errors from the
+          // deadline/wait wrapper above or response processing below are not
+          // physical transport failures.
+          pending = sender(url, sendInit, optionsWithSignal)
+        } catch (error) {
+          onSenderRejection(error)
+          throw error
+        }
+        return pending.catch((error: unknown) => {
+          onSenderRejection(error)
+          throw error
         })
       })
     const requestSessionIdentity =
@@ -1314,8 +1335,44 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       dumpContext?: ReturnType<GeminiDumpState['dumpRequest']>
     }
 
-    let lastFailure: FailureContext | null = null
+    type RetainedMainAttemptFailure =
+      | { kind: 'http'; context: FailureContext }
+      | { kind: 'transport'; error: Error }
+
+    let retainedMainAttemptFailure: RetainedMainAttemptFailure | null = null
     let lastError: Error | null = null
+    const retainMainTransportFailure = (error: unknown) => {
+      retainedMainAttemptFailure = {
+        kind: 'transport',
+        error: error instanceof Error ? error : new Error(String(error)),
+      }
+    }
+    const terminalMainAttemptFailure = async (
+      fallbackMessage: string,
+    ): Promise<Response> => {
+      const failure = retainedMainAttemptFailure
+      if (failure?.kind === 'http') {
+        const context = failure.context
+        return wire.transformResponse(
+          context.response,
+          context.streaming,
+          context.debugContext,
+          context.requestedModel,
+          context.projectId,
+          context.endpoint,
+          context.effectiveModel,
+          context.sessionId,
+          context.toolDebugMissing,
+          context.toolDebugSummary,
+          debugLines,
+          context.dumpContext,
+        )
+      }
+      throw terminalFetchError(
+        lastError ?? (failure?.kind === 'transport' ? failure.error : null),
+        fallbackMessage,
+      )
+    }
     const abortSignal = init?.signal ?? undefined
     const routingSleep = (
       ms: number,
@@ -2198,6 +2255,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         admission: RequestSendAdmission | undefined,
         sendModel: string,
         requestKind: BillingRequestKind,
+        onMainTransportFailure?: (error: unknown) => void,
       ): Promise<Response> => {
         const source =
           credentials.domain === 'local'
@@ -2222,10 +2280,15 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               )
             : undefined
         try {
-          const response = await transport(url, sendInit, {
-            signal: abortSignal,
-            onDebug: pushDebug,
-          })
+          const response = await transport(
+            url,
+            sendInit,
+            {
+              signal: abortSignal,
+              onDebug: pushDebug,
+            },
+            onMainTransportFailure,
+          )
           return billing?.observe(response) ?? response
         } catch (error) {
           billing?.end(false)
@@ -2546,6 +2609,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               toolDebugSummary: prepared.toolDebugSummary,
               dumpContext,
             })
+            const retainHttpFailure = (failureResponse: Response) => {
+              retainedMainAttemptFailure = {
+                kind: 'http',
+                context: createFailureContext(failureResponse),
+              }
+            }
 
             await runThinkingWarmup(prepared, sendProjectId)
             await runCacheWarmupProbe(prepared)
@@ -2584,6 +2653,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               sendAdmission,
               prepared.effectiveModel ?? model ?? 'unknown',
               kind ?? 'primary',
+              retainMainTransportFailure,
             )
             if (response.ok) deadline.acceptHeaders()
             apiRequestCount++
@@ -2811,7 +2881,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   pushDebug(
                     `Total capacity retries (${MAX_TOTAL_CAPACITY_RETRIES}) exhausted, switching account`,
                   )
-                  lastFailure = createFailureContext(response)
+                  retainHttpFailure(response)
                   shouldSwitchAccount = true
                   break
                 }
@@ -2991,7 +3061,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 )
               }
 
-              lastFailure = createFailureContext(response)
+              retainHttpFailure(response)
               shouldSwitchAccount = true
               break
             }
@@ -3085,7 +3155,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   `account-ineligible: disabled account ${account.index}`,
                 )
                 trackers.health.recordFailure(account.index)
-                lastFailure = createFailureContext(response)
+                retainHttpFailure(response)
                 shouldSwitchAccount = true
                 break
               }
@@ -3127,7 +3197,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   `verification-required: disabled account ${account.index}`,
                 )
                 trackers.health.recordFailure(account.index)
-                lastFailure = createFailureContext(response)
+                retainHttpFailure(response)
                 shouldSwitchAccount = true
                 break
               }
@@ -3141,7 +3211,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               i < ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1
             ) {
               await logResponseBody(debugContext, response, response.status)
-              lastFailure = createFailureContext(response)
+              retainHttpFailure(response)
               continue
             }
 
@@ -3498,72 +3568,19 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           pushDebug(
             `account-switch-cap: exceeded max_account_switches=${maxAccountSwitches}, giving up`,
           )
-          if (lastFailure) {
-            return wire.transformResponse(
-              lastFailure.response,
-              lastFailure.streaming,
-              lastFailure.debugContext,
-              lastFailure.requestedModel,
-              lastFailure.projectId,
-              lastFailure.endpoint,
-              lastFailure.effectiveModel,
-              lastFailure.sessionId,
-              lastFailure.toolDebugMissing,
-              lastFailure.toolDebugSummary,
-              debugLines,
-              lastFailure.dumpContext,
-            )
-          }
-          throw terminalFetchError(
-            lastError,
+          return terminalMainAttemptFailure(
             `Exceeded max account switches (${maxAccountSwitches}). All accounts rate-limited.`,
           )
         }
 
         if (accountCount <= 1) {
-          if (lastFailure) {
-            return wire.transformResponse(
-              lastFailure.response,
-              lastFailure.streaming,
-              lastFailure.debugContext,
-              lastFailure.requestedModel,
-              lastFailure.projectId,
-              lastFailure.endpoint,
-              lastFailure.effectiveModel,
-              lastFailure.sessionId,
-              lastFailure.toolDebugMissing,
-              lastFailure.toolDebugSummary,
-              debugLines,
-              lastFailure.dumpContext,
-            )
-          }
-          throw terminalFetchError(
-            lastError,
-            'All Antigravity endpoints failed',
-          )
+          return terminalMainAttemptFailure('All Antigravity endpoints failed')
         }
 
         continue
       }
 
-      if (lastFailure) {
-        return wire.transformResponse(
-          lastFailure.response,
-          lastFailure.streaming,
-          lastFailure.debugContext,
-          lastFailure.requestedModel,
-          lastFailure.projectId,
-          lastFailure.endpoint,
-          lastFailure.effectiveModel,
-          lastFailure.sessionId,
-          lastFailure.toolDebugMissing,
-          lastFailure.toolDebugSummary,
-          debugLines,
-          lastFailure.dumpContext,
-        )
-      }
-
-      throw terminalFetchError(lastError, 'All Antigravity accounts failed')
+      return terminalMainAttemptFailure('All Antigravity accounts failed')
     }
   }
 

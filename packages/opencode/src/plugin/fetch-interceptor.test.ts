@@ -2361,9 +2361,10 @@ describe('createFetchInterceptor', () => {
 it('admits no further local physical attempt when enrollment changes during a failed send', async () => {
   let local = true
   let physicalAttempts = 0
+  const admissionError = new Error('Local work is excluded by vault enrollment')
   const context = await makeContext({
     assertAdmission: async () => {
-      if (!local) throw new Error('Local work is excluded by vault enrollment')
+      if (!local) throw admissionError
     },
     agyTransport: async () => {
       physicalAttempts += 1
@@ -2391,9 +2392,9 @@ it('admits no further local physical attempt when enrollment changes during a fa
   })
   const interceptor = createFetchInterceptor(context)
   try {
-    await expect(
-      interceptor.fetch(GENERATIVE_URL, GENERATIVE_INIT),
-    ).rejects.toThrow('Local work is excluded by vault enrollment')
+    const pending = interceptor.fetch(GENERATIVE_URL, GENERATIVE_INIT)
+    await expect(pending).rejects.toThrow(admissionError.message)
+    await expect(pending).rejects.toBe(admissionError)
     expect(physicalAttempts).toBe(1)
   } finally {
     await interceptor.dispose()
