@@ -9583,3 +9583,695 @@ describe('bounded vault receipt wait through the real engine', () => {
     }
   })
 })
+
+describe('retained main-attempt failure precedence', () => {
+  type Outcome =
+    | { kind: 'response'; response: Response }
+    | { kind: 'error'; error: unknown }
+
+  const firstEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[0]
+  if (!firstEndpoint) throw new Error('A3 assessment requires an endpoint')
+
+  function accountFromCall(call: TransportCall): number {
+    const authorization = new Headers(call.init?.headers).get('authorization')
+    if (
+      authorization === 'Bearer a3-access-0' ||
+      authorization === 'Bearer a3-vault-0'
+    )
+      return 0
+    if (
+      authorization === 'Bearer a3-access-1' ||
+      authorization === 'Bearer a3-vault-1'
+    )
+      return 1
+    throw new Error('unexpected synthetic account authorization')
+  }
+
+  function physicalAttempts(h: Harness) {
+    return h.calls.map((call) => ({
+      account: accountFromCall(call),
+      origin: new URL(call.url).origin,
+    }))
+  }
+
+  function makeA3Harness(
+    respond: (call: TransportCall, index: number) => Promise<Response>,
+    options: {
+      accountCount?: number
+      config?: Partial<typeof DEFAULT_CONFIG>
+    } = {},
+  ): Harness {
+    const h = harness({
+      pool: makePool(options.accountCount ?? 2),
+      // Round-robin makes the transport-only first account reach account 1
+      // without changing wait, eligibility or failure policy.
+      config: {
+        account_selection_strategy: 'round-robin',
+        ...options.config,
+      },
+      refresh: async (auth) => {
+        const account = auth.refresh.startsWith('refresh-0')
+          ? 0
+          : auth.refresh.startsWith('refresh-1')
+            ? 1
+            : -1
+        if (account < 0) throw new Error('unexpected synthetic account refresh')
+        return {
+          ...auth,
+          access: `a3-access-${account}`,
+          expires: Date.now() + 3_600_000,
+        }
+      },
+      respond,
+    })
+    // Sessionless selection prefers accounts already used by the process.
+    // Seed both synthetic rows as prior use so round-robin can rotate after a
+    // transport failure without marking either row unavailable or filtered.
+    for (const account of h.pool.getAccounts())
+      h.pool.recordSessionUsage(account.index)
+    return h
+  }
+
+  function transformFailureWire(
+    h: Harness,
+    failure: Error,
+    onFailure: () => void,
+  ): RequestWire {
+    const transformResponse = h.deps.wire.transformResponse
+    return {
+      ...h.deps.wire,
+      transformResponse: async (...args) => {
+        if (args[0].ok) {
+          onFailure()
+          throw failure
+        }
+        return transformResponse(...args)
+      },
+    }
+  }
+
+  function quotaFailure(responseId: string): Response {
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: 429,
+          status: 'RESOURCE_EXHAUSTED',
+          message: `a3 synthetic quota ${responseId}`,
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+              reason: 'QUOTA_EXHAUSTED',
+            },
+          ],
+        },
+      }),
+      {
+        status: 429,
+        headers: {
+          'content-type': 'application/json',
+          'retry-after': '17',
+          'x-a3-response-id': responseId,
+        },
+      },
+    )
+  }
+
+  function transportFailure(index: number): Error {
+    return Object.assign(new Error(`a3 synthetic transport ${index + 1}`), {
+      code: 'ECONNRESET',
+    })
+  }
+
+  function settle(request: Promise<Response>): Promise<Outcome> {
+    return request.then(
+      (response): Outcome => ({ kind: 'response', response }),
+      (error: unknown): Outcome => ({ kind: 'error', error }),
+    )
+  }
+
+  function refreshedIndexes(h: Harness): string[] {
+    return h.refreshed.map((refresh) => refresh.split('|')[0] ?? '')
+  }
+
+  async function expectQuotaResponse(
+    outcome: Outcome,
+    responseId: string,
+  ): Promise<void> {
+    expect(outcome.kind).toBe('response')
+    if (outcome.kind !== 'response') return
+    expect(outcome.response.status).toBe(429)
+    expect(outcome.response.headers.get('x-a3-response-id')).toBe(responseId)
+    expect(outcome.response.headers.get('retry-after')).toBe('17')
+    expect(outcome.response.headers.get('retry-after-ms')).toBe('17000')
+    const body = (await outcome.response.json()) as {
+      error: { status: string; message: string }
+    }
+    expect(body.error.status).toBe('RESOURCE_EXHAUSTED')
+    expect(body.error.message).toContain(`a3 synthetic quota ${responseId}`)
+  }
+
+  it('transport then later HTTP 429 returns the newest physical response at the account-switch cap', async () => {
+    const transportErrors: Error[] = []
+    const h = makeA3Harness(async (call) => {
+      if (accountFromCall(call) === 1) return quotaFailure('http-second')
+      const error = transportFailure(transportErrors.length)
+      transportErrors.push(error)
+      throw error
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(transportErrors).toHaveLength(
+        ANTIGRAVITY_ENDPOINT_FALLBACKS.length,
+      )
+      expect(physicalAttempts(h)).toEqual([
+        ...ANTIGRAVITY_ENDPOINT_FALLBACKS.map((origin) => ({
+          account: 0,
+          origin,
+        })),
+        { account: 1, origin: firstEndpoint },
+      ])
+      await expectQuotaResponse(outcome, 'http-second')
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('HTTP-only control preserves status, retry headers and RESOURCE_EXHAUSTED classification', async () => {
+    const h = makeA3Harness(async (call) =>
+      quotaFailure(`http-account-${accountFromCall(call)}`),
+    )
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(physicalAttempts(h)).toEqual([
+        { account: 0, origin: firstEndpoint },
+        { account: 1, origin: firstEndpoint },
+      ])
+      await expectQuotaResponse(outcome, 'http-account-1')
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('transport-only control rejects with the final physical Error identity', async () => {
+    const transportErrors: Error[] = []
+    const h = makeA3Harness(async () => {
+      const error = transportFailure(transportErrors.length)
+      transportErrors.push(error)
+      throw error
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      const newest = transportErrors.at(-1)
+      if (!newest) throw new Error('no synthetic transport attempts were sent')
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(transportErrors).toHaveLength(
+        ANTIGRAVITY_ENDPOINT_FALLBACKS.length * 2,
+      )
+      expect(physicalAttempts(h)).toEqual([
+        ...ANTIGRAVITY_ENDPOINT_FALLBACKS.map((origin) => ({
+          account: 0,
+          origin,
+        })),
+        ...ANTIGRAVITY_ENDPOINT_FALLBACKS.map((origin) => ({
+          account: 1,
+          origin,
+        })),
+      ])
+      expect(outcome.kind).toBe('error')
+      if (outcome.kind === 'error') expect(outcome.error).toBe(newest)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('synchronous main sender throws are retained at the physical boundary', async () => {
+    const synchronousErrors: Error[] = []
+    const h = makeA3Harness(async () => okJson())
+    const executor = createRequestExecutor({
+      ...h.deps,
+      transport: (url, init, options) => {
+        const call: TransportCall = { url, init, options }
+        h.calls.push(call)
+        if (accountFromCall(call) === 0)
+          return Promise.resolve(quotaFailure('http-before-sync-throw'))
+        const error = transportFailure(synchronousErrors.length)
+        synchronousErrors.push(error)
+        throw error
+      },
+    })
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      const newest = synchronousErrors.at(-1)
+      if (!newest) throw new Error('no synchronous transport throws occurred')
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(synchronousErrors).toHaveLength(
+        ANTIGRAVITY_ENDPOINT_FALLBACKS.length,
+      )
+      expect(physicalAttempts(h)).toEqual([
+        { account: 0, origin: firstEndpoint },
+        ...ANTIGRAVITY_ENDPOINT_FALLBACKS.map((origin) => ({
+          account: 1,
+          origin,
+        })),
+      ])
+      expect(outcome.kind).toBe('error')
+      if (outcome.kind === 'error') expect(outcome.error).toBe(newest)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('HTTP then later transport failure returns the newest physical error at the account-switch cap', async () => {
+    const transportErrors: Error[] = []
+    const h = makeA3Harness(async (call) => {
+      if (accountFromCall(call) === 0) return quotaFailure('http-first')
+      const error = transportFailure(transportErrors.length)
+      transportErrors.push(error)
+      throw error
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      const newest = transportErrors.at(-1)
+      if (!newest)
+        throw new Error('no later synthetic transport attempts were sent')
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(transportErrors).toHaveLength(
+        ANTIGRAVITY_ENDPOINT_FALLBACKS.length,
+      )
+      expect(physicalAttempts(h)).toEqual([
+        { account: 0, origin: firstEndpoint },
+        ...ANTIGRAVITY_ENDPOINT_FALLBACKS.map((origin) => ({
+          account: 1,
+          origin,
+        })),
+      ])
+      // If stock returns the earlier 429, validate its preserved identity and
+      // classification before the one intentional newest-transport assertion.
+      if (outcome.kind === 'response')
+        await expectQuotaResponse(outcome, 'http-first')
+      expect(outcome.kind).toBe('error')
+      if (outcome.kind === 'error') expect(outcome.error).toBe(newest)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('single-account unstructured daily 404 followed by production transport rejection returns the transport error', async () => {
+    const transportError = Object.assign(
+      new Error('a3 synthetic production endpoint reset'),
+      { code: 'ECONNRESET' },
+    )
+    const events: string[] = []
+    const h = makeA3Harness(
+      async (_call, index) => {
+        if (index === 0) {
+          events.push('daily-unstructured-404')
+          return new Response('unstructured wrong endpoint', {
+            status: 404,
+            headers: { 'content-type': 'text/plain' },
+          })
+        }
+        events.push('production-transport-rejection')
+        throw transportError
+      },
+      { accountCount: 1 },
+    )
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0'])
+      expect(events).toEqual([
+        'daily-unstructured-404',
+        'production-transport-rejection',
+      ])
+      expect(physicalAttempts(h)).toEqual(
+        ANTIGRAVITY_ENDPOINT_FALLBACKS.map((origin) => ({
+          account: 0,
+          origin,
+        })),
+      )
+      expect(outcome.kind).toBe('error')
+      if (outcome.kind === 'error') expect(outcome.error).toBe(transportError)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('a later main success is returned instead of a retained earlier HTTP failure', async () => {
+    const h = makeA3Harness(async (call) =>
+      accountFromCall(call) === 0
+        ? quotaFailure('http-before-success')
+        : okJson(),
+    )
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(physicalAttempts(h)).toEqual([
+        { account: 0, origin: firstEndpoint },
+        { account: 1, origin: firstEndpoint },
+      ])
+      expect(outcome.kind).toBe('response')
+      if (outcome.kind === 'response') {
+        expect(outcome.response.status).toBe(200)
+        expect(await outcome.response.text()).toContain('hi')
+      }
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('post-send response transform failures do not replace a retained HTTP main failure', async () => {
+    const transformError = Object.assign(
+      new Error('a3 synthetic post-send response transform failure'),
+      { code: 'A3_RESPONSE_TRANSFORM' },
+    )
+    const transformFailures: Error[] = []
+    const h = makeA3Harness(async (call) =>
+      accountFromCall(call) === 0
+        ? quotaFailure('http-before-transform')
+        : okJson(),
+    )
+    const executor = createRequestExecutor({
+      ...h.deps,
+      wire: transformFailureWire(h, transformError, () =>
+        transformFailures.push(transformError),
+      ),
+    })
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(physicalAttempts(h)).toEqual([
+        { account: 0, origin: firstEndpoint },
+        ...ANTIGRAVITY_ENDPOINT_FALLBACKS.map((origin) => ({
+          account: 1,
+          origin,
+        })),
+      ])
+      expect(transformFailures).toHaveLength(
+        ANTIGRAVITY_ENDPOINT_FALLBACKS.length,
+      )
+      await expectQuotaResponse(outcome, 'http-before-transform')
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('an auxiliary transport rejection cannot replace a retained main HTTP failure', async () => {
+    const auxiliaryError = Object.assign(
+      new Error('a3 synthetic cache-warmup sender rejection'),
+      { code: 'A3_AUXILIARY_FAILURE' },
+    )
+    const transformError = Object.assign(
+      new Error('a3 synthetic post-send response transform failure'),
+      { code: 'A3_RESPONSE_TRANSFORM' },
+    )
+    const events: string[] = []
+    const transformFailures: Error[] = []
+    let accountOneSends = 0
+    const h = makeA3Harness(
+      async (call) => {
+        const account = accountFromCall(call)
+        const origin = new URL(call.url).origin
+        if (account === 0) {
+          events.push(`main:account-0:${origin}:429`)
+          return quotaFailure('http-before-auxiliary')
+        }
+        accountOneSends++
+        if (accountOneSends === 1) {
+          events.push(`auxiliary:account-1:${origin}:rejection`)
+          throw auxiliaryError
+        }
+        events.push(`main:account-1:${origin}:success`)
+        return okJson()
+      },
+      { config: { cache_warmup_on_switch: true } },
+    )
+    const executor = createRequestExecutor({
+      ...h.deps,
+      wire: transformFailureWire(h, transformError, () =>
+        transformFailures.push(transformError),
+      ),
+    })
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(events).toEqual([
+        `main:account-0:${firstEndpoint}:429`,
+        `auxiliary:account-1:${firstEndpoint}:rejection`,
+        ...ANTIGRAVITY_ENDPOINT_FALLBACKS.map(
+          (origin) => `main:account-1:${origin}:success`,
+        ),
+      ])
+      expect(physicalAttempts(h)).toEqual([
+        { account: 0, origin: firstEndpoint },
+        { account: 1, origin: firstEndpoint },
+        ...ANTIGRAVITY_ENDPOINT_FALLBACKS.map((origin) => ({
+          account: 1,
+          origin,
+        })),
+      ])
+      expect(transformFailures).toHaveLength(
+        ANTIGRAVITY_ENDPOINT_FALLBACKS.length,
+      )
+      await expectQuotaResponse(outcome, 'http-before-auxiliary')
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('caller abort after retained HTTP failure preserves the caller reason', async () => {
+    const controller = new AbortController()
+    const reason = new Error('a3 caller cancellation')
+    const secondSendStarted = Promise.withResolvers<void>()
+    const h = makeA3Harness(async (call) => {
+      if (accountFromCall(call) === 0) return quotaFailure('http-before-abort')
+      secondSendStarted.resolve()
+      return new Promise<never>(() => {})
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const pending = executor.execute(
+        NON_STREAM_URL,
+        CHAT_INIT(controller.signal),
+      )
+      void pending.catch(() => {})
+      await secondSendStarted.promise
+      controller.abort(reason)
+      await expect(pending).rejects.toBe(reason)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(physicalAttempts(h)).toEqual([
+        { account: 0, origin: firstEndpoint },
+        { account: 1, origin: firstEndpoint },
+      ])
+    } finally {
+      controller.abort(reason)
+      await executor.dispose()
+    }
+  })
+
+  it('failed vault 401 re-admission preserves the latest 401 after an earlier retained HTTP failure', async () => {
+    const reports: Array<{ accountIndex: number; status: number }> = []
+    const reAdmissionError = new Error(
+      'a3 synthetic vault re-admission failure',
+    )
+    let admissions = 0
+    const h = makeA3Harness(async (call) =>
+      accountFromCall(call) === 0
+        ? quotaFailure('http-before-vault-401')
+        : new Response(
+            JSON.stringify({
+              error: {
+                code: 401,
+                status: 'UNAUTHENTICATED',
+                message: 'a3 synthetic vault 401',
+              },
+            }),
+            {
+              status: 401,
+              headers: {
+                'content-type': 'application/json',
+                'x-a3-response-id': 'vault-401',
+              },
+            },
+          ),
+    )
+    const executor = createRequestExecutor(
+      vaultDeps(h, async (account) => {
+        admissions++
+        if (admissions === 3) throw reAdmissionError
+        return {
+          credentialId: `a3-vault-credential-${account.index}`,
+          accountIdentity: `a3-vault-identity-${account.index}`,
+          recordVersion: 1,
+          accessToken: `a3-vault-${account.index}`,
+          projectId: 'a3-vault-project',
+          report401: async (status) =>
+            reports.push({ accountIndex: account.index, status }),
+        }
+      }),
+    )
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(admissions).toBe(3)
+      expect(reports).toEqual([{ accountIndex: 1, status: 401 }])
+      expect(h.refreshed).toEqual([])
+      expect(physicalAttempts(h)).toEqual([
+        { account: 0, origin: firstEndpoint },
+        { account: 1, origin: firstEndpoint },
+      ])
+      expect(outcome.kind).toBe('response')
+      if (outcome.kind === 'response') {
+        expect(outcome.response.status).toBe(401)
+        expect(outcome.response.headers.get('x-a3-response-id')).toBe(
+          'vault-401',
+        )
+        const body = (await outcome.response.json()) as {
+          error: { code: number; status: string; message: string }
+        }
+        expect(body.error.code).toBe(401)
+        expect(body.error.status).toBe('UNAUTHENTICATED')
+        expect(body.error.message).toContain('a3 synthetic vault 401')
+      }
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('later admission refusal supersedes retained HTTP and transport failures before another send', async () => {
+    const admissionError = new Error(
+      'a3 synthetic local admission refusal after transport',
+    )
+    const admissionObservations: Array<ReturnType<typeof physicalAttempts>> = []
+    const events: string[] = []
+    const h = makeA3Harness(async (call) => {
+      const account = accountFromCall(call)
+      const origin = new URL(call.url).origin
+      if (account === 0) {
+        events.push(`main:account-0:${origin}:429`)
+        return quotaFailure('http-before-admission-refusal')
+      }
+      events.push(`main:account-1:${origin}:transport`)
+      throw transportFailure(0)
+    })
+    const executor = createRequestExecutor({
+      ...h.deps,
+      assertAdmission: async () => {
+        if (h.calls.length < 2) return
+        admissionObservations.push(physicalAttempts(h))
+        throw admissionError
+      },
+    })
+    const expectedAttempts = [
+      { account: 0, origin: firstEndpoint },
+      { account: 1, origin: firstEndpoint },
+    ]
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
+      expect(events).toEqual([
+        `main:account-0:${firstEndpoint}:429`,
+        `main:account-1:${firstEndpoint}:transport`,
+      ])
+      expect(admissionObservations.length).toBeGreaterThan(0)
+      for (const observed of admissionObservations)
+        expect(observed).toEqual(expectedAttempts)
+      expect(physicalAttempts(h)).toEqual(expectedAttempts)
+      expect(outcome.kind).toBe('error')
+      if (outcome.kind === 'error') expect(outcome.error).toBe(admissionError)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('a later generic wire preparation error supersedes an earlier transport failure', async () => {
+    const preparationError = Object.assign(
+      new Error('a3 synthetic later wire preparation failure'),
+      { code: 'A3_PREPARATION' },
+    )
+    const transportErrors: Error[] = []
+    const preparationEndpoints: string[] = []
+    const h = makeA3Harness(
+      async () => {
+        const error = transportFailure(transportErrors.length)
+        transportErrors.push(error)
+        throw error
+      },
+      { accountCount: 1 },
+    )
+    const finalEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS.at(-1)
+    if (!finalEndpoint)
+      throw new Error('A3 assessment requires a final endpoint')
+    const prepare = h.deps.wire.prepare
+    const executor = createRequestExecutor({
+      ...h.deps,
+      wire: {
+        ...h.deps.wire,
+        prepare: (...args: Parameters<RequestWire['prepare']>) => {
+          const endpoint = args[4]
+          if (endpoint === finalEndpoint) {
+            preparationEndpoints.push(finalEndpoint)
+            throw preparationError
+          }
+          return prepare(...args)
+        },
+      },
+    })
+    try {
+      const outcome = await settle(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      const precedingEndpoints = ANTIGRAVITY_ENDPOINT_FALLBACKS.slice(0, -1)
+      expect(h.deps.config.max_account_switches).toBe(1)
+      expect(refreshedIndexes(h)).toEqual(['refresh-0'])
+      expect(transportErrors).toHaveLength(precedingEndpoints.length)
+      expect(physicalAttempts(h)).toEqual(
+        precedingEndpoints.map((origin) => ({ account: 0, origin })),
+      )
+      expect(preparationEndpoints).toEqual([finalEndpoint])
+      expect(outcome.kind).toBe('error')
+      if (outcome.kind === 'error') expect(outcome.error).toBe(preparationError)
+    } finally {
+      await executor.dispose()
+    }
+  })
+})
