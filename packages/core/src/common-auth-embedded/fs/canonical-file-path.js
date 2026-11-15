@@ -1,5 +1,9 @@
 import { basename, dirname, join, resolve } from 'node:path';
 const maxSymlinkHops = 40;
+// Same shape as Node's realpath ELOOP, so callers that branch on `code` keep working.
+function symlinkLoop(file) {
+    return Object.assign(new Error(`ELOOP: too many symbolic links encountered, realpath '${file}'`), { code: 'ELOOP', syscall: 'realpath', path: file });
+}
 /**
  * Canonical path of a file that other processes may replace by write-and-rename.
  *
@@ -26,7 +30,7 @@ export async function canonicalFilePath(file, fs) {
         if (!isSymlink)
             return target;
         if (hops >= maxSymlinkHops)
-            throw new Error('Too many file symlink hops');
+            throw symlinkLoop(file);
         target = resolve(dirname(target), await fs.readlink(target));
     }
 }
@@ -47,7 +51,7 @@ export function canonicalFilePathSync(file, fs) {
         if (!isSymlink)
             return target;
         if (hops >= maxSymlinkHops)
-            throw new Error('Too many file symlink hops');
+            throw symlinkLoop(file);
         target = resolve(dirname(target), fs.readlinkSync(target));
     }
 }

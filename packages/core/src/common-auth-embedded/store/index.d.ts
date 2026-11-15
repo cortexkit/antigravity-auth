@@ -19,4 +19,4 @@ export type { PullReason } from './runtime.js';
 export type { ApiKeyCredential, CredentialStampStatus, OAuthCredential, PoolCredential, PoolRow, ProviderStateCodec, ProviderStateDrop, ProviderStateReplacement, QuotaCodec, RotateCredential, StoredCredential, } from './schema.js';
 export { fingerprintOf, LEGACY_STORE_VERSION, POOL_KEY, POOL_ROWS_KEY, POOL_SCHEMA_VERSION, PROVIDER_STATE_KEY, REFRESH_STAMP_TOLERANCE_MS, rowLockKey, } from './schema.js';
 export type { PoolSettings, SettingsMutator, SettingsRead, UpdateSettingsOptions, UpdateSettingsResult, } from './settings.js';
-export { POOL_OWNED_KEYS } from './settings.js';
+export { POOL_OWNED_KEYS, readPoolSettingsAt } from './settings.js';

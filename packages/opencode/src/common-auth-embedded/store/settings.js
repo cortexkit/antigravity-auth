@@ -63,9 +63,19 @@ function settingsRefusal(message) {
 }
 const settingsCache = new FileReadCache();
 /** Reads only the config's settings, without taking a lock or writing anything. */
-export async function readPoolSettings(rt) {
-    const read = async ([configPath = rt.ctx.configPath,] = []) => {
-        const result = await readPoolConfig(configPath);
+export function readPoolSettings(rt) {
+    return readPoolSettingsAt(rt.ctx.configPath);
+}
+/**
+ * Reads the settings of the pool config at `configPath`, exactly as a store's
+ * `readSettings()` does, without opening a store. It reads only that file: no
+ * state file, lock, write or migration. A plugin that has already resolved
+ * which config file to trust (for example, after a location check) reads it
+ * here rather than opening a second store on it.
+ */
+export async function readPoolSettingsAt(configPath) {
+    const read = async ([path = configPath,] = []) => {
+        const result = await readPoolConfig(path);
         if (result.status === 'error')
             return { status: 'error', file: 'config', reason: result.reason };
         return { status: result.status, settings: settingsOf(result.config) };
@@ -73,7 +83,7 @@ export async function readPoolSettings(rt) {
     // Native Windows security checks cannot be replaced by a stat fingerprint.
     const result = windowsPrivateFiles
         ? await read()
-        : await settingsCache.read([rt.ctx.configPath], read);
+        : await settingsCache.read([configPath], read);
     return structuredClone(result);
 }
 /**

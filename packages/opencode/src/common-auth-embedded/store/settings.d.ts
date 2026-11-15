@@ -53,6 +53,14 @@ export type UpdateSettingsResult = {
 /** Reads only the config's settings, without taking a lock or writing anything. */
 export declare function readPoolSettings(rt: StoreRuntime): Promise<SettingsRead>;
 /**
+ * Reads the settings of the pool config at `configPath`, exactly as a store's
+ * `readSettings()` does, without opening a store. It reads only that file: no
+ * state file, lock, write or migration. A plugin that has already resolved
+ * which config file to trust (for example, after a location check) reads it
+ * here rather than opening a second store on it.
+ */
+export declare function readPoolSettingsAt(configPath: string): Promise<SettingsRead>;
+/**
  * One locked read-modify-write of the plugin's settings in the config file
  * the pool lives in. The pool must be ready (a pending migration or a load
  * error refuses before the mutator runs). A mutator result that sets a
