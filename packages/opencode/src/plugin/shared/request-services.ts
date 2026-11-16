@@ -46,6 +46,7 @@ import {
   type QuotaGroup,
   type QuotaGroupSummary,
   type QuotaManager,
+  quotaAccountIdentity,
   quotaExhaustedUntil,
   RETIRED_AGY_MODEL_MESSAGE,
   redactCredentialError,
@@ -2822,14 +2823,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 const sameQuotaIdentity =
                   credentials.domain === 'vault' ||
                   account.cachedQuotaAccountId ===
-                    createHash('sha256')
-                      .update(
-                        parseRefreshParts(
-                          credentials.toAuthDetails(account).refresh,
-                        ).refreshToken,
-                      )
-                      .digest('hex')
-                      .slice(0, 16)
+                    quotaAccountIdentity(
+                      parseRefreshParts(
+                        credentials.toAuthDetails(account).refresh,
+                      ).refreshToken,
+                    )
                 // Only a recent quota reading showing none available for this model
                 // can confirm exhaustion.
                 const emptyUntil =

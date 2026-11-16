@@ -204,7 +204,12 @@ export interface ManagedAccount extends SelectableAccount {
  * the token produces a durable, prunable identity to detect stale cached
  * quota after an account-index shift.
  */
-function quotaAccountIdentity(refreshToken: string): string {
+/**
+ * Opaque identity stamped on a cached quota reading: the first 16 hex digits of
+ * the refresh token's SHA-256. A reading only describes the account whose token
+ * produced it, so callers compare stamps before trusting a cached reading.
+ */
+export function quotaAccountIdentity(refreshToken: string): string {
   return createHash('sha256').update(refreshToken).digest('hex').slice(0, 16)
 }
 

@@ -210,6 +210,7 @@ describe('shared request engine import graph', () => {
         'parseRefreshParts',
         'preResponseTimeoutResponse',
         'preserveResponseMetadata',
+        'quotaAccountIdentity',
         'quotaExhaustedUntil',
         'redactCredentialError',
         'redactCredentialResponse',

@@ -9,7 +9,11 @@ export type {
   AccountSessionIdentity,
   ManagedAccount,
 } from './account-manager.ts'
-export { AccountManager, resolveQuotaGroup } from './account-manager.ts'
+export {
+  AccountManager,
+  quotaAccountIdentity,
+  resolveQuotaGroup,
+} from './account-manager.ts'
 export * from './account-migration.ts'
 export * from './account-repository.ts'
 export * from './account-repository-codecs.ts'
