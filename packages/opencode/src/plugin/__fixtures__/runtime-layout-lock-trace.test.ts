@@ -265,7 +265,7 @@ export class RuntimeLayoutLockTrace {
         span.cancelled = true
         timers.delete(handle)
       }
-      return clear(handle)
+      return Reflect.apply(clear, globalThis, [handle])
     })
   }
 
