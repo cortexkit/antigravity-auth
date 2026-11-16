@@ -129,6 +129,7 @@ run_step embed bun run embed:check
 run_step format bun run format:check
 # Both root scripts already include lint:native-inert.
 run_step lint bun run lint
+run_step file-size bun scripts/check-file-sizes.ts
 run_step disk-test-list bun test --isolate ./test/test-root.test.ts
 run_step import-graph bun test --isolate ./packages/opencode/src/plugin/shared/import-graph.test.ts
 run_step sync-spawn bun test --isolate ./test/sync-spawn-guard.test.ts

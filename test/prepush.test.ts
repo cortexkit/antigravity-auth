@@ -99,6 +99,7 @@ test('prepush --fast runs static guards without a build or remote submission', a
     'bun run embed:check',
     'bun run format:check',
     'bun run lint',
+    'bun scripts/check-file-sizes.ts',
     'bun test --isolate ./test/test-root.test.ts',
     'bun test --isolate ./packages/opencode/src/plugin/shared/import-graph.test.ts',
     'bun test --isolate ./test/sync-spawn-guard.test.ts',

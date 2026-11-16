@@ -67,6 +67,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Check source file sizes
+        run: bun scripts/check-file-sizes.ts
+
   rpc-runtime-matrix:
     name: RPC runtime matrix
     runs-on: ubuntu-latest

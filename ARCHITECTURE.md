@@ -176,7 +176,7 @@ The library is embedded so that each release ships exactly the library bytes it 
 - `bun run smoke:tui`: installs the packed package into a fresh consumer and loads both renderers.
 - **CI** (`.github/workflows/ci.yml`): typecheck, build, TUI smoke, unit, e2e, the OpenCode 2 Docker smoke, format and lint, plus the status-server contracts on Node 20, Node 24, Bun 1.3.14 and Bun 1.4.2. **Windows** (`windows-migration.yml`) runs store migration, relocation and real vault enrollment on two Windows versions.
 - `bun run test:native-inert`: the release gate, run on MOTOR Linux. It runs the toolchain checks, the core build, the strict typechecks, a scoped lint, and the portable and MOTOR test suites. It only cleans up processes inside a verified private sandbox, and refuses everywhere else.
-- `bun run prepush`: the local gate before pushing (`scripts/prepush.sh`). The fast phase runs frozen installs, the embedding checks, format, lint and four repo guards: the disk-test list, the renderer import graph, synchronous spawns and shell exit traps. The full phase then runs typecheck, build, the TUI smoke, `test` and `test:e2e` in one MOTOR job (`--full-here` runs it on the current machine).
+- `bun run prepush`: the local gate before pushing (`scripts/prepush.sh`). The fast phase runs frozen installs, the embedding checks, format, lint and five repo guards: source file sizes, the disk-test list, the renderer import graph, synchronous spawns and shell exit traps. The full phase then runs typecheck, build, the TUI smoke, `test` and `test:e2e` in one MOTOR job (`--full-here` runs it on the current machine).
 
 **Releasing:**
 1. `scripts/release.sh --prepare <version>` makes the version-only commit.

@@ -72,3 +72,4 @@ research/      earlier library-adoption and CI investigations; not shipped
 - **A menu action:** `packages/core/src/antigravity-command-menu.ts`. Host-only sections go in `packages/opencode/src/plugin/commands.ts` or `packages/pi/src/commands.ts`.
 - **A sidebar field:** `sidebar-state.ts` and `sidebar-projection.ts`, plus `docs/sidebar-contract.md`. No credentials, project ids or fingerprints.
 - **A test that writes to disk with fsync, rename, chmod or locks:** list it in `test/support/disk-test-files.ts`.
+- **Source file size guard:** `scripts/check-file-sizes.ts` checks tracked hand-written sources against `scripts/file-size-baseline.json`.
