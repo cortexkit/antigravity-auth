@@ -850,6 +850,16 @@ describe('Windows migrated-store anchor', () => {
     })
   }
 
+  // These tests create real account stores, the same first-install work the
+  // product does once. On GitHub's Windows runners that work alone can exceed
+  // Bun's 5 s default: one initialize took two management locks of about
+  // 0.4-0.9 s each, and up to 2.6 s on a slow day. Each lock was taken on the
+  // first attempt, with no retries, no backoff and no other holder (measured
+  // in .cortexkit/internal-docs/investigations/anchor-lock-retry/). So the
+  // time is real creation work, not waiting. A test that needs more than this
+  // is a finding to investigate, not a reason to raise the limit again.
+  const STORE_CREATION_TEST_TIMEOUT_MS = 20_000
+
   const configPool = () => join(configDir, 'antigravity-accounts.json')
   const legacyPool = () =>
     join(appDataRoot, 'opencode', 'antigravity-accounts.json')
@@ -953,121 +963,133 @@ describe('Windows migrated-store anchor', () => {
     }
   })
 
-  it('finds a store migrated at the %APPDATA% anchor after its pool file is retired', async () => {
-    await traceAnchor(
-      'finds a store migrated at the %APPDATA% anchor after its pool file is retired',
-      async (trace) => {
-        const modules = await trace.phase(
-          'load:verified-modules',
-          genuineModules,
-        )
-        await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
-        expect(
-          (
-            await trace.phase('seed:initialize:appdata', () =>
-              initializeFreshAccountStoreFor(modules, {
-                legacyPath: legacyPool(),
-              }),
-            )
-          ).status,
-        ).toBe('completed')
-        const seeded = await trace.phase('seed:open:appdata', () =>
-          openAt(legacyPool(), modules),
-        )
-        expect(seeded.status).toBe('ready')
-        if (seeded.status !== 'ready') return
-        repositories.push(seeded.repository)
-        const [login] = await trace.phase('seed:commit-login', () =>
-          commitLogins(seeded.repository, [
-            loginOf('legacy-token|legacy-project', 'legacy@example.test'),
-          ]),
-        )
-        expect(login).toMatchObject({ status: 'committed' })
+  it(
+    'finds a store migrated at the %APPDATA% anchor after its pool file is retired',
+    async () => {
+      await traceAnchor(
+        'finds a store migrated at the %APPDATA% anchor after its pool file is retired',
+        async (trace) => {
+          const modules = await trace.phase(
+            'load:verified-modules',
+            genuineModules,
+          )
+          await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
+          expect(
+            (
+              await trace.phase('seed:initialize:appdata', () =>
+                initializeFreshAccountStoreFor(modules, {
+                  legacyPath: legacyPool(),
+                }),
+              )
+            ).status,
+          ).toBe('completed')
+          const seeded = await trace.phase('seed:open:appdata', () =>
+            openAt(legacyPool(), modules),
+          )
+          expect(seeded.status).toBe('ready')
+          if (seeded.status !== 'ready') return
+          repositories.push(seeded.repository)
+          const [login] = await trace.phase('seed:commit-login', () =>
+            commitLogins(seeded.repository, [
+              loginOf('legacy-token|legacy-project', 'legacy@example.test'),
+            ]),
+          )
+          expect(login).toMatchObject({ status: 'committed' })
 
-        // The pool file is retired and OPENCODE_CONFIG_DIR has no store, yet
-        // the migrated store must stay visible through the real resolution path.
-        mockWindows()
-        await expect(stat(legacyPool())).rejects.toMatchObject({
-          code: 'ENOENT',
-        })
-        expect(getStoragePath()).toBe(legacyPool())
-        const resolved = await trace.phase('resolve:open', () =>
-          openResolved(modules),
-        )
-        expect(resolved.status).toBe('ready')
-        if (resolved.status !== 'ready') return
-        repositories.push(resolved.repository)
-        const read = await trace.phase('resolve:read', () =>
-          resolved.repository.read(),
-        )
-        expect(read.status).toBe('ready')
-        if (read.status !== 'ready') return
-        expect(read.rows.map((row) => row.credential?.refreshToken)).toEqual([
-          'legacy-token',
-        ])
-        expect(trace.locks.some((lock) => lock.name === 'save')).toBe(true)
-      },
-    )
-  })
+          // The pool file is retired and OPENCODE_CONFIG_DIR has no store, yet
+          // the migrated store must stay visible through the real resolution path.
+          mockWindows()
+          await expect(stat(legacyPool())).rejects.toMatchObject({
+            code: 'ENOENT',
+          })
+          expect(getStoragePath()).toBe(legacyPool())
+          const resolved = await trace.phase('resolve:open', () =>
+            openResolved(modules),
+          )
+          expect(resolved.status).toBe('ready')
+          if (resolved.status !== 'ready') return
+          repositories.push(resolved.repository)
+          const read = await trace.phase('resolve:read', () =>
+            resolved.repository.read(),
+          )
+          expect(read.status).toBe('ready')
+          if (read.status !== 'ready') return
+          expect(read.rows.map((row) => row.credential?.refreshToken)).toEqual([
+            'legacy-token',
+          ])
+          expect(trace.locks.some((lock) => lock.name === 'save')).toBe(true)
+        },
+      )
+    },
+    STORE_CREATION_TEST_TIMEOUT_MS,
+  )
 
-  it('refuses when pointers exist at both anchors, naming both', async () => {
-    await traceAnchor(
-      'refuses when pointers exist at both anchors, naming both',
-      async (trace) => {
-        const modules = await trace.phase(
-          'load:verified-modules',
-          genuineModules,
-        )
-        await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
-        expect(
-          (
-            await trace.phase('seed:initialize:appdata', () =>
-              initializeFreshAccountStoreFor(modules, {
-                legacyPath: legacyPool(),
-              }),
-            )
-          ).status,
-        ).toBe('completed')
-        expect(
-          (
-            await trace.phase('seed:initialize:config', () =>
-              initializeFreshAccountStoreFor(modules, {
-                legacyPath: configPool(),
-              }),
-            )
-          ).status,
-        ).toBe('completed')
-        mockWindows()
-        let failure: unknown
-        try {
-          getStoragePath()
-        } catch (error) {
-          failure = error
-        }
-        expect(failure).toBeInstanceOf(Error)
-        expect(String((failure as Error)?.message)).toContain(legacyPool())
-        expect(String((failure as Error)?.message)).toContain(configPool())
-        expect(trace.locks.some((lock) => lock.name === 'save')).toBe(true)
-      },
-    )
-  })
+  it(
+    'refuses when pointers exist at both anchors, naming both',
+    async () => {
+      await traceAnchor(
+        'refuses when pointers exist at both anchors, naming both',
+        async (trace) => {
+          const modules = await trace.phase(
+            'load:verified-modules',
+            genuineModules,
+          )
+          await mkdir(join(appDataRoot, 'opencode'), { recursive: true })
+          expect(
+            (
+              await trace.phase('seed:initialize:appdata', () =>
+                initializeFreshAccountStoreFor(modules, {
+                  legacyPath: legacyPool(),
+                }),
+              )
+            ).status,
+          ).toBe('completed')
+          expect(
+            (
+              await trace.phase('seed:initialize:config', () =>
+                initializeFreshAccountStoreFor(modules, {
+                  legacyPath: configPool(),
+                }),
+              )
+            ).status,
+          ).toBe('completed')
+          mockWindows()
+          let failure: unknown
+          try {
+            getStoragePath()
+          } catch (error) {
+            failure = error
+          }
+          expect(failure).toBeInstanceOf(Error)
+          expect(String((failure as Error)?.message)).toContain(legacyPool())
+          expect(String((failure as Error)?.message)).toContain(configPool())
+          expect(trace.locks.some((lock) => lock.name === 'save')).toBe(true)
+        },
+      )
+    },
+    STORE_CREATION_TEST_TIMEOUT_MS,
+  )
 
-  it('keeps using the config anchor when only it publishes a store', async () => {
-    const modules = await genuineModules()
-    expect(
-      (
-        await initializeFreshAccountStoreFor(modules, {
-          legacyPath: configPool(),
-        })
-      ).status,
-    ).toBe('completed')
-    mockWindows()
-    expect(getStoragePath()).toBe(configPool())
-    const resolved = await openResolved(modules)
-    expect(resolved.status).toBe('ready')
-    if (resolved.status !== 'ready') return
-    repositories.push(resolved.repository)
-  })
+  it(
+    'keeps using the config anchor when only it publishes a store',
+    async () => {
+      const modules = await genuineModules()
+      expect(
+        (
+          await initializeFreshAccountStoreFor(modules, {
+            legacyPath: configPool(),
+          })
+        ).status,
+      ).toBe('completed')
+      mockWindows()
+      expect(getStoragePath()).toBe(configPool())
+      const resolved = await openResolved(modules)
+      expect(resolved.status).toBe('ready')
+      if (resolved.status !== 'ready') return
+      repositories.push(resolved.repository)
+    },
+    STORE_CREATION_TEST_TIMEOUT_MS,
+  )
 
   it('falls back to the legacy pool file when the config folder cannot be created', async () => {
     mockWindows()
