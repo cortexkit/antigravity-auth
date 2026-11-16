@@ -1,6 +1,5 @@
 import { spyOn } from 'bun:test'
 import { AsyncLocalStorage } from 'node:async_hooks'
-import { writeFileSync } from 'node:fs'
 import * as promises from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -107,7 +106,7 @@ export class RuntimeLayoutLockTrace {
     try {
       await work()
     } catch (error) {
-      this.print('failed')
+      this.print('failure')
       throw error
     }
   }
@@ -243,7 +242,11 @@ export class RuntimeLayoutLockTrace {
       if (!this.context.getStore()) return set(callback, delay, ...args)
       const span = this.start('timer:setTimeout')
       span.requestedMs = delay ?? 0
-      span.caller = new Error().stack?.split('\n').slice(2, 7).join('\n')
+      span.caller = new Error().stack
+        ?.split('\n')
+        .slice(2, 7)
+        .join('\n')
+        .slice(0, 800)
       const trace = this
       const handle = set(
         function (this: unknown, ...values: unknown[]) {
@@ -272,24 +275,28 @@ export class RuntimeLayoutLockTrace {
 
   private print(reason: string) {
     const elapsed = this.now()
-    // Bun's console truncates large strings, and async writes can interleave with its failure report.
-    writeFileSync(
-      process.stderr.fd,
-      `${JSON.stringify({
-        runtimeLayoutPhaseTable: this.test,
-        reason,
-        pid: process.pid,
-        elapsedMs: round(elapsed),
-        nativeGranularity:
-          'On Windows io:createPrivateFile includes native DACL verification, write and FlushFileBuffers; the addon exposes no separate subphase hooks.',
-        phases: this.spans.map((span) => ({
-          ...span,
-          startMs: round(span.startMs),
-          ms: round(span.ms ?? elapsed - span.startMs),
-          pending: span.ms === undefined,
-        })),
-      })}\n`,
-    )
+    const rows = this.spans.map((span) => ({
+      ...span,
+      startMs: round(span.startMs),
+      ms: round(span.ms ?? elapsed - span.startMs),
+      pending: span.ms === undefined,
+    }))
+    const emit = (row: object) =>
+      console.error(`AGY_LAYOUT_TRACE ${JSON.stringify(row)}`)
+    // Small records survive Bun's output transport; matching counts identify a complete table.
+    emit({
+      kind: 'header',
+      test: this.test,
+      reason,
+      rowCount: rows.length,
+      pid: process.pid,
+      elapsedMs: round(elapsed),
+      nativeGranularity:
+        'On Windows io:createPrivateFile includes native DACL verification, write and FlushFileBuffers; the addon exposes no separate subphase hooks.',
+    })
+    for (const [index, row] of rows.entries())
+      emit({ kind: 'event', index, ...row })
+    emit({ kind: 'footer', test: this.test, rowCount: rows.length })
   }
 
   stop() {
