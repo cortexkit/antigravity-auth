@@ -14,6 +14,7 @@ import {
   type AntigravityVaultStateUpdate,
   type CommitVaultProviderStateInput,
   commitVaultProviderState,
+  commitVaultProviderStates,
   readVaultProviderState,
   VAULT_PROVIDER_STATE_LOCK,
   type VaultRosterGuardModule,
@@ -362,6 +363,105 @@ describe('vault provider-state identity binding', () => {
       'account-b': before!,
     })
   })
+})
+
+describe('vault provider-state quota provenance', () => {
+  const quota = {
+    schemaVersion: 1 as const,
+    cachedQuota: { gemini: { remainingFraction: 0, modelCount: 2 } },
+    cachedQuotaUpdatedAt: 77,
+  }
+
+  for (const mode of ['single', 'batch'] as const) {
+    async function save(
+      attribution: VaultStateAttribution,
+      update: AntigravityVaultStateUpdate,
+    ) {
+      const rosterPath = join(dir, 'roster.json')
+      await writeFile(rosterPath, JSON.stringify(roster([row(attribution)])), {
+        mode: 0o600,
+      })
+      const input = {
+        claustrum: await loadCommonAuthClaustrum(),
+        fs: await loadCommonAuthFs(),
+        rosterPath,
+        statePath,
+        verify: async () => {},
+      }
+      const result =
+        mode === 'single'
+          ? await commitVaultProviderState({ ...input, attribution, update })
+          : (
+              await commitVaultProviderStates({
+                ...input,
+                entries: [{ attribution, update }],
+              })
+            )[0]
+      expect(result?.status).toBe('written')
+      return (await readVaultProviderState(statePath)).accounts[
+        attribution.accountIdentity
+      ]
+    }
+
+    for (const [replacement, changed] of [
+      ['route', { routeId: 'vault:b' }],
+      ['credential', { credentialId: 'cred-b' }],
+      ['route and credential', { routeId: 'vault:b', credentialId: 'cred-b' }],
+    ] as const) {
+      it(`${mode} drops inherited quota on a ${replacement} relabel`, async () => {
+        await save(A, () => ({
+          quota,
+          metadata: { addedAt: 1, lastUsed: 2 },
+          extensions: { owner: 'kept' },
+        }))
+        let seen: unknown = 'not called'
+        const by = { ...A, ...changed }
+        const entry = await save(by, (current) => {
+          seen = current?.quota
+          return {
+            metadata: { ...current?.metadata, lastUsed: 3 },
+            ...(current?.quota ? { quota: current.quota } : {}),
+            ...(current?.extensions ? { extensions: current.extensions } : {}),
+          }
+        })
+        expect(seen).toBeUndefined()
+        expect(entry?.quota).toBeUndefined()
+        expect(entry?.metadata).toEqual({ addedAt: 1, lastUsed: 3 })
+        expect(entry?.extensions).toEqual({ owner: 'kept' })
+        expect(entry?.observed).toEqual({
+          routeId: by.routeId,
+          credentialId: by.credentialId,
+          recordVersion: by.recordVersion,
+        })
+      })
+    }
+
+    it(`${mode} keeps quota on a record-version-only refresh`, async () => {
+      await save(A, () => ({ quota }))
+      let seen: unknown
+      const entry = await save({ ...A, recordVersion: 4 }, (current) => {
+        seen = current?.quota
+        return current?.quota ? { quota: current.quota } : {}
+      })
+      expect(seen).toEqual(quota)
+      expect(entry?.quota).toEqual(quota)
+      expect(entry?.observed.recordVersion).toBe(4)
+    })
+
+    it(`${mode} keeps an explicitly supplied fresh quota on a relabel`, async () => {
+      await save(A, () => ({ quota }))
+      const fresh = {
+        ...quota,
+        cachedQuota: { gemini: { remainingFraction: 0.8, modelCount: 2 } },
+        cachedQuotaUpdatedAt: 88,
+      }
+      const entry = await save(
+        { ...A, routeId: 'vault:b', credentialId: 'cred-b' },
+        () => ({ quota: fresh }),
+      )
+      expect(entry?.quota).toEqual(fresh)
+    })
+  }
 })
 
 describe('vault provider-state content', () => {

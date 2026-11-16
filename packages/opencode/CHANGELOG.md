@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Discard cached vault quota readings when a login's route or credential changes, so a replacement login cannot inherit the previous login's quota waits.
+
 ## [3.1.4] - 2026-11-16
 
 - Rewrite OpenCode 2.3's “running in” host identity wording while preserving non-identity mentions and paths.

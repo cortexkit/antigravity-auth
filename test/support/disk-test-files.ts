@@ -117,6 +117,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Real vault receipt waits use private-mode enrollment and roster files.',
   'packages/opencode/src/plugin/shared/vault-menu.test.ts':
     'Conservative: selector sync calls match the file-handle sync identifier fence.',
+  'packages/opencode/src/plugin/shared/vault-quota-provenance.test.ts':
+    'Real roster and provider-state locks, atomic writes, and private enrollment files for quota replacement regressions.',
   'packages/opencode/src/plugin/shared/vault-request-credentials.test.ts':
     'Conservative: selector sync calls match the file-handle sync identifier fence.',
   'packages/opencode/src/plugin/vault-insula-quota.test.ts':
