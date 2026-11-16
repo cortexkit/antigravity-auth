@@ -2883,7 +2883,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 }
                 await routingSleep(delayMs, 'rate_limited', unconfirmedRetries)
                 // A background reading may have extended the mark while we slept.
-                if ((resets[quotaKey] ?? 0) > Date.now()) {
+                if ((resets[quotaKey] ?? 0) > now + delayMs) {
                   switchedForUnconfirmed = true
                   shouldSwitchAccount = true
                   break

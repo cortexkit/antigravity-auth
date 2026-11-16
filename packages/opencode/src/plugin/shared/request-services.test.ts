@@ -9437,6 +9437,7 @@ describe('createRequestExecutor routing wait reports', () => {
                 reason === 'server_busy'
                   ? 'Service unavailable for private-account-123'
                   : 'Rate limit exceeded for private-account-123',
+              details: [{ ...QUOTA_ERROR_INFO, reason: 'RATE_LIMIT_EXCEEDED' }],
             },
           }),
           {
