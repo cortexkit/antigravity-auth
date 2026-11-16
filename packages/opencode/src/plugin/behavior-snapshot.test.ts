@@ -304,7 +304,12 @@ it('preserves the plugin hook mutation sequence across extraction', async () => 
               code: 429,
               message: 'Quota exhausted',
               status: 'RESOURCE_EXHAUSTED',
-              details: [{ reason: 'QUOTA_EXHAUSTED' }],
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                  reason: 'QUOTA_EXHAUSTED',
+                },
+              ],
             },
           },
           {

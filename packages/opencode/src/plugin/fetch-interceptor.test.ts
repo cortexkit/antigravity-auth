@@ -2313,7 +2313,16 @@ describe('createFetchInterceptor', () => {
       transportHandler = async () =>
         new Response(
           JSON.stringify({
-            error: { code: 429, message: 'rate limit exceeded' },
+            error: {
+              code: 429,
+              message: 'rate limit exceeded',
+              details: [
+                {
+                  '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                  reason: 'RATE_LIMIT_EXCEEDED',
+                },
+              ],
+            },
           }),
           {
             status: 429,
