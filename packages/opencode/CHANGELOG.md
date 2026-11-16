@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Convert multi-type Gemini tool parameters to compatible unions instead of sending rejected type arrays, including tools accepting every JSON type in OpenCode and Pi.
 - Discard cached vault quota readings when a login's route or credential changes, so a replacement login cannot inherit the previous login's quota waits.
 
 ## [3.1.4] - 2026-11-16

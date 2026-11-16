@@ -820,14 +820,185 @@ describe('transform/gemini', () => {
         expect(toGeminiSchema({ type: members })).toEqual({ type: members })
       })
 
-      it('passes through unsupported multi-type arrays without narrowing to a single branch', () => {
+      it('preserves every alternative of a nullable multi-type array', () => {
         const schema = { type: ['string', 'number', 'null'] }
-        expect(
-          (toGeminiSchema(schema) as Record<string, unknown>).type,
-        ).not.toBe('STRING')
-        expect(
-          (toGeminiSchema(schema) as Record<string, unknown>).type,
-        ).not.toBe('NUMBER')
+        expect(toGeminiSchema(schema)).toEqual({
+          anyOf: [{ type: 'STRING' }, { type: 'NUMBER' }],
+          nullable: true,
+        })
+      })
+
+      describe('multi-type array wire regressions', () => {
+        it('leaves the flow trigger covering every JSON type unconstrained and nullable', () => {
+          expect(
+            toGeminiSchema({
+              type: ['object', 'array', 'string', 'number', 'boolean', 'null'],
+              description: 'flow trigger',
+            }),
+          ).toEqual({ description: 'flow trigger', nullable: true })
+        })
+
+        it('also recognizes integer coverage and keeps only type-neutral fields', () => {
+          expect(
+            toGeminiSchema({
+              type: ['object', 'array', 'string', 'integer', 'boolean'],
+              description: 'Any input',
+              title: 'Input',
+              properties: { id: { type: 'string' } },
+              required: ['id'],
+              items: { type: 'string' },
+              minLength: 2,
+            }),
+          ).toEqual({ description: 'Any input', title: 'Input' })
+        })
+
+        it('expands string and number without adding nullability', () => {
+          const schema = Object.freeze({
+            type: Object.freeze(['string', 'number']),
+            description: 'Text or numeric input',
+          })
+          const converted = toGeminiSchema(schema)
+          expect(converted).toEqual({
+            description: 'Text or numeric input',
+            anyOf: [{ type: 'STRING' }, { type: 'NUMBER' }],
+          })
+          expect(toGeminiSchema(converted)).toEqual(converted)
+          expect(schema.type).toEqual(['string', 'number'])
+        })
+
+        it('keeps nullable object properties unchanged (compatibility control)', () => {
+          expect(
+            toGeminiSchema({
+              type: ['object', 'null'],
+              properties: { id: { type: 'string' } },
+              required: ['id'],
+            }),
+          ).toEqual({
+            type: 'OBJECT',
+            nullable: true,
+            properties: { id: { type: 'STRING' } },
+            required: ['id'],
+          })
+        })
+
+        it('places items and minLength only on their applicable branches', () => {
+          expect(
+            toGeminiSchema({
+              type: ['array', 'string'],
+              items: { type: 'integer' },
+              minItems: 1,
+              maxItems: 3,
+              minLength: 2,
+              maxLength: 8,
+              pattern: '^x',
+              format: 'date',
+            }),
+          ).toEqual({
+            anyOf: [
+              {
+                type: 'ARRAY',
+                items: { type: 'INTEGER' },
+                minItems: 1,
+                maxItems: 3,
+              },
+              {
+                type: 'STRING',
+                minLength: 2,
+                maxLength: 8,
+                pattern: '^x',
+                format: 'date',
+              },
+            ],
+          })
+        })
+
+        it('recursively converts multi-type properties inside object branches', () => {
+          expect(
+            toGeminiSchema({
+              type: 'object',
+              properties: {
+                input: {
+                  type: ['object', 'boolean'],
+                  properties: { value: { type: ['string', 'number'] } },
+                  required: ['value', 'missing'],
+                  propertyOrdering: ['value'],
+                  additionalProperties: false,
+                },
+              },
+            }),
+          ).toEqual({
+            type: 'OBJECT',
+            properties: {
+              input: {
+                anyOf: [
+                  {
+                    type: 'OBJECT',
+                    properties: {
+                      value: {
+                        anyOf: [{ type: 'STRING' }, { type: 'NUMBER' }],
+                      },
+                    },
+                    required: ['value'],
+                    propertyOrdering: ['value'],
+                  },
+                  { type: 'BOOLEAN' },
+                ],
+              },
+            },
+          })
+        })
+
+        it.each([
+          'anyOf',
+          'oneOf',
+        ])('retains an existing %s and hints the omitted type constraint', (union) => {
+          expect(
+            toGeminiSchema({
+              type: ['string', 'number', 'null'],
+              [union]: [{ type: 'number', minimum: 1 }],
+              description: 'Existing union',
+              nullable: false,
+            }),
+          ).toEqual({
+            anyOf: [{ type: 'NUMBER', minimum: 1 }],
+            description:
+              'Existing union (type: additional union constraints omitted.)',
+            nullable: true,
+          })
+        })
+
+        it('routes string enums and numeric constraints to their own branches', () => {
+          expect(
+            toGeminiSchema({
+              type: ['string', 'number', 'integer'],
+              enum: ['one', 'two'],
+              minimum: 0,
+              maximum: 10,
+              exclusiveMinimum: 0,
+              exclusiveMaximum: 10,
+              multipleOf: 2,
+              description: 'Input',
+            }),
+          ).toEqual({
+            description: 'Input',
+            anyOf: [
+              { type: 'STRING', enum: ['one', 'two'] },
+              {
+                type: 'NUMBER',
+                minimum: 0,
+                maximum: 10,
+                description:
+                  'exclusiveMinimum: 0, exclusiveMaximum: 10, multipleOf: 2',
+              },
+              {
+                type: 'INTEGER',
+                minimum: 1,
+                maximum: 9,
+                description: 'multipleOf: 2',
+              },
+            ],
+          })
+        })
       })
 
       it.each([

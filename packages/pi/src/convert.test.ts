@@ -635,6 +635,38 @@ describe('Pi tool schema wire normalization', () => {
       .parameters
   }
 
+  it('converts multi-type tool parameters through the shared Gemini converter', () => {
+    expect(
+      parameters({
+        type: 'object',
+        properties: {
+          trigger: {
+            type: ['object', 'array', 'string', 'number', 'boolean', 'null'],
+            description: 'flow trigger',
+          },
+          value: { type: ['string', 'number'] },
+          input: {
+            type: ['array', 'string'],
+            items: { type: 'integer' },
+            minLength: 2,
+          },
+        },
+      }),
+    ).toEqual({
+      type: 'OBJECT',
+      properties: {
+        trigger: { description: 'flow trigger', nullable: true },
+        value: { anyOf: [{ type: 'STRING' }, { type: 'NUMBER' }] },
+        input: {
+          anyOf: [
+            { type: 'ARRAY', items: { type: 'INTEGER' } },
+            { type: 'STRING', minLength: 2 },
+          ],
+        },
+      },
+    })
+  })
+
   it('normalizes nested non-string constants and enums', () => {
     expect(
       parameters({

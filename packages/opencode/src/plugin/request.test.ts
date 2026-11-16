@@ -3895,6 +3895,73 @@ describe('current Claude warmup admission', () => {
 })
 
 describe('tool schema wire normalization', () => {
+  it('Gemini outbound tools contain no array-valued type anywhere', () => {
+    const prepared = prepareAntigravityRequest(
+      'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.8-flash-low:generateContent',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Use flow' }] }],
+          tools: [
+            {
+              functionDeclarations: [
+                {
+                  name: 'flow',
+                  parameters: {
+                    type: 'object',
+                    properties: {
+                      trigger: {
+                        type: [
+                          'object',
+                          'array',
+                          'string',
+                          'number',
+                          'boolean',
+                          'null',
+                        ],
+                      },
+                      value: { type: ['string', 'number'] },
+                      rows: {
+                        type: 'array',
+                        items: {
+                          type: ['array', 'string'],
+                          items: { type: ['integer', 'boolean'] },
+                          minLength: 2,
+                        },
+                      },
+                      choice: { anyOf: [{ type: ['string', 'number'] }] },
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+        }),
+      },
+      'access-token',
+      'schema-test-project',
+      undefined,
+    )
+    const tools: unknown = JSON.parse(prepared.init.body as string).request
+      .tools
+    expect(Array.isArray(tools)).toBe(true)
+    expect(tools).not.toEqual([])
+    const arrayTypePaths: string[] = []
+    function visit(value: unknown, path: string) {
+      if (!value || typeof value !== 'object') return
+      if (
+        !Array.isArray(value) &&
+        Array.isArray((value as Record<string, unknown>).type)
+      ) {
+        arrayTypePaths.push(`${path}.type`)
+      }
+      for (const [key, child] of Object.entries(value))
+        visit(child, `${path}.${key}`)
+    }
+    visit(tools, 'request.tools')
+    expect(arrayTypePaths).toEqual([])
+  })
+
   for (const [family, model] of [
     ['Gemini', 'antigravity-gemini-3.8-flash-low'],
     ['Claude', 'antigravity-claude-sonnet-5-5-low'],

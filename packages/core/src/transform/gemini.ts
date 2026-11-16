@@ -90,8 +90,34 @@ const ALLOWED_JSON_SCHEMA_TYPES = new Set([
   'null',
 ])
 
+const TYPE_ARRAY_BRANCH_FIELDS: Record<string, readonly string[]> = {
+  object: [
+    'properties',
+    'required',
+    'propertyOrdering',
+    'additionalProperties',
+  ],
+  array: ['items', 'minItems', 'maxItems'],
+  string: ['enum', 'format', 'minLength', 'maxLength', 'pattern'],
+  number: [
+    'minimum',
+    'maximum',
+    'exclusiveMinimum',
+    'exclusiveMaximum',
+    'multipleOf',
+  ],
+  integer: [
+    'minimum',
+    'maximum',
+    'exclusiveMinimum',
+    'exclusiveMaximum',
+    'multipleOf',
+  ],
+}
+
 function normalizeNullableTypeArray(
   schema: Record<string, unknown>,
+  unionHints?: string[],
 ): Record<string, unknown> {
   if (!Array.isArray(schema.type)) return schema
   if (
@@ -109,10 +135,55 @@ function normalizeNullableTypeArray(
   ]
   const nonNull = types.filter((type) => type !== 'null')
   if (nonNull.length > 1) {
-    // Leave genuine multi-type unions to the existing provider validation.
-    // Throwing here would classify a schema defect as a transport failure and
-    // penalize accounts; choosing a branch would silently narrow the tool.
-    return schema
+    // Callers without a hint collector leave multi-type arrays for their own
+    // handling. Gemini's final conversion cannot send a type list: anyOf retains
+    // every alternative without narrowing to one branch. A union covering every
+    // JSON type needs no type constraint.
+    if (!unionHints) return schema
+    const { type: _type, ...base } = schema
+    if (types.includes('null')) base.nullable = true
+    const coversEveryType =
+      ['object', 'array', 'string', 'boolean'].every((type) =>
+        nonNull.includes(type),
+      ) &&
+      (nonNull.includes('number') || nonNull.includes('integer'))
+    if (
+      !coversEveryType &&
+      (Array.isArray(base.anyOf) || Array.isArray(base.oneOf))
+    ) {
+      unionHints.push('type: additional union constraints omitted.')
+      return base
+    }
+
+    const branches = nonNull.map((type) => {
+      const branch: Record<string, unknown> = { type }
+      for (const key of TYPE_ARRAY_BRANCH_FIELDS[type] ?? []) {
+        if (!Object.hasOwn(base, key)) continue
+        if (
+          key === 'enum' &&
+          (!Array.isArray(base.enum) ||
+            !base.enum.every((value) => typeof value === 'string'))
+        )
+          continue
+        branch[key] = base[key]
+      }
+      return branch
+    })
+    for (const key of new Set([
+      ...Object.values(TYPE_ARRAY_BRANCH_FIELDS).flat(),
+      'minProperties',
+      'maxProperties',
+    ])) {
+      // Non-string enums are type-neutral value restrictions, emitted as hints.
+      if (
+        key === 'enum' &&
+        Array.isArray(base.enum) &&
+        !base.enum.every((value) => typeof value === 'string')
+      )
+        continue
+      delete base[key]
+    }
+    return coversEveryType ? base : { ...base, anyOf: branches }
   }
   return {
     ...schema,
@@ -314,6 +385,7 @@ export function toGeminiSchema(
   const numericConstraintHints: string[] = []
   const inputSchema = normalizeNullableTypeArray(
     mergeSchemaAllOf(schema as Record<string, unknown>, numericConstraintHints),
+    options.claudeValidated ? undefined : numericConstraintHints,
   )
   const schemaType =
     typeof inputSchema.type === 'string'
