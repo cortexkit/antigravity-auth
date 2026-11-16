@@ -151,8 +151,9 @@ export interface VaultAccountStateValue {
  * Computes the account's next state from its current one. The function must
  * be synchronous and must not start another commit. Return `undefined` to
  * leave the state as it is and `null` to remove the account's entry.
- * Inherited quota is omitted when the route or credential changes; a record
- * version refresh of the same route and credential keeps it.
+ * Inherited quota is omitted when the route or credential changes, because a
+ * reading describes only the login it was taken under. Quota is kept when the
+ * route and credential stay the same, even if the vault record's version moves.
  */
 export type AntigravityVaultStateUpdate = (
   current: VaultAccountState | undefined,
