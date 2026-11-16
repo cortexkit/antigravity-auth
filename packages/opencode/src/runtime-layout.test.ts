@@ -27,6 +27,7 @@ import {
   vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 
+import { RuntimeLayoutLockTrace } from './plugin/__fixtures__/runtime-layout-lock-trace.test'
 import { OPENCODE_VAULT_ENROLLMENT_NAME } from './plugin/vault-custody'
 import {
   __resetProcessHeartbeatForTest,
@@ -57,6 +58,19 @@ let root: string
 let saved: Record<string, string | undefined>
 let logged: { level: string; message: string; meta?: unknown }[]
 let count = 0
+let layoutTrace: RuntimeLayoutLockTrace | undefined
+
+async function traceLayout(
+  name: string,
+  work: (trace: RuntimeLayoutLockTrace) => Promise<void>,
+) {
+  const trace = new RuntimeLayoutLockTrace(name)
+  layoutTrace = trace
+  await trace.run(async () => {
+    await trace.phase('trace:install', () => trace.install())
+    await work(trace)
+  })
+}
 
 function testRoot(): string {
   const value = process.env.ANTIGRAVITY_TEST_ROOT
@@ -77,6 +91,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  layoutTrace?.stop()
+  layoutTrace = undefined
   for (const name of ENV_NAMES) {
     const value = saved[name]
     if (value === undefined) delete process.env[name]
@@ -1126,63 +1142,109 @@ describe('an approved vault enrollment and older versions', () => {
   })
 
   it('disconnect removes a leftover an older version rewrote, and an older version then reads local', async () => {
-    seed(configDir(), oldLayout())
-    await prepare()
-    expect(
-      await reconcileAt(oldVault(), fakeVaultClient().client),
-    ).toMatchObject({
-      state: 'blocked',
-      code: 'missing_token',
-    })
-    // Disconnect removes the new token and state, then the leftover.
-    rmSync(join(newVault(), 'opencode-enrollment.json'))
-    rmSync(join(newVault(), 'opencode-enrollment-state.json'))
-    await removeMovedVaultStateLeftover(getVaultDir())
-    expect(existsSync(join(configDir(), VAULT_STATE))).toBe(false)
-    expect(existsSync(oldVault())).toBe(false)
-    expect(await oldFolderAuthority()).toBe('local')
-    expect(await authorityAt(getVaultDir())).toBe('local')
-    // A later start finds nothing left over.
-    resetProcess()
-    expect(await prepare()).toBe('state-home')
+    await traceLayout(
+      'disconnect removes a leftover an older version rewrote, and an older version then reads local',
+      async (trace) => {
+        trace.syncPhase('seed:private-writes', () =>
+          seed(configDir(), oldLayout()),
+        )
+        await trace.phase('prepare:move', () => prepare())
+        expect(
+          await trace.phase('reconcile:older-version', () =>
+            reconcileAt(oldVault(), fakeVaultClient().client),
+          ),
+        ).toMatchObject({
+          state: 'blocked',
+          code: 'missing_token',
+        })
+        // Disconnect removes the new token and state, then the leftover.
+        trace.syncPhase('disconnect:remove-token-and-state', () => {
+          rmSync(join(newVault(), 'opencode-enrollment.json'))
+          rmSync(join(newVault(), 'opencode-enrollment-state.json'))
+        })
+        await trace.phase('removeMovedVaultStateLeftover:current-vault', () =>
+          removeMovedVaultStateLeftover(getVaultDir()),
+        )
+        expect(existsSync(join(configDir(), VAULT_STATE))).toBe(false)
+        expect(existsSync(oldVault())).toBe(false)
+        expect(
+          await trace.phase('authority:older-version', oldFolderAuthority),
+        ).toBe('local')
+        expect(
+          await trace.phase('authority:current-vault', () =>
+            authorityAt(getVaultDir()),
+          ),
+        ).toBe('local')
+        // A later start finds nothing left over.
+        resetProcess()
+        expect(await trace.phase('prepare:later-start', () => prepare())).toBe(
+          'state-home',
+        )
+      },
+    )
   })
 
   it("disconnect keeps a leftover that is not this plugin's vault state", async () => {
-    seed(configDir(), oldLayout())
-    await prepare()
-    const foreign = `${JSON.stringify({
-      version: 1,
-      phase: 'approved',
-      proposedName: 'antigravity-auth-pi',
-      tokenGeneration: 1,
-      updatedAt: 2,
-    })}\n`
-    writePrivate(join(configDir(), VAULT_STATE), foreign)
-    await removeMovedVaultStateLeftover(getVaultDir())
-    expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(foreign)
-    // Called for another vault folder, it does nothing.
-    writePrivate(join(configDir(), VAULT_STATE), approvedState())
-    await removeMovedVaultStateLeftover(join(root, 'some', 'other', 'vault'))
-    expect(existsSync(join(configDir(), VAULT_STATE))).toBe(true)
+    await traceLayout(
+      "disconnect keeps a leftover that is not this plugin's vault state",
+      async (trace) => {
+        trace.syncPhase('seed:private-writes', () =>
+          seed(configDir(), oldLayout()),
+        )
+        await trace.phase('prepare:move', () => prepare())
+        const foreign = `${JSON.stringify({
+          version: 1,
+          phase: 'approved',
+          proposedName: 'antigravity-auth-pi',
+          tokenGeneration: 1,
+          updatedAt: 2,
+        })}\n`
+        trace.syncPhase('writePrivate:foreign-state', () =>
+          writePrivate(join(configDir(), VAULT_STATE), foreign),
+        )
+        await trace.phase('removeMovedVaultStateLeftover:current-vault', () =>
+          removeMovedVaultStateLeftover(getVaultDir()),
+        )
+        expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(
+          foreign,
+        )
+        // Called for another vault folder, it does nothing.
+        trace.syncPhase('writePrivate:approved-state', () =>
+          writePrivate(join(configDir(), VAULT_STATE), approvedState()),
+        )
+        await trace.phase('removeMovedVaultStateLeftover:other-vault', () =>
+          removeMovedVaultStateLeftover(join(root, 'some', 'other', 'vault')),
+        )
+        expect(existsSync(join(configDir(), VAULT_STATE))).toBe(true)
+      },
+    )
   })
 })
 
 describe('the layout lease before every removal', () => {
   it('a lease lost right before an old file is unlinked removes nothing', async () => {
-    const files = oldLayout()
-    seed(configDir(), files)
-    const removing: string[] = []
-    await prepare({
-      steps: {
-        beforeRemove: (path) => {
-          removing.push(path)
-          if (removing.length === 1) stealLayoutLease()
-        },
+    await traceLayout(
+      'a lease lost right before an old file is unlinked removes nothing',
+      async (trace) => {
+        const files = oldLayout()
+        trace.syncPhase('seed:private-writes', () => seed(configDir(), files))
+        const removing: string[] = []
+        await trace.phase('prepare:lease-lost-before-remove', () =>
+          prepare({
+            steps: {
+              beforeRemove: (path) => {
+                removing.push(path)
+                if (removing.length === 1)
+                  trace.syncPhase('write:steal-layout-lease', stealLayoutLease)
+              },
+            },
+          }),
+        )
+        expect(removing[0]).toBe(join(configDir(), TOKEN))
+        expect(present(configDir(), files)).toEqual(files)
+        expect(marker()?.oldFilesRemoved).not.toBe(true)
       },
-    })
-    expect(removing[0]).toBe(join(configDir(), TOKEN))
-    expect(present(configDir(), files)).toEqual(files)
-    expect(marker()?.oldFilesRemoved).not.toBe(true)
+    )
   })
 
   it('a lease lost between two unlinks stops the clean-up and keeps the remaining old files', async () => {

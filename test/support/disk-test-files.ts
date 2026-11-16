@@ -135,6 +135,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Real lock leases, eviction markers and a slow real fsync to prove the store lock trace attributes time correctly.',
   'packages/opencode/src/plugin/__fixtures__/anchor-lock-trace.test.ts':
     'Store lock trace fixture that observes real lock, private-file and fsync calls.',
+  'packages/opencode/src/plugin/__fixtures__/runtime-layout-lock-trace.test.ts':
+    'Runtime layout trace fixture observes real leases, eviction-marker I/O and release retry timers.',
   'packages/opencode/src/plugin/__fixtures__/managed-store.test.ts':
     'Real store helper delegates filesystem lock acquisition.',
   'packages/opencode/src/plugin/__fixtures__/vault-menu-daemon.test.ts':
