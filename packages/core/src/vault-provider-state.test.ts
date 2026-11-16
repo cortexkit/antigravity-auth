@@ -418,8 +418,9 @@ describe('vault provider-state quota provenance', () => {
         const by = { ...A, ...changed }
         const entry = await save(by, (current) => {
           seen = current?.quota
+          if (!current?.metadata) throw new Error('missing selection metadata')
           return {
-            metadata: { ...current?.metadata, lastUsed: 3 },
+            metadata: { ...current.metadata, lastUsed: 3 },
             ...(current?.quota ? { quota: current.quota } : {}),
             ...(current?.extensions ? { extensions: current.extensions } : {}),
           }
