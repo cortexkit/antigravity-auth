@@ -30,7 +30,7 @@ export class RuntimeLayoutLockTrace {
   private locks = 0
 
   constructor(private readonly test: string) {
-    // Leave time to print pending release work before Bun's unchanged five-second limit.
+    // Leave time to print pending release work before Bun's five-second test timeout.
     this.timer = setTimeout(
       () => this.print('NEAR_TIMEOUT snapshot (test still running; may pass)'),
       4_800,
