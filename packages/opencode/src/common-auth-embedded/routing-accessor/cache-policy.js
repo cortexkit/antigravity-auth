@@ -2,6 +2,7 @@ import { routingHandle } from './handle.js';
 export const CACHE_WARM_STOP_REASONS = [
     'cost-cap',
     'count-cap',
+    'deadline-missed',
     'outside-hours',
     'session-ended',
     'unsupported',

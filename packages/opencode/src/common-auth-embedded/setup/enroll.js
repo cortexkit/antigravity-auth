@@ -5,6 +5,7 @@ import { ClaustrumEnrollmentManager, connectClaustrumEnrollmentClient, hostEnrol
 import { hasVaultHost, VAULT_HOST_CONNECT_REFUSAL } from '../claustrum/host.js';
 import { confirmEnrollmentAccess, enrollmentAccessLines, } from './enrollment-access.js';
 import { ProcessFenceViolationError, ProcessInspectionError, } from './process-fence.js';
+import { SetupProcessGuard } from './process-guard.js';
 const ENROLLMENT_INCOMPLETE_MESSAGE = 'Claustrum enrollment did not complete. Inspect and approve with ck, then rerun setup.';
 /** Fixed text: no version, host or account detail, so it is safe to print anywhere. */
 export const UNSUPPORTED_VAULT_MESSAGE = 'This Claustrum vault is too old to connect plugins. Run ck upgrade to move to Claustrum v0.2.0 or newer (read "Upgrading from v0.1.3" in its release notes first), or run setup without --claustrum to use local accounts.';
@@ -57,7 +58,9 @@ export async function connectSetupHost(plugin, host, io, terminal, fence) {
         throw new Error(VAULT_HOST_CONNECT_REFUSAL);
     const { name, displayName, requestedGrants, grantFallback, paths: input, } = plugin.vault.hosts[host];
     const paths = hostEnrollmentPaths(input);
-    await fence();
+    const guard = typeof fence === 'function' ? new SetupProcessGuard(fence, io.now) : fence;
+    // Fail before connecting; an uninterrupted caller inspection is sufficient.
+    await guard.check({ reuse: true });
     const client = await (io.connect ?? connectClaustrumEnrollmentClient)({
         connectionFile: plugin.vault.connectionFile,
         handshakeTimeoutMs: 2000,
@@ -79,11 +82,10 @@ export async function connectSetupHost(plugin, host, io, terminal, fence) {
             client,
             writeTokenFile: async (path, file) => {
                 // Writing the token is what connects the host: check once more.
-                await fence();
-                await writeEnrollmentTokenFile(path, file);
+                await guard.check();
+                await guard.step(() => writeEnrollmentTokenFile(path, file));
             },
         });
-        await fence();
         const initial = await manager.status();
         if (initial.state === 'approved') {
             printLine(terminal, `Already connected as ${initial.approvedName ?? initial.proposedName}.`);
@@ -100,7 +102,9 @@ export async function connectSetupHost(plugin, host, io, terminal, fence) {
         let reportedCode;
         let failedProposals = 0;
         for (;;) {
-            const status = await manager.reconcile();
+            // Reconcile may create or update the host's enrollment state.
+            await guard.check({ reuse: true });
+            const status = await guard.step(() => manager.reconcile());
             if (status.state === 'approved') {
                 printLine(terminal, `Connected ${host} to Claustrum.`);
                 const access = await confirmEnrollmentAccess(client, status, paths.tokenPath, requestedGrants);
@@ -153,8 +157,9 @@ export async function connectSetupHost(plugin, host, io, terminal, fence) {
             const remaining = deadline - now();
             if (remaining <= 0)
                 break;
-            await wait(Math.min(pause, remaining));
-            await fence();
+            await guard.step(() => wait(Math.min(pause, remaining)));
+            // Approval waits allow a host to start before the next reconcile.
+            await guard.check();
         }
         if (printedRequest)
             throw new HostNotEnrolledError(`Claustrum approval is still pending. In another terminal, run: ${approveCommand(printedRequest, name)} and then rerun setup.`, {

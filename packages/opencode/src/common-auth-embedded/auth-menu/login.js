@@ -1,4 +1,5 @@
 import { spawn as defaultSpawn } from 'node:child_process';
+import { win32 } from 'node:path';
 /** Opens a URL with the platform's opener; false when it could not start. */
 export function openBrowserForMenu(url, platform = process.platform, spawn = defaultSpawn) {
     try {
@@ -13,7 +14,9 @@ export function openBrowserForMenu(url, platform = process.platform, spawn = def
             // opened. It is not detached: a detached PowerShell has no console and
             // never ran the command on any Windows runner.
             const command = `Start-Process '${url.replaceAll("'", "''")}'`;
-            const child = spawn('powershell.exe', [
+            // Spawn PowerShell by its system path: a bare name can resolve to a
+            // program planted in the current directory or earlier on PATH.
+            const child = spawn(win32.resolve(process.env.SystemRoot ?? process.env.windir ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'), [
                 '-NoProfile',
                 '-NonInteractive',
                 '-WindowStyle',

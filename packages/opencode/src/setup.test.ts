@@ -149,6 +149,7 @@ function windowsInspectionFixture() {
     APPDATA: join(p.root, 'appdata'),
     TEMP: join(p.root, 'temp'),
     TMP: join(p.root, 'temp'),
+    SystemRoot: 'C:\\Windows',
     PATH: join(p.root, 'absent-bin'),
   }
   // Translate Windows-style file queries into this test's temporary directory.
@@ -229,13 +230,16 @@ function windowsInspectionFixture() {
     runner: {
       run: async (file) => {
         calls.push(file)
-        if (file === 'tasklist.exe')
+        if (file === 'C:\\Windows\\System32\\tasklist.exe')
           return {
             exitCode: 0,
             stdout: `"node.exe","${firstPid}","Console"\r\n"bun.exe","${firstPid + 1}","Console"\r\n`,
             stderr: '',
           }
-        if (file === 'powershell.exe') {
+        if (
+          file ===
+          'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+        ) {
           // Simulate PowerShell creating a 64-byte startup file. The dry-run test
           // compares every file below the temporary root, so this write must fail it.
           mkdirSync(dirname(startupPath), { recursive: true, mode: 0o700 })
@@ -647,7 +651,7 @@ describe('setup plugin callbacks', () => {
     const before = snapshot(f.p.root)
     expect(await f.execute(true)).toBe(0)
     expect(snapshot(f.p.root)).toEqual(before)
-    expect(f.calls).toEqual(['tasklist.exe'])
+    expect(f.calls).toEqual(['C:\\Windows\\System32\\tasklist.exe'])
     expect(f.output()).toContain('Planned Antigravity for opencode (local)')
     expect(f.output()).toContain(
       'Node or Bun programs are running; a real run checks whether any of them is OpenCode or Pi.',
@@ -659,14 +663,19 @@ describe('setup plugin callbacks', () => {
       hosts: [],
       uncheckedRuntimes: 2,
     })
-    expect(f.calls).toEqual(['tasklist.exe', 'tasklist.exe'])
+    expect(f.calls).toEqual([
+      'C:\\Windows\\System32\\tasklist.exe',
+      'C:\\Windows\\System32\\tasklist.exe',
+    ])
     expect(snapshot(f.p.root)).toEqual(before)
   })
 
   it('real Windows setup still inspects runtime command lines and refuses a running host before callbacks (synthetic runner)', async () => {
     const f = windowsInspectionFixture()
     expect(await f.execute(false)).toBe(1)
-    expect(f.calls).toEqual(['powershell.exe'])
+    expect(f.calls).toEqual([
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    ])
     expect(f.errors()).toContain(
       'Please quit all OpenCode, LiteCode, and Pi processes before running setup.',
     )

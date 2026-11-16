@@ -116,10 +116,20 @@ async function verify(stage) {
     'OPENCODE_AUTH_CONTENT',
   ]
   for (const key of inheritedHostConfig) delete env[key]
+  // PowerShell rewrites its own JIT startup cache in the user's local app data
+  // every time it starts, and setup's process check starts it. The location
+  // comes from the Windows known-folder API, so no environment variable keeps
+  // it out of this profile, which lives inside the test root. Windows
+  // PowerShell 5.1 rewrote it with the same bytes; PowerShell 7 changes them.
+  // It isn't a file setup owns or reads, so it alone is excluded: any other
+  // change, including a module-analysis cache, still fails these checks.
+  const POWERSHELL_STARTUP_CACHE =
+    /^AppData\/Local\/Microsoft\/(?:Windows\/)?PowerShell\/StartupProfileData-[^/]+$/
   async function snapshotFiles(path = root, prefix = '') {
     const files = {}
     for (const entry of await readdir(path, { withFileTypes: true })) {
       const name = prefix ? `${prefix}/${entry.name}` : entry.name
+      if (!entry.isDirectory() && POWERSHELL_STARTUP_CACHE.test(name)) continue
       if (entry.isDirectory())
         Object.assign(files, await snapshotFiles(join(path, entry.name), name))
       else
@@ -173,7 +183,7 @@ async function verify(stage) {
       .digest('hex')
   }
   const expectedArchive =
-    '702354411ac071087977826325327d6473857eb5341099ae69aa557ea71980d6'
+    'c29dfd830c1515a2d2785d575726b20be4efdb77991c37eaf4de940ee0486df5'
   for (const receiptPath of [
     'packages/core/dist/common-auth-embedded/source-output.json',
     'packages/opencode/dist/src/common-auth-embedded/source-output.json',

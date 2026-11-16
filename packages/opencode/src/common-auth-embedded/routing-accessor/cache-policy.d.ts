@@ -14,14 +14,14 @@ export interface SessionToolWait {
     /** Epoch milliseconds when the oldest running plan tool started. */
     since: number;
 }
-export declare const CACHE_WARM_STOP_REASONS: readonly ['cost-cap', 'count-cap', 'outside-hours', 'session-ended', 'unsupported'];
+export declare const CACHE_WARM_STOP_REASONS: readonly ['cost-cap', 'count-cap', 'deadline-missed', 'outside-hours', 'session-ended', 'unsupported'];
 /** Billing rejects unknown stop reasons; omit them rather than guessing. */
 export declare function isCacheWarmStopReason(value: unknown): value is (typeof CACHE_WARM_STOP_REASONS)[number];
 /**
  * The stop reasons the llm-runner contract defines today; any other string is
  * accepted too, for reasons that contract adds later.
  */
-export type CacheWarmStopReason = 'cost-cap' | 'count-cap' | 'outside-hours' | 'session-ended' | 'unsupported' | (string & Record<never, never>);
+export type CacheWarmStopReason = 'cost-cap' | 'count-cap' | 'deadline-missed' | 'outside-hours' | 'session-ended' | 'unsupported' | (string & Record<never, never>);
 export interface CacheTouchInput {
     /** Integer epoch milliseconds when the provider answered. */
     at: number;

@@ -75,7 +75,7 @@
       "./terminal.js"
     ],
     "auth-menu/login.d.ts": ["../store/index.js", "./menu.js"],
-    "auth-menu/login.js": ["node:child_process"],
+    "auth-menu/login.js": ["node:child_process", "node:path"],
     "auth-menu/menu.d.ts": ["./select.js", "./terminal.js"],
     "auth-menu/menu.js": ["./confirm.js", "./select.js", "./terminal.js"],
     "auth-menu/select.d.ts": ["./terminal.js"],
@@ -628,6 +628,7 @@
       "./flags.js",
       "./paths.js",
       "./process-fence.js",
+      "./process-guard.js",
       "./prompts.js",
       "./register.js"
     ],
@@ -648,13 +649,18 @@
       "node:os",
       "node:path"
     ],
-    "setup/enroll.d.ts": ["../auth-menu/terminal.js", "./types.js"],
+    "setup/enroll.d.ts": [
+      "../auth-menu/terminal.js",
+      "./process-guard.js",
+      "./types.js"
+    ],
     "setup/enroll.js": [
       "../auth-menu/terminal.js",
       "../claustrum/enrollment.js",
       "../claustrum/host.js",
       "./enrollment-access.js",
       "./process-fence.js",
+      "./process-guard.js",
       "@cortexkit/claustrum-client",
       "node:timers/promises"
     ],
@@ -681,16 +687,19 @@
     ],
     "setup/paths.js": ["node:os", "node:path", "node:url"],
     "setup/process-fence.d.ts": ["./types.js"],
-    "setup/process-fence.js": ["./command-runner.js"],
+    "setup/process-fence.js": ["./command-runner.js", "node:fs", "node:path"],
     "setup/prompts.js": ["../auth-menu/select.js"],
-    "setup/register.d.ts": ["./types.js"],
+    "setup/register.d.ts": ["./process-guard.js", "./types.js"],
     "setup/register.js": [
       "./command-error.js",
       "./command-runner.js",
       "./config-write.js",
       "./detect.js",
       "./paths.js",
+      "./process-guard.js",
       "jsonc-parser",
+      "node:fs/promises",
+      "node:timers/promises",
       "node:url"
     ],
     "setup/types.d.ts": ["../auth-menu/terminal.js", "../claustrum/index.js"],

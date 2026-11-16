@@ -134,9 +134,12 @@ function fixture(pathKey: 'Path' | 'PATH') {
     },
     runner: {
       run: async (file) => {
-        if (file === 'tasklist.exe')
+        if (file === 'C:\\Windows\\System32\\tasklist.exe')
           return { exitCode: 0, stdout: '"System","0"\r\n', stderr: '' }
-        if (file === 'powershell.exe')
+        if (
+          file ===
+          'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
+        )
           return {
             exitCode: 0,
             stdout: JSON.stringify({ complete: true, processes: [] }),

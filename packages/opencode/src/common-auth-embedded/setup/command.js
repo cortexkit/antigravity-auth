@@ -10,6 +10,7 @@ import { confirmEnrollmentAccess } from './enrollment-access.js';
 import { parseSetupFlags, UNAVAILABLE_HOST_MESSAGE } from './flags.js';
 import { setupPaths } from './paths.js';
 import { assertHostsStopped, createProcessFence, ProcessFenceViolationError, ProcessInspectionError, } from './process-fence.js';
+import { SetupProcessGuard } from './process-guard.js';
 import { selectSetupHosts } from './prompts.js';
 import { planOpenCodeRegistration, registerOpenCode, registerPi, } from './register.js';
 export const AMBIGUOUS_OPENCODE_MESSAGE = 'Multiple OpenCode generations found. Choose --opencode=1|2|both before running noninteractive setup.';
@@ -120,7 +121,11 @@ export async function runSetup(plugin, argv = [], io = {}) {
     }
     const { env, platform } = setupPaths(io);
     const fence = io.fence ??
-        createProcessFence(io.runner ?? defaultCommandRunner, { platform });
+        createProcessFence(io.runner ?? defaultCommandRunner, {
+            platform,
+            isFile: io.fs?.isFile.bind(io.fs),
+            onProgress: (line) => printLine(terminal, line),
+        });
     const stopped = async () => {
         try {
             await assertHostsStopped(fence, env);
@@ -131,6 +136,7 @@ export async function runSetup(plugin, argv = [], io = {}) {
             throw error;
         }
     };
+    const guard = new SetupProcessGuard(stopped, io.now);
     printLine(terminal, 'Checking that OpenCode and Pi are not running…');
     if (options.dryRun) {
         try {
@@ -150,8 +156,10 @@ export async function runSetup(plugin, argv = [], io = {}) {
                 printLine(terminal, error.refusalText);
         }
     }
-    else
-        await stopped();
+    else {
+        // Refuse before asking questions; the first write can reuse this check.
+        await guard.check();
+    }
     if ((options.claustrum || options.enrollOnly) &&
         !detection.claustrum.available)
         throw new Error('Claustrum is not available. Start ck, or omit vault-only flags and use --no-claustrum for local sign-in.');
@@ -164,10 +172,10 @@ export async function runSetup(plugin, argv = [], io = {}) {
         isInteractive(terminal)) {
         // Not `confirm`: it reads Escape and Ctrl-C as "No", and "No" here means
         // a local sign-in. Cancelling must stop setup before anything changes.
-        const choice = await select(terminal, [
+        const choice = await guard.step(() => select(terminal, [
             { label: 'No', value: false },
             { label: 'Yes', value: true },
-        ], { message: 'Connect these hosts to the Claustrum vault?' });
+        ], { message: 'Connect these hosts to the Claustrum vault?' }));
         if (choice === null) {
             printLine(terminal, 'Setup cancelled. Nothing was changed.');
             return { hosts: [], dryRun: options.dryRun, mode: 'local', detection };
@@ -224,13 +232,15 @@ export async function runSetup(plugin, argv = [], io = {}) {
         const enrollmentAccess = new Map();
         try {
             for (const host of hosts) {
-                await stopped();
-                await plugin.beforeSignIn?.(host, context);
-                await stopped();
+                if (plugin.beforeSignIn) {
+                    // The callback can change credentials or wait for consent.
+                    await guard.check({ reuse: true });
+                    await guard.step(() => plugin.beforeSignIn?.(host, context));
+                }
                 if (useVault) {
                     enrollment.set(host, 'unknown');
                     try {
-                        const access = await connectSetupHost(plugin, host, io, terminal, stopped);
+                        const access = await connectSetupHost(plugin, host, io, terminal, guard);
                         if (access)
                             enrollmentAccess.set(host, access);
                     }
@@ -241,19 +251,30 @@ export async function runSetup(plugin, argv = [], io = {}) {
                     }
                     enrollment.set(host, 'enrolled');
                 }
-                else
-                    await plugin.signInLocal(host, context);
-                await stopped();
+                else {
+                    // Local sign-in can write credentials and wait for a browser.
+                    await guard.check({ reuse: true });
+                    await guard.step(() => plugin.signInLocal(host, context));
+                }
                 if (options.enrollOnly)
                     continue;
-                await plugin.beforeRegister?.(host, mode, context);
-                await stopped();
+                if (plugin.beforeRegister) {
+                    // Registration callbacks may write provider-specific files.
+                    await guard.check({ reuse: true });
+                    await guard.step(() => plugin.beforeRegister?.(host, mode, context));
+                }
                 if (host === 'opencode')
-                    await registerOpenCode(writes, stopped);
-                else
-                    await registerPi(plugin, detection.pi.executable, io);
-                await stopped();
-                await plugin.migrate?.(host, context);
+                    await registerOpenCode(writes, guard);
+                else {
+                    // Pi's CLI writes its plugin registration.
+                    await guard.check({ reuse: true });
+                    await guard.step(() => registerPi(plugin, detection.pi.executable, io));
+                }
+                if (plugin.migrate) {
+                    // Migration is a plugin callback and may write host credentials.
+                    await guard.check({ reuse: true });
+                    await guard.step(() => plugin.migrate?.(host, context));
+                }
             }
         }
         catch (error) {

@@ -1,6 +1,8 @@
 import type { CommandRunner, ProcessFence, SetupEnvironment } from './types.js';
 export interface ProcessInspectionStep {
     step: 'tasklist' | 'CIM' | 'ps';
+    /** The selected CIM interpreter; absent for tasklist and ps. */
+    program?: 'pwsh' | 'powershell';
     exitCode: number | null;
     signal: NodeJS.Signals | null;
     timedOut: boolean;
@@ -9,6 +11,7 @@ export interface ProcessInspectionStep {
 export declare class ProcessInspectionError extends Error implements ProcessInspectionStep {
     readonly code = "process-inspection-failed";
     readonly step: ProcessInspectionStep['step'];
+    readonly program?: ProcessInspectionStep['program'];
     readonly exitCode: number | null;
     readonly signal: NodeJS.Signals | null;
     readonly timedOut: boolean;
@@ -30,6 +33,10 @@ export declare class ProcessFenceViolationError extends Error {
 export declare function listSetupProcesses(runner?: CommandRunner, options?: {
     platform?: string;
     env?: SetupEnvironment;
+    /** Tests can replace the regular-file check for the fixed pwsh location. */
+    isFile?: (file: string) => boolean;
+    /** Reports before each slow Windows ARM PowerShell 5.1 check. */
+    onProgress?: (line: string) => void;
     onStep?: (details: ProcessInspectionStep) => void;
     /** False skips the Windows PowerShell query for Node and Bun command lines. */
     inspectRuntimes?: boolean;
@@ -53,5 +60,7 @@ export declare function listSetupProcesses(runner?: CommandRunner, options?: {
 export declare function createProcessFence(runner?: CommandRunner, options?: {
     platform?: string;
     selfPid?: number;
+    isFile?: (file: string) => boolean;
+    onProgress?: (line: string) => void;
 }): ProcessFence;
 export declare function assertHostsStopped(fence: ProcessFence, env?: SetupEnvironment): Promise<void>;
