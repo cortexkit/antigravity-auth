@@ -273,7 +273,7 @@ describe('selected credential boundary', () => {
       'running inside pi',
     )
     expect(bodies[0]!.systemInstruction.parts[0].text).toBe(
-      'You are a coding assistant running inside your development environment.',
+      'You are a coding assistant.',
     )
     expect(JSON.stringify(bodies[1]!.systemInstruction)).toBe(
       JSON.stringify(bodies[0]!.systemInstruction),

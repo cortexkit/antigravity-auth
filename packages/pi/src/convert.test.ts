@@ -71,7 +71,7 @@ describe('buildGeminiRequest', () => {
       const request = buildGeminiRequest(input)
       expect(request.systemInstruction?.parts).toEqual([
         {
-          text: 'You are a coding assistant running inside your development environment.',
+          text: 'You are a coding assistant.',
         },
       ])
       expect(request.contents[0]?.parts).toEqual([{ text: phrase }])

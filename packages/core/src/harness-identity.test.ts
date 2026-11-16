@@ -63,7 +63,7 @@ describe('harness identity rewrite', () => {
     ],
     [
       'You are a coding assistant running inside pi, a coding agent harness. Help users…',
-      'You are a coding assistant running inside your development environment. Help users…',
+      'You are a coding assistant. Help users…',
     ],
     [
       'You are a coding assistant running inside pi.',
@@ -75,7 +75,7 @@ describe('harness identity rewrite', () => {
     ],
     [
       'You are a coding assistant running inside Pi-Bolt, a build of pi (a coding agent harness) compiled ahead of time. Help users.',
-      'You are a coding assistant running inside your development environment. Help users.',
+      'You are a coding assistant. Help users.',
     ],
     ['RUNNING INSIDE PI', 'running inside your development environment'],
     ['running inside Pi-Bolt.', 'running inside your development environment.'],

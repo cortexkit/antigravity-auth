@@ -831,8 +831,8 @@ describe('harness rewrite and unconfirmed refusals', () => {
         expect(JSON.stringify(first.systemInstruction)).not.toContain(
           'running inside pi',
         )
-        expect(first.systemInstruction.parts[0].text).toContain(
-          'running inside your development environment',
+        expect(first.systemInstruction.parts[0].text).toBe(
+          'You are a coding assistant.',
         )
         expect(JSON.stringify(bodies[1]!.systemInstruction)).toBe(
           JSON.stringify(first.systemInstruction),

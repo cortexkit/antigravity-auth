@@ -24,6 +24,11 @@ const HARNESS_IDENTITY_REWRITES = [
   },
   {
     pattern:
+      /You are a coding assistant running inside (?:pi, a coding agent harness|Pi-Bolt, a build of pi \(a coding agent harness\) compiled ahead of time)\.(?=$|\s)/g,
+    replacement: 'You are a coding assistant.',
+  },
+  {
+    pattern:
       /running inside Pi-Bolt, a build of pi \(a coding agent harness\) compiled ahead of time/gi,
     replacement: 'running inside your development environment',
   },
