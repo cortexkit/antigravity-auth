@@ -271,7 +271,8 @@ export class RuntimeLayoutLockTrace {
 
   private print(reason: string) {
     const elapsed = this.now()
-    console.error(
+    // Bun's console truncates large strings; stderr must retain every recorded attempt.
+    process.stderr.write(
       JSON.stringify({
         runtimeLayoutPhaseTable: this.test,
         reason,
@@ -285,7 +286,7 @@ export class RuntimeLayoutLockTrace {
           ms: round(span.ms ?? elapsed - span.startMs),
           pending: span.ms === undefined,
         })),
-      }),
+      }) + '\n',
     )
   }
 
