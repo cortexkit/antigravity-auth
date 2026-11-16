@@ -32,12 +32,12 @@ const HARNESS_IDENTITY_REWRITES = [
     replacement: 'running inside your development environment',
   },
   {
-    pattern: /running inside opencode, a coding agent harness/gi,
+    pattern: /running (?:inside|in) opencode, a coding agent harness/gi,
     replacement: 'running inside your development environment',
   },
   {
     pattern:
-      /\brunning inside (?:pi-bolt|pi|opencode)(?!\.\w)(?=$|\s|[.,;:!?])/gi,
+      /\brunning (?:inside|in) (?:pi-bolt|pi|opencode)(?!\.\w)(?=$|\s|[.,;:!?])/gi,
     replacement: 'running inside your development environment',
   },
 ] as const

@@ -1056,6 +1056,34 @@ describe('request.ts', () => {
     const mockAccessToken = 'test-token'
     const mockProjectId = 'test-project'
 
+    it('rewrites OpenCode 2.3 system identity and Code Mode namespace without changing user content', () => {
+      const systemPrompt =
+        'You are an AI agent running in OpenCode, a coding agent harness. Help the user accomplish their goals using the tools you have available.\n\nUse tools.opencode.session_move().'
+      const result = prepareAntigravityRequest(
+        'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.5-flash:generateContent',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+        undefined,
+      )
+
+      const wrapped = JSON.parse(result.init.body as string)
+      expect(wrapped.request.systemInstruction.parts).toEqual([
+        {
+          text: "You are an AI agent running inside your development environment. Help the user accomplish their goals using the tools you have available.\n\nUse tools['opencode'].session_move().",
+        },
+      ])
+      expect(wrapped.request.contents).toEqual([
+        { role: 'user', parts: [{ text: systemPrompt }] },
+      ])
+    })
+
     it('prepares both captured Claude low configurations through host variants and current persisted headers', () => {
       // Both Claude Low captures in agy 1.5.8 omit the older zero thinking budget.
       for (const fixture of [opusLow, sonnetLow]) {

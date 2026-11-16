@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Rewrite OpenCode 2.3's “running in” host identity wording while preserving non-identity mentions and paths.
+- Normalize OpenCode Code Mode namespace references in system prompts (thanks to Will, [#75](https://github.com/cortexkit/antigravity-auth/pull/75)).
+
 ## [3.1.2] - 2026-11-14
 
 - Neutralise OpenCode and Pi harness self-identification only in outgoing system instructions so Google does not mistake the host's prompt for a quota failure (#70). Unconfirmed request limits now use a short model-specific cooldown and stop after two retries instead of stalling the turn.
