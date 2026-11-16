@@ -14,6 +14,53 @@ import {
 } from './rotation.ts'
 
 describe('rotation primitives', () => {
+  it.each([
+    'Resource has been exhausted (e.g. check quota).',
+    'Quota exhausted for today',
+    'Quota unavailable',
+    'Rate limit exceeded per minute',
+    'Too many requests',
+    'Model capacity exhausted',
+    'Service overloaded',
+    'Resource exhausted',
+    'Presque',
+  ])('leaves message-only 429 unconfirmed: %s', (message) => {
+    expect(parseRateLimitReason(undefined, message, 429)).toBe('UNKNOWN')
+    expect(parseRateLimitReason('UNRECOGNIZED', message, 429)).toBe('UNKNOWN')
+  })
+
+  it.each([
+    'QUOTA_EXHAUSTED',
+    'RATE_LIMIT_EXCEEDED',
+    'MODEL_CAPACITY_EXHAUSTED',
+  ] as const)('preserves structured 429 reason: %s', (reason) => {
+    const message = 'Resource has been exhausted (e.g. check quota).'
+    expect(parseRateLimitReason(reason, message, 429)).toBe(reason)
+    expect(parseRateLimitReason(reason.toLowerCase(), message, 429)).toBe(
+      reason,
+    )
+  })
+
+  it.each([
+    [503, 'MODEL_CAPACITY_EXHAUSTED'],
+    [529, 'MODEL_CAPACITY_EXHAUSTED'],
+    [500, 'SERVER_ERROR'],
+  ] as const)('preserves status precedence for %i', (status, expected) => {
+    expect(parseRateLimitReason(undefined, undefined, status)).toBe(expected)
+    expect(parseRateLimitReason('QUOTA_EXHAUSTED', 'quota', status)).toBe(
+      expected,
+    )
+  })
+
+  it.each([
+    ['Quota exhausted for today', 'QUOTA_EXHAUSTED'],
+    ['Too many requests', 'RATE_LIMIT_EXCEEDED'],
+    ['Model capacity exhausted', 'MODEL_CAPACITY_EXHAUSTED'],
+  ] as const)('preserves non-429 message classification: %s', (message, expected) => {
+    expect(parseRateLimitReason(undefined, message)).toBe(expected)
+    expect(parseRateLimitReason(undefined, message, 400)).toBe(expected)
+  })
+
   it('bounds unconfirmed Retry-After without a quota failure ladder', () => {
     const now = Date.UTC(2026, 10, 14)
     for (const value of [null, '', 'invalid', '-12', '0', '1'])

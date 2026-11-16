@@ -62,6 +62,25 @@ describe('issue69 dated quota evidence', () => {
     }
   }
 
+  it('unconfirmed refusals never shorten an existing longer mark', () => {
+    const { pool, row } = manager()
+    pool.markRateLimitedWithReason(
+      row,
+      'gemini',
+      model,
+      'QUOTA_EXHAUSTED',
+      long,
+    )
+    const prior = { ...row.rateLimitResetTimes }
+    const written = { ...row.rateLimitWrittenAt }
+    expect(
+      pool.markRateLimitedWithReason(row, 'gemini', model, 'UNKNOWN'),
+    ).toBe(5000)
+    expect(row.rateLimitResetTimes).toEqual(prior)
+    expect(row.rateLimitWrittenAt).toEqual(written)
+    expect(row.consecutiveFailures).toBe(1)
+  })
+
   it('unconfirmed refusals cool only the family/model key without escalating failures', () => {
     const { pool, row } = manager()
     row.consecutiveFailures = 4

@@ -1570,7 +1570,14 @@ export class AccountSelector<A extends SelectableAccount> {
 
     if (reason === 'UNKNOWN') {
       const backoffMs = calculateBackoffMs(reason, 0, retryAfterMs)
-      this.setRateLimit(account, getQuotaKey(family, model), now + backoffMs)
+      const key = getQuotaKey(family, model)
+      // An unconfirmed refusal cannot weaken an existing evidence-backed mark.
+      const resetAt = Math.max(
+        account.rateLimitResetTimes[key] ?? 0,
+        now + backoffMs,
+      )
+      if (resetAt !== account.rateLimitResetTimes[key])
+        this.setRateLimit(account, key, resetAt)
       return backoffMs
     }
 

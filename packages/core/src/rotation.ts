@@ -61,6 +61,8 @@ export function parseRateLimitReason(
       return normalized
     }
   }
+  // Message wording alone cannot confirm a quota or capacity limit for a 429.
+  if (status === 429) return 'UNKNOWN'
   if (message) {
     const normalized = message.toLowerCase()
     if (

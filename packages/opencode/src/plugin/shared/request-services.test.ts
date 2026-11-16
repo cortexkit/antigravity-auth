@@ -84,6 +84,12 @@ const WIRE: RequestWire = {
 
 const FIXED_NOW = Date.parse('2026-07-22T12:00:00.000Z')
 
+// Retry-metadata fixtures confirm quota exhaustion independently of message wording.
+const QUOTA_ERROR_INFO = {
+  '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+  reason: 'QUOTA_EXHAUSTED',
+}
+
 function testRoot(): string {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
   if (!root) throw new Error('ANTIGRAVITY_TEST_ROOT not set by preload')
@@ -743,6 +749,219 @@ describe('harness rewrite and unconfirmed refusals', () => {
         }
       })
     }
+  }
+
+  function googleQuotaRefusal(structured = false) {
+    return new Response(
+      JSON.stringify({
+        error: {
+          code: 429,
+          message: 'Resource has been exhausted (e.g. check quota).',
+          status: 'RESOURCE_EXHAUSTED',
+          ...(structured
+            ? {
+                details: [
+                  {
+                    '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                    reason: 'QUOTA_EXHAUSTED',
+                  },
+                ],
+              }
+            : {}),
+        },
+      }),
+      { status: 429, headers: { 'content-type': 'application/json' } },
+    )
+  }
+
+  it('caps exact Google message-only refusals at two short retries and the fixed precondition', async () => {
+    const clock = vaultWaitClock()
+    const date = spyOn(Date, 'now').mockImplementation(clock.now)
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(
+      clock.setTimeoutImpl as typeof setTimeout,
+    )
+    const clear = spyOn(globalThis, 'clearTimeout').mockImplementation(
+      clock.clearTimeoutImpl as typeof clearTimeout,
+    )
+    const h = harness({
+      respond: async () => googleQuotaRefusal(),
+      config: { max_rate_limit_wait_seconds: 1 },
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await clock.drive(
+        executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(h.calls).toHaveLength(3)
+      expect(response.status).toBe(412)
+      expect(await response.json()).toEqual({
+        error: {
+          code: 412,
+          status: 'FAILED_PRECONDITION',
+          message:
+            'Antigravity could not confirm a temporary request limit. Try again later or change the agent system prompt.',
+        },
+      })
+      expect(clock.elapsed()).toBeGreaterThanOrEqual(10_000)
+      expect(clock.elapsed()).toBeLessThan(12_000)
+      expect(mark.mock.calls.map((call) => call.slice(1, 5))).toEqual(
+        Array(3).fill(['gemini', 'gemini-3-flash', 'UNKNOWN', 5000]),
+      )
+      const account = h.pool.getAccounts()[0]!
+      expect(account.rateLimitResetTimes).toEqual({
+        'gemini:gemini-3-flash': expect.any(Number),
+      })
+      expect(
+        account.rateLimitResetTimes['gemini:gemini-3-flash'],
+      ).toBeLessThanOrEqual(clock.now() + 5000)
+      expect(account.consecutiveFailures ?? 0).toBe(0)
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      timer.mockRestore()
+      clear.mockRestore()
+      date.mockRestore()
+    }
+  })
+
+  it('keeps the exact Google body with structured quota reason on the quota ladder', async () => {
+    const date = spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
+    const h = harness({
+      pool: makePool(2),
+      respond: async (_call, index) =>
+        index === 0 ? googleQuotaRefusal(true) : okJson(),
+      config: { switch_on_first_rate_limit: true },
+    })
+    const mark = spyOn(h.pool, 'markRateLimitedWithReason')
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(h.calls).toHaveLength(2)
+      expect(mark).toHaveBeenCalledTimes(1)
+      expect(mark).toHaveBeenCalledWith(
+        h.pool.getAccounts()[0],
+        'gemini',
+        'gemini-3-flash',
+        'QUOTA_EXHAUSTED',
+        60_000,
+        expect.anything(),
+      )
+      expect(h.pool.getAccounts()[0]!.consecutiveFailures).toBe(1)
+      expect(h.pool.getAccounts()[0]!.rateLimitResetTimes).toEqual({
+        'gemini:gemini-3-flash': FIXED_NOW + 60_000,
+      })
+      await response.body?.cancel()
+    } finally {
+      await executor.dispose()
+      mark.mockRestore()
+      date.mockRestore()
+    }
+  })
+
+  for (const reading of [
+    'fresh empty',
+    'fresh with room',
+    'stale',
+    'undated',
+    'missing',
+    'another pool',
+    'before re-login',
+    'background empty',
+    'background with room',
+  ] as const) {
+    it(`uses only current same-identity pool evidence for exact Google refusals: ${reading}`, async () => {
+      const clock = vaultWaitClock()
+      const date = spyOn(Date, 'now').mockImplementation(clock.now)
+      const timer = spyOn(globalThis, 'setTimeout').mockImplementation(
+        clock.setTimeoutImpl as typeof setTimeout,
+      )
+      const clear = spyOn(globalThis, 'clearTimeout').mockImplementation(
+        clock.clearTimeoutImpl as typeof clearTimeout,
+      )
+      const reset = clock.now() + 65 * 60 * 60 * 1000
+      const empty = {
+        gemini: {
+          remainingFraction: 0,
+          modelCount: 1,
+          resetTime: new Date(reset).toISOString(),
+        },
+      }
+      const room = { gemini: { remainingFraction: 0.8, modelCount: 1 } }
+      const h = harness({
+        respond: async () => {
+          if (reading.startsWith('background'))
+            clock.schedule(
+              () =>
+                h.pool.updateQuotaCache(
+                  0,
+                  reading === 'background empty' ? empty : room,
+                ),
+              100,
+            )
+          return googleQuotaRefusal()
+        },
+        config: {
+          max_rate_limit_wait_seconds: 1,
+          soft_quota_cache_ttl_minutes: 1,
+        },
+      })
+      const account = h.pool.getAccounts()[0]!
+      h.pool.updateFromAuth(account, {
+        ...h.pool.toAuthDetails(account),
+        access: 'already-valid',
+        expires: clock.now() + 3_600_000,
+      })
+      if (reading !== 'missing' && !reading.startsWith('background')) {
+        h.pool.updateQuotaCache(0, reading === 'fresh with room' ? room : empty)
+        if (reading === 'stale')
+          account.cachedQuotaUpdatedAt = clock.now() - 60_001
+        if (reading === 'undated') delete account.cachedQuotaUpdatedAt
+        if (reading === 'another pool')
+          account.cachedQuota = { 'non-gemini': empty.gemini }
+        if (reading === 'before re-login')
+          h.pool.updateFromAuth(account, {
+            ...h.pool.toAuthDetails(account),
+            refresh: 'replacement-login',
+          })
+      }
+      const quotaRead = mock(async () => {})
+      ;(
+        h.deps.credentials as LocalRequestCredentials<ManagedAccount>
+      ).refreshQuotaAfterSuccess = quotaRead
+      const executor = createRequestExecutor(h.deps)
+      try {
+        const response = await clock.drive(
+          executor.execute(NON_STREAM_URL, CHAT_INIT()),
+        )
+        expect(response.status).toBe(412)
+        if (reading === 'fresh empty' || reading === 'background empty') {
+          expect(h.calls).toHaveLength(1)
+          expect(account.rateLimitResetTimes['gemini:gemini-3-flash']).toBe(
+            reset,
+          )
+          expect(response.headers.get('retry-after')).not.toBeNull()
+          expect(await response.text()).not.toContain('could not confirm')
+        } else {
+          expect(h.calls).toHaveLength(3)
+          expect(
+            account.rateLimitResetTimes['gemini:gemini-3-flash'] ?? 0,
+          ).toBeLessThanOrEqual(clock.now() + 5000)
+          expect(await response.text()).toContain(
+            'Antigravity could not confirm a temporary request limit.',
+          )
+        }
+        expect(account.consecutiveFailures ?? 0).toBe(0)
+        expect(quotaRead).not.toHaveBeenCalled()
+        expect(h.refreshed).toEqual([])
+      } finally {
+        await executor.dispose()
+        timer.mockRestore()
+        clear.mockRestore()
+        date.mockRestore()
+      }
+    })
   }
 
   function refusal(retryAfter?: string, structured = false) {
@@ -2261,7 +2480,10 @@ describe('createRequestExecutor retry metadata differential table', () => {
                   error: {
                     code: row.status,
                     message: row.message,
-                    ...(row.details ? { details: row.details } : {}),
+                    details: [
+                      { ...QUOTA_ERROR_INFO, reason: row.expectedReason },
+                      ...(row.details ?? []),
+                    ],
                   },
                 }),
                 {
@@ -2415,7 +2637,7 @@ describe('createRequestExecutor quota reset text', () => {
                   code: 429,
                   message: text,
                   status: 'RESOURCE_EXHAUSTED',
-                  ...(details ? { details } : {}),
+                  details: [QUOTA_ERROR_INFO, ...(details ?? [])],
                 },
               }),
               { status: 429, headers },
@@ -2649,6 +2871,7 @@ describe('createRequestExecutor quota reset text', () => {
                   message: 'Individual quota reached.',
                   status: 'RESOURCE_EXHAUSTED',
                   details: [
+                    QUOTA_ERROR_INFO,
                     {
                       '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                       retryDelay: '0s',
@@ -2805,6 +3028,7 @@ describe('createRequestExecutor quota reset text', () => {
                     message: 'Quota exceeded.',
                     status: 'RESOURCE_EXHAUSTED',
                     details: [
+                      QUOTA_ERROR_INFO,
                       { metadata: { quotaResetDelay: 'invalid' } },
                       {
                         metadata: {
@@ -2857,6 +3081,7 @@ describe('createRequestExecutor quota reset text', () => {
               message: 'Individual quota reached.',
               status: 'RESOURCE_EXHAUSTED',
               details: [
+                QUOTA_ERROR_INFO,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: 1e308,
@@ -2913,6 +3138,7 @@ describe('createRequestExecutor quota reset text', () => {
               resetAfterMs: 888888,
               retryAfterSeconds: 777777,
               details: [
+                QUOTA_ERROR_INFO,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: 1e308,
@@ -2973,6 +3199,7 @@ describe('createRequestExecutor quota reset text', () => {
               message: 'Individual quota reached. Resets in 25s.',
               status: 'RESOURCE_EXHAUSTED',
               details: [
+                QUOTA_ERROR_INFO,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: 1e308,
@@ -3022,6 +3249,7 @@ describe('createRequestExecutor quota reset text', () => {
               message: 'Individual quota reached.',
               status: 'RESOURCE_EXHAUSTED',
               details: [
+                QUOTA_ERROR_INFO,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: 1e308,
@@ -3077,6 +3305,7 @@ describe('createRequestExecutor quota reset text', () => {
               message: 'Individual quota reached. Resets in 10s.',
               status: 'RESOURCE_EXHAUSTED',
               details: [
+                QUOTA_ERROR_INFO,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: 9007199254740992, // > Number.MAX_SAFE_INTEGER
@@ -3119,6 +3348,7 @@ describe('createRequestExecutor quota reset text', () => {
               message: 'Individual quota reached.',
               status: 'RESOURCE_EXHAUSTED',
               details: [
+                QUOTA_ERROR_INFO,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: 0,
@@ -3169,6 +3399,7 @@ describe('createRequestExecutor quota reset text', () => {
               message: 'Individual quota reached.',
               status: 'RESOURCE_EXHAUSTED',
               details: [
+                QUOTA_ERROR_INFO,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: 0.0004,
@@ -3211,6 +3442,7 @@ describe('createRequestExecutor quota reset text', () => {
               message: 'Individual quota reached.',
               status: 'RESOURCE_EXHAUSTED',
               details: [
+                QUOTA_ERROR_INFO,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: '2.5s',
@@ -3262,6 +3494,7 @@ describe('createRequestExecutor quota reset text', () => {
               resetAfterMs: 888888,
               retryAfterSeconds: 777777,
               details: [
+                QUOTA_ERROR_INFO,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: '25s',
@@ -3312,6 +3545,7 @@ describe('createRequestExecutor quota reset text', () => {
               retryAfterMs: 999999,
               resetAfterMs: 888888,
               retryAfterSeconds: 777777,
+              details: [QUOTA_ERROR_INFO],
             },
           }),
           {
@@ -3357,6 +3591,7 @@ describe('createRequestExecutor quota reset text', () => {
               retryAfterMs: 999999,
               resetAfterMs: 888888,
               retryAfterSeconds: 777777,
+              details: [QUOTA_ERROR_INFO],
             },
           }),
           {
@@ -3402,7 +3637,12 @@ describe('createRequestExecutor quota reset text', () => {
       respond: async () =>
         new Response(
           JSON.stringify({
-            error: { code: 429, message, status: 'RESOURCE_EXHAUSTED' },
+            error: {
+              code: 429,
+              message,
+              status: 'RESOURCE_EXHAUSTED',
+              details: [QUOTA_ERROR_INFO],
+            },
           }),
           { status: 429 },
         ),

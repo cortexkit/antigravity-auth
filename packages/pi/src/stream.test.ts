@@ -303,6 +303,29 @@ describe('selected credential boundary', () => {
     expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
   })
 
+  it('terminates the exact Google message-only refusal as unconfirmed', async () => {
+    const { events, result } = await runStream(
+      fakeModel(),
+      new Response(
+        JSON.stringify({
+          error: {
+            code: 429,
+            message: 'Resource has been exhausted (e.g. check quota).',
+            status: 'RESOURCE_EXHAUSTED',
+          },
+        }),
+        { status: 429 },
+      ),
+      'message-only-pi',
+    )
+    expect(events.map((event) => event.type)).toEqual(['start', 'error'])
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
+    expect(result.errorMessage).toBe(
+      'Antigravity could not confirm a temporary request limit. Try again later or change the agent system prompt.',
+    )
+    expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
+  })
+
   it('keeps structured rate-limit HTTP handling unchanged', async () => {
     const body = JSON.stringify({
       error: {

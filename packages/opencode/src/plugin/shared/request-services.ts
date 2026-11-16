@@ -46,6 +46,7 @@ import {
   type QuotaGroup,
   type QuotaGroupSummary,
   type QuotaManager,
+  quotaExhaustedUntil,
   RETIRED_AGY_MODEL_MESSAGE,
   redactCredentialError,
   redactCredentialResponse,
@@ -198,6 +199,7 @@ export interface RequestAccountRow {
   }
   readonly cachedQuota?: Partial<Record<QuotaGroup, QuotaGroupSummary>>
   readonly cachedQuotaUpdatedAt?: number
+  readonly cachedQuotaAccountId?: string
   readonly capturedTierId?: string
   readonly capturedPaidTierId?: string
   readonly ref?: {
@@ -2813,7 +2815,45 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   'UNKNOWN',
                   delayMs,
                 )
+                const now = Date.now()
+                const at = account.cachedQuotaUpdatedAt
+                // Vault quota readings are matched to the route's account identity.
+                // Local readings must match the selected credential's refresh-token hash.
+                const sameQuotaIdentity =
+                  credentials.domain === 'vault' ||
+                  account.cachedQuotaAccountId ===
+                    createHash('sha256')
+                      .update(
+                        parseRefreshParts(
+                          credentials.toAuthDetails(account).refresh,
+                        ).refreshToken,
+                      )
+                      .digest('hex')
+                      .slice(0, 16)
+                // Only a recent quota reading showing none available for this model
+                // can confirm exhaustion.
+                const emptyUntil =
+                  sameQuotaIdentity &&
+                  at !== undefined &&
+                  now - at <= softQuotaCacheTtlMs
+                    ? quotaExhaustedUntil(account, family, model, now)
+                    : 0
+                const quotaKey = getQuotaKey(family, model)
+                const resets: Readonly<Partial<Record<string, number>>> =
+                  account.rateLimitResetTimes
+                if (emptyUntil > (resets[quotaKey] ?? 0))
+                  accountManager.markRateLimited(
+                    account,
+                    emptyUntil - now,
+                    family,
+                    model,
+                  )
                 accountManager.requestSaveToDisk()
+                if ((resets[quotaKey] ?? 0) > now + delayMs) {
+                  switchedForUnconfirmed = true
+                  shouldSwitchAccount = true
+                  break
+                }
                 if (unconfirmedRetries >= MAX_UNCONFIRMED_RATE_LIMIT_RETRIES)
                   return terminal()
                 unconfirmedRetries++
@@ -2842,6 +2882,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   break
                 }
                 await routingSleep(delayMs, 'rate_limited', unconfirmedRetries)
+                // A background reading may have extended the mark while we slept.
+                if ((resets[quotaKey] ?? 0) > Date.now()) {
+                  switchedForUnconfirmed = true
+                  shouldSwitchAccount = true
+                  break
+                }
                 i -= 1
                 continue
               }
