@@ -9,6 +9,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
+  AccountStoreBusyError,
   type AccountTokenExchange,
   AccountManager as CoreAccountManager,
   createAccountRepositoryFactory,
@@ -1387,6 +1388,49 @@ describe('createAuthLoader on the account store', () => {
     expect(
       loader.usesPoolFile({ status: 'migration-required', message: '' }),
     ).toBe(false)
+  })
+
+  it('refuses a busy account store before creating an upstream request path', async () => {
+    const busy = new AccountStoreBusyError()
+    const upstream = mock(async () => new Response())
+    const createFetch = mock(() => ({
+      fetch: upstream,
+      async retire() {},
+      dispose() {},
+    }))
+    const loadAccounts = mock(async () => null)
+    const { lifecycle, replacements } = createLifecycle()
+    const loader = createAuthLoader({
+      client: { tui: { showToast: mock(async () => {}) } } as never,
+      providerId: 'google',
+      config: DEFAULT_CONFIG,
+      lifecycle,
+      createFetch,
+      dependencies: {
+        openAccountStore: async () => ({
+          status: 'refused',
+          admission: { status: 'busy', retryable: true },
+          message: busy.message,
+        }),
+        loadAccounts,
+      },
+    })
+    await expect(
+      loader(
+        mock(async () => ({
+          type: 'oauth',
+          refresh: 'host-refresh',
+          access: '',
+          expires: 0,
+        })) as never,
+        provider,
+      ),
+    ).rejects.toThrow(busy.message)
+    expect(busy.retryable).toBe(true)
+    expect(createFetch).not.toHaveBeenCalled()
+    expect(upstream).not.toHaveBeenCalled()
+    expect(loadAccounts).not.toHaveBeenCalled()
+    expect(replacements).toEqual([])
   })
 
   it('refuses to start while a migration is pending, without falling back to the pool file', async () => {

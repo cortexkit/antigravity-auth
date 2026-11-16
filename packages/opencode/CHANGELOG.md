@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep plugin refusal messages from triggering OpenCode's automatic retries, including requests Antigravity refuses without a stated reason.
+
 ## [3.1.5] - 2026-11-16
 
 - Convert multi-type Gemini tool parameters to compatible unions instead of sending rejected type arrays, including tools accepting every JSON type in OpenCode and Pi.

@@ -21,8 +21,11 @@ import {
   PRE_RESPONSE_DEADLINE_MS,
   PRE_RESPONSE_TIMEOUT_MESSAGE,
   PreResponseTimeoutError,
+  preResponseTimeoutResponse,
   SKIP_THOUGHT_SIGNATURE,
   TokenBucketTracker,
+  UNCONFIRMED_RATE_LIMIT_MESSAGE,
+  VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
 import { runCommandBytes } from '../../../../../test/support/run-command.ts'
 import { vaultWaitClock } from '../../../../../test/support/vault-wait-clock.test.ts'
@@ -34,6 +37,7 @@ import {
   GA_RAW_IDLE_TIMEOUT_MS,
   startGaLoopbackBridge,
 } from '../../ga/server/index'
+import { expectNoOpenCodeRetryHints } from '../__fixtures__/opencode-retry-hints.test'
 import { extractAccountAccessErrorDetails } from '../account-access'
 import { createAuthLoader } from '../auth-loader'
 import { DEFAULT_CONFIG } from '../config'
@@ -54,9 +58,11 @@ import {
   prepareAntigravityRequest,
   transformAntigravityResponse,
 } from '../request'
+import { createNativeGoogleErrorResponse } from '../request-helpers'
 import { AgySessionRegistry } from '../session-context'
 import { createSignatureStore } from '../stores/signature-store'
 import type { GetAuth } from '../types'
+import { openCodeEmptyVaultRosterRefusal } from '../vault-custody'
 import { publishResponse } from './after-handoff.ts'
 import {
   createRequestExecutor,
@@ -65,6 +71,7 @@ import {
   type RequestSendAdmission,
   type RequestServicesDeps,
   type RequestWire,
+  retiredModelResponse,
   routeTitleModel,
   TITLE_FALLBACK_MODEL,
 } from './request-services'
@@ -634,6 +641,139 @@ function okJson(): Response {
 const NON_STREAM_URL = modelUrl('gemini-3-flash', 'generateContent')
 const STREAM_URL = modelUrl('gemini-3-flash')
 const CLAUDE_URL = modelUrl('claude-sonnet-5-5-low', 'generateContent')
+
+it('non-retryable plugin refusals avoid every OpenCode retry hint in messages and JSON bodies', async () => {
+  expectNoOpenCodeRetryHints(UNCONFIRMED_RATE_LIMIT_MESSAGE)
+  expectNoOpenCodeRetryHints(VAULT_ACCOUNT_REMEDY)
+  expectNoOpenCodeRetryHints(new PreResponseTimeoutError().message)
+  for (const cause of ['no-grant', 'grant-reaches-nothing'] as const) {
+    expectNoOpenCodeRetryHints(openCodeEmptyVaultRosterRefusal(cause)!)
+  }
+  const responses = [
+    preResponseTimeoutResponse(),
+    retiredModelResponse(modelUrl('gemini-3.1-pro-high'))!,
+    createNativeGoogleErrorResponse({
+      status: 401,
+      reason: 'missing_access_token',
+    }),
+    createNativeGoogleErrorResponse({
+      status: 412,
+      reason: 'model_unavailable',
+    }),
+    createNativeGoogleErrorResponse({
+      status: 412,
+      reason: 'model_unavailable',
+      setting: 'account_models',
+    }),
+    createNativeGoogleErrorResponse({ status: 412, reason: 'routing_refused' }),
+    createNativeGoogleErrorResponse({
+      status: 412,
+      reason: 'routing_refused',
+      retryAfterSeconds: 503n,
+    }),
+  ]
+  for (const reason of [
+    'operator_policy',
+    'soft_quota',
+    'pool_unavailable',
+  ] as const) {
+    // Exercise both useful reset guidance and durations whose digits must stay
+    // in Retry-After only, never in text the host scans for status codes.
+    for (const resetAfterMs of [
+      undefined,
+      0,
+      5_700_000,
+      500 * 3_600_000,
+      429_000,
+    ]) {
+      responses.push(
+        createNativeGoogleErrorResponse({ status: 412, reason, resetAfterMs }),
+      )
+    }
+  }
+  const empty = harness({ pool: makePool(0) })
+  const invalidVariant = harness()
+  const unconfirmed = harness({
+    respond: async () =>
+      new Response('{"error":{"message":"Refused"}}', { status: 429 }),
+  })
+  const executors = [
+    createRequestExecutor(empty.deps),
+    createRequestExecutor(invalidVariant.deps),
+    createRequestExecutor({
+      ...unconfirmed.deps,
+      wire: {
+        ...WIRE,
+        prepare: (...args) => {
+          const prepared = WIRE.prepare(...args)
+          const body = JSON.parse(String(prepared.init.body))
+          // Bypass the wire rewrite to exercise the request executor's immediate
+          // refusal of Pi harness self-identification.
+          body.request.systemInstruction = {
+            parts: [{ text: 'running inside pi' }],
+          }
+          return {
+            ...prepared,
+            init: { ...prepared.init, body: JSON.stringify(body) },
+          }
+        },
+      },
+    }),
+  ]
+  try {
+    responses.push(await executors[0]!.execute(NON_STREAM_URL, CHAT_INIT()))
+    responses.push(
+      await executors[1]!.execute(NON_STREAM_URL, CHAT_INIT(), {
+        variant: 'not-offered',
+      }),
+    )
+    responses.push(await executors[2]!.execute(NON_STREAM_URL, CHAT_INIT()))
+    for (const response of responses) {
+      expect(response.ok).toBe(false)
+      const text = await response.text()
+      const { error } = JSON.parse(text)
+      expectNoOpenCodeRetryHints(error.message)
+      expectNoOpenCodeRetryHints(text)
+    }
+    expect(empty.calls).toHaveLength(0)
+    expect(invalidVariant.calls).toHaveLength(0)
+  } finally {
+    await Promise.all(executors.map((executor) => executor.dispose()))
+  }
+})
+
+it('terminal thinking recovery excludes upstream retry hints from its failure body', async () => {
+  const originalError = { error: { message: 'Please try again later' } }
+  const h = harness({
+    respond: async () => {
+      throw Object.assign(new Error('THINKING_RECOVERY_NEEDED'), {
+        originalError,
+      })
+    },
+  })
+  const debug = spyOn(h.deps.logger, 'debug')
+  const executor = createRequestExecutor(h.deps)
+  try {
+    const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
+    expect(response.status).toBe(400)
+    expect(h.calls).toHaveLength(2)
+    const text = await response.text()
+    expectNoOpenCodeRetryHints(text)
+    expect(JSON.parse(text)).toEqual({
+      type: 'error',
+      error: {
+        type: 'unrecoverable_error',
+        message:
+          "Antigravity could not repair the conversation's thinking blocks. Start a new session.",
+      },
+    })
+    expect(debug).toHaveBeenCalledWith('thinking-recovery-failed', {
+      error: originalError,
+    })
+  } finally {
+    await executor.dispose()
+  }
+})
 
 describe('harness rewrite and unconfirmed refusals', () => {
   const phrase =
@@ -3822,7 +3962,7 @@ describe('createRequestExecutor cumulative no-account wait budget', () => {
             status: 'FAILED_PRECONDITION',
             message:
               kind === 'soft' || kind === 'mixed'
-                ? 'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity-auth.jsonc. Quota resets in 1s.'
+                ? 'Antigravity account pool is blocked by quota protection. Add accounts, wait for quota reset, or set soft_quota_threshold_percent to one hundred in antigravity-auth.jsonc to turn off soft quota protection. Quota resets in 1s.'
                 : 'Antigravity account pool has no account available within the configured wait limit. Add accounts with `opencode auth login` or wait for quota reset. Quota resets in 1s.',
           },
         })
@@ -5979,7 +6119,7 @@ describe('createRequestExecutor eligible-pool soft quota', () => {
           code: 412,
           status: 'FAILED_PRECONDITION',
           message:
-            'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity-auth.jsonc. Quota resets in 8s.',
+            'Antigravity account pool is blocked by quota protection. Add accounts, wait for quota reset, or set soft_quota_threshold_percent to one hundred in antigravity-auth.jsonc to turn off soft quota protection. Quota resets in 8s.',
         },
       })
       expect(h.calls).toHaveLength(0)
@@ -8883,7 +9023,7 @@ describe('createRequestExecutor optional vault routing', () => {
   })
 
   const ROUTING_REFUSED_MESSAGE =
-    'Routing has no Antigravity account available for this request right now; try again later.'
+    'Routing has no Antigravity account available for this request right now. Wait before sending another request.'
 
   async function refusedRequest(
     refused: Record<string, unknown>,

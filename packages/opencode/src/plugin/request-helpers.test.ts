@@ -1853,7 +1853,7 @@ describe('createNativeGoogleErrorResponse', () => {
           code: 412,
           status: 'FAILED_PRECONDITION',
           message:
-            'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity-auth.jsonc.',
+            'Antigravity account pool is blocked by quota protection. Add accounts, wait for quota reset, or set soft_quota_threshold_percent to one hundred in antigravity-auth.jsonc to turn off soft quota protection.',
         },
       })
     })
@@ -1878,7 +1878,7 @@ describe('createNativeGoogleErrorResponse', () => {
         code: 412,
         status: 'FAILED_PRECONDITION',
         message:
-          'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity-auth.jsonc. Quota resets in 1h 35m.',
+          'Antigravity account pool is blocked by quota protection. Add accounts, wait for quota reset, or set soft_quota_threshold_percent to one hundred in antigravity-auth.jsonc to turn off soft quota protection. Quota resets in 1h 35m.',
       },
     })
   })
@@ -2044,7 +2044,7 @@ describe('createNativeGoogleErrorResponse', () => {
         code: 412,
         status: 'FAILED_PRECONDITION',
         message:
-          'Antigravity account pool is unavailable under the operator quota policy. Adjust the quota floor in /antigravity → Limits or refresh quota.',
+          'Antigravity account pool is blocked by the operator quota policy. Adjust the quota floor in /antigravity → Limits or refresh quota.',
       },
     })
   })

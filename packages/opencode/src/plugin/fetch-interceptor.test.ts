@@ -27,6 +27,7 @@ import {
   keptReceipts,
   outageVault,
 } from '../../../core/src/__fixtures__/vault-outage.ts'
+import { expectNoOpenCodeRetryHints } from './__fixtures__/opencode-retry-hints.test'
 import { AccountManager, loadAccountManagerFromRepository } from './accounts'
 import { createAuthLoader } from './auth-loader'
 import { AntigravityConfigSchema, DEFAULT_CONFIG } from './config'
@@ -125,17 +126,13 @@ async function expectNativeFailure(
   expect(body).toEqual({
     error: { code: status, status: googleStatus, message: expect.any(String) },
   })
+  if (status < 500) expectNoOpenCodeRetryHints(text)
   expect(text).not.toMatch(/candidates|finishReason|usageMetadata|data:/)
   return text
 }
 
 function expectFailFastBody(text: string): void {
-  // OpenCode 1.x's native retry classifier searches serialized error text for
-  // retryable HTTP-status substrings even when the response itself is 412.
-  // Checking the body alongside status prevents accidental host retries.
-  expect(text).not.toMatch(
-    /429|500|502|503|504|524|rate limited|rate_limit|resource_exhausted|try again later/i,
-  )
+  expectNoOpenCodeRetryHints(text)
   expect(text).not.toMatch(/account-a|account-b|refresh-a|refresh-b|access-a/)
 }
 
@@ -891,7 +888,7 @@ describe('createFetchInterceptor', () => {
               'FAILED_PRECONDITION',
             )
             expect(JSON.parse(text).error.message).toBe(
-              'Antigravity account pool is unavailable under the quota protection policy. Add accounts, wait for quota reset, or turn off soft quota protection with `"soft_quota_threshold_percent": 100` in antigravity-auth.jsonc.',
+              'Antigravity account pool is blocked by quota protection. Add accounts, wait for quota reset, or set soft_quota_threshold_percent to one hundred in antigravity-auth.jsonc to turn off soft quota protection.',
             )
             expectFailFastBody(text)
             expect(transportMock).not.toHaveBeenCalled()
@@ -2274,6 +2271,67 @@ describe('createFetchInterceptor', () => {
   })
 
   describe('per-instance isolation', () => {
+    it('ends a reasonless refusal after three upstream requests without host retry hints', async () => {
+      let now = FIXED_NOW
+      spyOn(Date, 'now').mockImplementation(() => now)
+      const realSetTimeout = globalThis.setTimeout
+      const waits: number[] = []
+      // Advance only the refusal cooldowns; leave disk work and deadlines on
+      // the real event loop so this still exercises the interceptor's waits.
+      spyOn(globalThis, 'setTimeout').mockImplementation(((
+        callback: (...args: unknown[]) => void,
+        ms: number,
+        ...args: unknown[]
+      ) =>
+        realSetTimeout(
+          () => {
+            if (ms === 5_000) {
+              waits.push(ms)
+              now += ms
+            }
+            callback(...args)
+          },
+          ms === 5_000 ? 0 : ms,
+        )) as typeof setTimeout)
+      transportHandler = async () =>
+        new Response(JSON.stringify({ error: { message: 'Refused' } }), {
+          status: 429,
+          headers: { 'content-type': 'application/json' },
+        })
+      const interceptor = createFetchInterceptor(
+        await makeContext({
+          config: {
+            ...DEFAULT_CONFIG,
+            request_jitter_max_ms: 0,
+            quota_refresh_interval_minutes: 0,
+            proactive_rotation_threshold_percent: 0,
+            cache_warmup_on_switch: false,
+            thinking_warmup: false,
+          },
+        }),
+      )
+      try {
+        const response = await interceptor.fetch(
+          GENERATIVE_URL,
+          GENERATIVE_INIT,
+        )
+        const text = await expectNativeFailure(
+          response,
+          412,
+          'FAILED_PRECONDITION',
+        )
+        expect(transportMock).toHaveBeenCalledTimes(3)
+        expect(waits).toEqual([5_000, 5_000])
+        const { error } = JSON.parse(text)
+        expect(error.message).toContain('without a stated reason')
+        expect(error.message).not.toMatch(/\d+/)
+        expectNoOpenCodeRetryHints(error.message)
+        expectNoOpenCodeRetryHints(text)
+      } finally {
+        await interceptor.dispose()
+      }
+    })
+
     it('two interceptors do not share rate-limit state', async () => {
       let now = FIXED_NOW
       const clock = spyOn(Date, 'now').mockImplementation(() => now)

@@ -298,7 +298,7 @@ describe('selected credential boundary', () => {
     expect(events.map((event) => event.type)).toEqual(['start', 'error'])
     expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
     expect(result.errorMessage).toBe(
-      'Antigravity could not confirm a temporary request limit. Try again later or change the agent system prompt.',
+      'Antigravity refused the request without a stated reason. If this keeps happening, change the agent system prompt or wait before sending another request.',
     )
     expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
   })
@@ -321,7 +321,7 @@ describe('selected credential boundary', () => {
     expect(events.map((event) => event.type)).toEqual(['start', 'error'])
     expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
     expect(result.errorMessage).toBe(
-      'Antigravity could not confirm a temporary request limit. Try again later or change the agent system prompt.',
+      'Antigravity refused the request without a stated reason. If this keeps happening, change the agent system prompt or wait before sending another request.',
     )
     expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
   })
@@ -378,7 +378,7 @@ describe('selected credential boundary', () => {
       expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
       expect(result.stopReason).toBe('error')
       expect(result.errorMessage).toBe(
-        'Antigravity could not confirm a temporary request limit. Try again later or change the agent system prompt.',
+        'Antigravity refused the request without a stated reason. If this keeps happening, change the agent system prompt or wait before sending another request.',
       )
       expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
     } finally {

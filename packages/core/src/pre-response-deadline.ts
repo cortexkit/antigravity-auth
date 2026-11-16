@@ -8,7 +8,7 @@ export const PRE_RESPONSE_DEADLINE_MS = 600_000
 
 // Fixed text avoids status-code and quota phrases scanned by host retry policies.
 export const PRE_RESPONSE_TIMEOUT_MESSAGE =
-  'Antigravity did not begin a response within the pre-response time limit. Check your connection and try again later.'
+  'Antigravity did not begin a response within the pre-response time limit. Check your connection before sending another request.'
 
 export class PreResponseTimeoutError extends Error {
   readonly code = 412

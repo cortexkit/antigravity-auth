@@ -1217,7 +1217,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               code: 412,
               status: 'FAILED_PRECONDITION',
               message:
-                'This Antigravity thinking level is unavailable. Choose another thinking level.',
+                'This Antigravity thinking level is not offered. Choose another thinking level.',
             },
           }),
           { status: 412, headers: { 'Content-Type': 'application/json' } },
@@ -3553,7 +3553,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 error: { message: 'Thinking recovery triggered' },
               }
 
-              const recoveryMessage = `${originalError.error?.message || 'Session recovery failed'}\n\n[RECOVERY] Thinking block corruption could not be resolved. Try starting a new session.`
+              // Upstream diagnostics can contain host retry hints even though
+              // this conversation needs a new session, not another attempt.
+              log.debug('thinking-recovery-failed', { error: originalError })
+              const recoveryMessage =
+                "Antigravity could not repair the conversation's thinking blocks. Start a new session."
 
               return new Response(
                 JSON.stringify({

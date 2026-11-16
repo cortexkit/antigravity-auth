@@ -14,7 +14,7 @@ type EnrollmentPaths = Parameters<
 type EnrollmentReader = Pick<CommonAuthClaustrumModule, 'vaultAuthority'>
 
 export const VAULT_ACCOUNT_REMEDY =
-  'Vault account access is unavailable. Connect accounts in the vault, or disconnect the vault to use local accounts.'
+  'Vault account access is not ready. Connect accounts in the vault, or disconnect the vault to use local accounts.'
 
 /**
  * Host authority or the operator's vault approval selects vault accounts instead of local OAuth accounts,
