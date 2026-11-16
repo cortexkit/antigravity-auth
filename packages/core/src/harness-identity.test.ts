@@ -4,6 +4,14 @@ import * as core from './index.ts'
 
 describe('harness identity rewrite', () => {
   const rows = [
+    [
+      'await tools.opencode.session_move({ directory: "." })',
+      "await tools['opencode'].session_move({ directory: \".\" })",
+    ],
+    [
+      'tools.opencode.worktree_list(); tools.opencode.list_mcp_resources()',
+      "tools['opencode'].worktree_list(); tools['opencode'].list_mcp_resources()",
+    ],
     ...realPrompts.map(({ input, output }) => [input, output] as const),
     ['You are opencode.', 'You are a coding assistant.'],
     ['You are OpenCode!', 'You are a coding assistant!'],
@@ -65,6 +73,9 @@ describe('harness identity rewrite', () => {
   }
   for (const input of [
     'running inside your development environment',
+    "tools['opencode'].session_move",
+    'tools.opencodex.session_move',
+    'tools.other.session_move',
     'running inside a coding agent harness',
     'You are a coding assistant. The project is called pi.',
     'running inside pi.js',

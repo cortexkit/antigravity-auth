@@ -7,6 +7,10 @@ const HARNESS_IDENTITY_PARAGRAPHS = [
 ] as const
 const HARNESS_IDENTITY_REWRITES = [
   {
+    pattern: /\btools\.opencode\b/g,
+    replacement: "tools['opencode']",
+  },
+  {
     pattern: /You are opencode, /gi,
     replacement: 'You are ',
   },
