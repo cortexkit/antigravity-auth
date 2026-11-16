@@ -940,7 +940,7 @@ describe('harness rewrite and unconfirmed refusals', () => {
           code: 412,
           status: 'FAILED_PRECONDITION',
           message:
-            'Antigravity could not confirm a temporary request limit. Try again later or change the agent system prompt.',
+            'Antigravity refused the request without a stated reason. If this keeps happening, change the agent system prompt or wait before sending another request.',
         },
       })
       expect(clock.elapsed()).toBeGreaterThanOrEqual(10_000)
@@ -1082,14 +1082,14 @@ describe('harness rewrite and unconfirmed refusals', () => {
             reset,
           )
           expect(response.headers.get('retry-after')).not.toBeNull()
-          expect(await response.text()).not.toContain('could not confirm')
+          expect(await response.text()).not.toContain('without a stated reason')
         } else {
           expect(h.calls).toHaveLength(3)
           expect(
             account.rateLimitResetTimes['gemini:gemini-3-flash'] ?? 0,
           ).toBeLessThanOrEqual(clock.now() + 5000)
           expect(await response.text()).toContain(
-            'Antigravity could not confirm a temporary request limit.',
+            'Antigravity refused the request without a stated reason.',
           )
         }
         expect(account.consecutiveFailures ?? 0).toBe(0)

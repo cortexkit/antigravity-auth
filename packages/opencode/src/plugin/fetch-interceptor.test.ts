@@ -972,7 +972,7 @@ describe('createFetchInterceptor', () => {
             412,
             'FAILED_PRECONDITION',
           )
-          expect(text).toContain('quota protection policy')
+          expect(text).toContain('blocked by quota protection')
           expectFailFastBody(text)
           if (resetTime?.endsWith('Z')) {
             expect(text).toContain('Quota resets in 1h 35m')
