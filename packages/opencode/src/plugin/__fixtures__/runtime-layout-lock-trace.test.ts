@@ -1,5 +1,6 @@
 import { spyOn } from 'bun:test'
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { writeFileSync } from 'node:fs'
 import * as promises from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -271,9 +272,10 @@ export class RuntimeLayoutLockTrace {
 
   private print(reason: string) {
     const elapsed = this.now()
-    // Bun's console truncates large strings; stderr must retain every recorded attempt.
-    process.stderr.write(
-      JSON.stringify({
+    // Bun's console truncates large strings, and async writes can interleave with its failure report.
+    writeFileSync(
+      process.stderr.fd,
+      `${JSON.stringify({
         runtimeLayoutPhaseTable: this.test,
         reason,
         pid: process.pid,
@@ -286,7 +288,7 @@ export class RuntimeLayoutLockTrace {
           ms: round(span.ms ?? elapsed - span.startMs),
           pending: span.ms === undefined,
         })),
-      }) + '\n',
+      })}\n`,
     )
   }
 
