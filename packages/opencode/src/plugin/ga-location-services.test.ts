@@ -2407,7 +2407,7 @@ describe('GA composed request context', () => {
                 code: 412,
                 status: 'FAILED_PRECONDITION',
                 message:
-                  'This Antigravity thinking level is unavailable. Choose another thinking level.',
+                  'This Antigravity thinking level is not offered. Choose another thinking level.',
               },
             })
             expect(networkCalls).toHaveLength(0)

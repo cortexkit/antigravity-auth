@@ -355,7 +355,7 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
       const body = (await resp.json()) as any
       expect(body.error.code).toBe(412)
       expect(body.error.status).toBe('FAILED_PRECONDITION')
-      expect(body.error.message).toContain('quota protection policy')
+      expect(body.error.message).toContain('blocked by quota protection')
     } finally {
       await bridge.dispose()
     }
