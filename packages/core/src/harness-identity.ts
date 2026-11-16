@@ -7,11 +7,11 @@ const HARNESS_IDENTITY_PARAGRAPHS = [
 ] as const
 const HARNESS_IDENTITY_REWRITES = [
   {
-    // Antigravity refuses requests carrying this stock Pi docs entry with a
-    // false quota error. Drop the exact entry and its LF, not other docs text.
+    // Antigravity refuses requests carrying this stock Pi docs bullet with a
+    // false quota error. Remove its codemode clause, retaining other docs pointers.
     pattern:
-      /^- When asked about: extensions \(docs\/extensions\.md, examples\/extensions\/\), themes \(docs\/themes\.md\), skills \(docs\/skills\.md\), prompt templates \(docs\/prompt-templates\.md\), TUI components \(docs\/tui\.md\), keybindings \(docs\/keybindings\.md\), SDK integrations \(docs\/sdk\.md\), custom providers \(docs\/custom-provider\.md\), adding models \(docs\/models\.md\), packages \(docs\/packages\.md\), environment variables \(docs\/environment-variables\.md\), MCP servers \(docs\/mcp\.md\), codemode scripts and non-LLM models such as classifiers and image models \(docs\/codemode\.md\)\n/gm,
-    replacement: '',
+      /^(- When asked about: extensions \(docs\/extensions\.md, examples\/extensions\/\), themes \(docs\/themes\.md\), skills \(docs\/skills\.md\), prompt templates \(docs\/prompt-templates\.md\), TUI components \(docs\/tui\.md\), keybindings \(docs\/keybindings\.md\), SDK integrations \(docs\/sdk\.md\), custom providers \(docs\/custom-provider\.md\), adding models \(docs\/models\.md\), packages \(docs\/packages\.md\), environment variables \(docs\/environment-variables\.md\), MCP servers \(docs\/mcp\.md\)), codemode scripts and non-LLM models such as classifiers and image models \(docs\/codemode\.md\)\n/gm,
+    replacement: '$1\n',
   },
   {
     pattern: /\btools\.opencode\b/g,

@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- Drop Pi's stock codemode docs entry from outgoing system prompts to avoid Antigravity's false quota refusal, preserving other documentation entries.
+- Remove only the codemode clause from Pi's stock docs bullet in outgoing system prompts to avoid Antigravity's false quota refusal, preserving its other documentation pointers.
 - Keep plugin refusal messages from triggering OpenCode's automatic retries, including requests Antigravity refuses without a stated reason.
 
 ## [3.1.5] - 2026-11-16

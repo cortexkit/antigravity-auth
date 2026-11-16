@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Drop Pi's stock codemode docs entry from outgoing system prompts to avoid Antigravity's false quota refusal, preserving other documentation entries.
+- Remove only the codemode clause from Pi's stock docs bullet in outgoing system prompts to avoid Antigravity's false quota refusal, preserving its other documentation pointers.
 - Rewrite Pi and Pi-Bolt's stock system-prompt opener to the shorter coding-assistant identity accepted by Antigravity ([#76](https://github.com/cortexkit/antigravity-auth/issues/76)).
 
 - Neutralise OpenCode and Pi harness self-identification only in outgoing system instructions so Google does not mistake the host's prompt for a quota failure. Unconfirmed request limits end with a clear error instead of encouraging host retries; OpenCode caps its own retries at two with a short model-specific cooldown.

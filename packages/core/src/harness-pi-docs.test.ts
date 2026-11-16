@@ -33,11 +33,11 @@ const servedBoltPrompt = servedPrompt.replace(
 )
 
 describe('Pi codemode docs rewrite', () => {
-  it('drops only the stock Pi 1.5.2 docs entry and its LF', () => {
+  it('removes only the codemode clause from the stock Pi 1.5.2 docs bullet', () => {
     expect(rewriteSystemInstruction(docs)).toBe(servedDocs)
   })
 
-  it('rewrites both the opener and docs entry in the full stock Pi 1.5.2 prompt', () => {
+  it('rewrites both the opener and docs clause in the full stock Pi 1.5.2 prompt', () => {
     expect(rewriteSystemInstruction(prompt)).toBe(servedPrompt)
   })
 
@@ -56,6 +56,16 @@ describe('Pi codemode docs rewrite', () => {
       expect(rewriteSystemInstruction(input)).toBe(output)
       expect(rewriteSystemInstruction(output)).toBe(output)
     }
+  })
+
+  it('preserves the shortened bullet and its LF on subsequent rewrites', () => {
+    const shortenedEntry = stock.output.find((line) =>
+      line.startsWith('- When asked about:'),
+    )!
+    expect(shortenedEntry.endsWith('MCP servers (docs/mcp.md)')).toBe(true)
+    expect(rewriteSystemInstruction(`${shortenedEntry}\n`)).toBe(
+      `${shortenedEntry}\n`,
+    )
   })
 
   it('preserves other codemode docs entries and exact-line near misses', () => {
