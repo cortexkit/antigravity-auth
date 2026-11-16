@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## [3.1.6] - 2026-11-17
+
+- Rewrite Pi and Pi-Bolt's stock system-prompt opener to the shorter coding-assistant identity accepted by Antigravity ([#76](https://github.com/cortexkit/antigravity-auth/issues/76)).
 - Remove only the codemode clause from Pi's stock docs bullet in outgoing system prompts to avoid Antigravity's false quota refusal, preserving its other documentation pointers.
 - Keep plugin refusal messages from triggering OpenCode's automatic retries, including requests Antigravity refuses without a stated reason.
 
