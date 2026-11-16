@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.1.5] - 2026-11-16
+
 - Convert multi-type Gemini tool parameters to compatible unions instead of sending rejected type arrays, including tools accepting every JSON type in OpenCode and Pi.
 - Discard cached vault quota readings when a login's route or credential changes, so a replacement login cannot inherit the previous login's quota waits.
 - Update the bundled common-auth to 0.52.0: setup's Windows process check starts PowerShell by its full system path and prefers PowerShell 7.
