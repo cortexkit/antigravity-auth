@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+## [3.1.3] - 2026-11-16
+
 - Rewrite OpenCode 2.3's “running in” host identity wording while preserving non-identity mentions and paths.
 - Normalize OpenCode Code Mode namespace references in system prompts (thanks to Will, [#75](https://github.com/cortexkit/antigravity-auth/pull/75)).
 - Treat message-only request limits as unconfirmed in OpenCode and Pi instead of inferring quota exhaustion from their wording; OpenCode keeps a long wait only when a recent quota reading for the selected account and model shows no available quota.
+- Report the newest failure when a request fails on several accounts or endpoints, instead of an older retained 429 (thanks to Marcos Santanna, [#72](https://github.com/cortexkit/antigravity-auth/pull/72)).
+- Embed published common-auth 0.50.0; no plugin behaviour changes.
 
 ## [3.1.2] - 2026-11-14
 
