@@ -1,12 +1,18 @@
 # @cortexkit/pi-antigravity-auth
 
+> [!CAUTION]
+> **Using this extension can get your Google account suspended.** Using it
+> violates Google's Terms of Service. Since mid-November 2026, users report
+> that Google is suspending whole Google accounts for Antigravity use through
+> third-party tools, with `403 PERMISSION_DENIED` / `TOS_VIOLATION`; the
+> suspension also blocks Google's own Antigravity CLI
+> ([#74](https://github.com/cortexkit/antigravity-auth/issues/74)). Don't use an
+> account you can't afford to lose. This is an unofficial tool not endorsed by
+> Google.
+
 Google Antigravity OAuth extension for [pi](https://github.com/earendil-works/pi-mono).
 Authenticate with your Google account and use Gemini 3 models through
 Antigravity's endpoints.
-
-> [!CAUTION]
-> Using this extension violates Google's Terms of Service. Accounts may be
-> suspended or banned. This is an unofficial tool not endorsed by Google.
 
 ## Install
 
