@@ -7,6 +7,7 @@ import {
   type Tool,
   Type,
 } from '@earendil-works/pi-ai'
+import stockPiPrompt from '../../../test-fixtures/pi-1.5.2-system-prompt.json'
 
 import { buildGeminiRequest } from './convert.ts'
 
@@ -37,8 +38,7 @@ function assistant(
 
 describe('buildGeminiRequest', () => {
   it('rewrites harness identity only in systemInstruction for flat and transcript contexts', () => {
-    const phrase =
-      'You are a coding assistant running inside pi, a coding agent harness.'
+    const phrase = stockPiPrompt.input.join('\n')
     const context = ctx({
       systemPrompt: phrase,
       tools: [
@@ -71,7 +71,7 @@ describe('buildGeminiRequest', () => {
       const request = buildGeminiRequest(input)
       expect(request.systemInstruction?.parts).toEqual([
         {
-          text: 'You are a coding assistant.',
+          text: stockPiPrompt.output.join('\n'),
         },
       ])
       expect(request.contents[0]?.parts).toEqual([{ text: phrase }])

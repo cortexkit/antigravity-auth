@@ -33,6 +33,7 @@ import {
   signature,
   toolNames,
 } from '../../../test-fixtures/agy-cli-1.5.8/assert-identity.test'
+import stockPiPrompt from '../../../test-fixtures/pi-1.5.2-system-prompt.json'
 import { outageVault } from '../../core/src/__fixtures__/vault-outage.ts'
 import { rememberPackedRefresh } from './credential-cache.ts'
 
@@ -246,8 +247,7 @@ function terminalTextResponse(): Response {
 
 describe('selected credential boundary', () => {
   it('sends identical rewritten harness instructions on consecutive turns of one Pi session', async () => {
-    const phrase =
-      'You are a coding assistant running inside pi, a coding agent harness.'
+    const phrase = stockPiPrompt.input.join('\n')
     const bodies: Record<string, any>[] = []
     fetchWithAgyCliTransportMock.mockImplementation(
       async (_url: string, init: RequestInit) => {
@@ -273,7 +273,7 @@ describe('selected credential boundary', () => {
       'running inside pi',
     )
     expect(bodies[0]!.systemInstruction.parts[0].text).toBe(
-      'You are a coding assistant.',
+      stockPiPrompt.output.join('\n'),
     )
     expect(JSON.stringify(bodies[1]!.systemInstruction)).toBe(
       JSON.stringify(bodies[0]!.systemInstruction),
