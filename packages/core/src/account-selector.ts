@@ -1571,7 +1571,8 @@ export class AccountSelector<A extends SelectableAccount> {
     if (reason === 'UNKNOWN') {
       const backoffMs = calculateBackoffMs(reason, 0, retryAfterMs)
       const key = getQuotaKey(family, model)
-      // An unconfirmed refusal cannot weaken an existing evidence-backed mark.
+      // An unconfirmed refusal never shortens an existing reset time: a longer
+      // one comes from a confirmed limit or a quota reading at 0%.
       const resetAt = Math.max(
         account.rateLimitResetTimes[key] ?? 0,
         now + backoffMs,
