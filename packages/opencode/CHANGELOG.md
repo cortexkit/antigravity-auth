@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## [3.1.3] - 2026-11-16
+## [3.1.4] - 2026-11-16
 
 - Rewrite OpenCode 2.3's “running in” host identity wording while preserving non-identity mentions and paths.
 - Normalize OpenCode Code Mode namespace references in system prompts (thanks to Will, [#75](https://github.com/cortexkit/antigravity-auth/pull/75)).
