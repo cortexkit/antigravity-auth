@@ -54,7 +54,7 @@ test('producer.native_windows_archive_pin', async () => {
 
 async function archive() {
   const bytes = await readFile(join(root, inputPath))
-  expect(bytes.length).toBe(499780)
+  expect(bytes.length).toBe(501064)
   expect(digest(bytes)).toBe(publication.sha256)
   expect(createHash('sha1').update(bytes).digest('hex')).toBe(
     publication.shasum,
@@ -186,13 +186,13 @@ test('producer.public_roots_and_exact_closure', async () => {
   const graph = reach(entries, starts)
   expect(graph.files).toEqual(selected)
   expect(graph.externals).toEqual(closure.nonlocalImports)
-  expect(graph.files.length).toBe(249)
+  expect(graph.files.length).toBe(251)
   expect(
     graph.files.reduce(
       (sum, file) => sum + entries.get(`package/dist/${file}`)!.length,
       0,
     ),
-  ).toBe(1473684)
+  ).toBe(1476212)
   expect(graph.files.filter((file) => file.startsWith('routing/'))).toEqual(
     closure.routingFiles,
   )
@@ -290,8 +290,8 @@ test('producer.verbatim_map', async () => {
   const map = JSON.parse(
     await readFile(join(target, outputPath, 'source-output.json'), 'utf8'),
   )
-  expect(map.version).toBe('0.52.0')
-  expect(map.artifactStatus).toBe('published')
+  expect(map.version).toBe('0.52.1')
+  expect(map.artifactStatus).toBe('candidate')
   expect(map.publicRoots).toEqual({
     ...publication.publicRoots,
     './quota-sidebar': publication.sidebarRoot,
