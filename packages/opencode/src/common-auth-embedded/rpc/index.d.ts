@@ -1,5 +1,5 @@
 export * from './notifications.js';
-export * from './port-file.js';
+export { createManagedRpcStateDirPredicate, type DiscoverPortFileOptions, discoverPortFile, getRpcDir, isManagedRpcStateDir, type PortFileEntry, portFileIdentity, sweepRpcState, writePortFile, } from './port-file.js';
 export * from './rpc-client.js';
 export * from './rpc-server.js';
 export * from './server-registry.js';

@@ -27,6 +27,10 @@ export declare function sweepRpcState(root: string, activeDir: string, isManaged
     /** Internal seam for replacing a stale record before its identity recheck. */
     beforeRemove?: (path: string) => void | Promise<void>;
 }): Promise<void>;
+/** Internal folder cleanup shared by full and throttled startup sweeps. */
+export declare function sweepRpcDirectory(dir: string, log?: RpcLogChannel, options?: PortFileClock & {
+    beforeRemove?: (path: string) => void | Promise<void>;
+}, cutoff?: number): Promise<boolean>;
 export interface DiscoverPortFileOptions extends PortFileClock {
     /**
      * Return only the expected PID's entry, or null; never fall back to

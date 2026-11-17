@@ -1,7 +1,7 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.52.0",
+  "version": "0.52.1",
   "artifactStatus": "published",
   "publicRoots": {
     "./store": {
@@ -41,16 +41,16 @@
       "import": "./dist/pi-slot/index.js"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.52.0.tgz",
-  "tarballSha256": "c29dfd830c1515a2d2785d575726b20be4efdb77991c37eaf4de940ee0486df5",
-  "sri": "sha512-rl6Y0fr5ljXxukT/XcG0uh4qjt3+Xp6Cgt+BM8jRuIGxtf71sH5GSUcyyGk9Ptr7le27Z04f+RXjv5MhBtASfg==",
-  "shasum": "17cee2f576a4bd9005f2732adb3b48659137c1c5",
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.52.1.tgz",
+  "tarballSha256": "fc191fb1ab4786f9a320c7bd3797f7c9957291a76dbb1e03c2eed49470c9ecaf",
+  "sri": "sha512-9ji8cQwPEdEsJdcUVGkZYlDhk6Su4O6lZdY95aoUGKh2/f/y7dWqb6ZG1yEpXBxq5G9aFt9Xf0LS05tYzVukYg==",
+  "shasum": "1fb897d0c61aba544da941f38ca4d4e651525aac",
   "canonicalFiles": 186,
-  "canonicalBytes": 1170446,
+  "canonicalBytes": 1170457,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "c9d52ac06eed3eaf0eea74a60694d0a87d38b949a68fb986d726c0d88138f765"
+    "sha256": "5400d895e8c0b7507dd1be4d4e73a5bcf79b8c0e4948c17a34ba652a9197b5e6"
   },
   "files": [
     {
@@ -224,9 +224,9 @@
     {
       "source": "package/dist/claustrum/availability.js",
       "output": "claustrum/availability.js",
-      "bytes": 4615,
-      "sourceSha256": "11eaa35ab38ab433f249b4b11b9e284fac5ab7e785c965fe070aef8cde593089",
-      "outputSha256": "11eaa35ab38ab433f249b4b11b9e284fac5ab7e785c965fe070aef8cde593089",
+      "bytes": 4613,
+      "sourceSha256": "848f2c5224a37b903b186cd5dd43710ad0d5cfe590600263b613b0ea22ff1585",
+      "outputSha256": "848f2c5224a37b903b186cd5dd43710ad0d5cfe590600263b613b0ea22ff1585",
       "transform": "verbatim"
     },
     {
@@ -256,9 +256,9 @@
     {
       "source": "package/dist/claustrum/custody.js",
       "output": "claustrum/custody.js",
-      "bytes": 43691,
-      "sourceSha256": "65a376031c602bc4592fa6402c3cb5a14219245c10c134aed7239fdf11f1e88c",
-      "outputSha256": "65a376031c602bc4592fa6402c3cb5a14219245c10c134aed7239fdf11f1e88c",
+      "bytes": 43686,
+      "sourceSha256": "174adfdaa909149453a34666fdf656aff90c7357e0000338c5a0a2a29d7c1e90",
+      "outputSha256": "174adfdaa909149453a34666fdf656aff90c7357e0000338c5a0a2a29d7c1e90",
       "transform": "verbatim"
     },
     {
@@ -648,9 +648,9 @@
     {
       "source": "package/dist/fs/private-files.js",
       "output": "fs/private-files.js",
-      "bytes": 15098,
-      "sourceSha256": "d26406b3fd7c4452905c4afe2da1e24c8079a20b89a449d2af45e95c4b5cc189",
-      "outputSha256": "d26406b3fd7c4452905c4afe2da1e24c8079a20b89a449d2af45e95c4b5cc189",
+      "bytes": 15116,
+      "sourceSha256": "0c9cbfc8c492d944002e91b50b1a51075fda1becb3935e8a253b94549a1adf58",
+      "outputSha256": "0c9cbfc8c492d944002e91b50b1a51075fda1becb3935e8a253b94549a1adf58",
       "transform": "verbatim"
     },
     {

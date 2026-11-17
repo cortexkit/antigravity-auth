@@ -94,9 +94,8 @@ async function removeCorruptPortFile(portFile, log) {
 export async function writePortFile(dir, entry, options = {}) {
     // The directory can be removed by another project's sweep between our
     // mkdir and the first open/rename, so the whole create-then-rename
-    // unit is retried once on ENOENT. The retry recreates the directory; a
-    // persistent ENOENT (e.g. permission, read-only parent) will surface on
-    // the second attempt — failing fast beats an unbounded loop.
+    // unit gets up to five attempts on ENOENT. Each retry recreates the
+    // directory after a short delay, but persistent removal still surfaces.
     const writeOnce = async () => {
         const target = join(dir, `port-${entry.pid}.json`);
         if (windowsPrivateFiles) {
@@ -136,14 +135,15 @@ export async function writePortFile(dir, entry, options = {}) {
         }
         return target;
     };
-    try {
-        return await writeOnce();
-    }
-    catch (error) {
-        if (error.code === 'ENOENT') {
+    for (let attempt = 1;; attempt += 1) {
+        try {
             return await writeOnce();
         }
-        throw error;
+        catch (error) {
+            if (error.code !== 'ENOENT' || attempt === 5)
+                throw error;
+            await new Promise((resolve) => setTimeout(resolve, 25));
+        }
     }
 }
 export async function sweepRpcState(root, activeDir, isManagedDir, log, options = {}) {
@@ -163,52 +163,58 @@ export async function sweepRpcState(root, activeDir, isManagedDir, log, options 
             continue;
         }
         const dir = join(root, projectDir.name);
-        let names;
-        try {
-            names = await readdir(dir);
-        }
-        catch (error) {
-            if (error.code === 'ENOENT')
-                continue;
-            throw error;
-        }
-        for (const name of names) {
-            if (!name.startsWith('port-') || !name.endsWith('.json'))
-                continue;
-            const portFile = join(dir, name);
-            const info = await stat(portFile).catch(() => undefined);
-            let raw;
-            try {
-                raw = await readPrivateText(portFile);
-            }
-            catch (error) {
-                if (error instanceof PrivateFileError && error.code !== 'ENOENT')
-                    throw error;
-                continue;
-            }
-            if (raw === undefined)
-                continue;
-            let parsed;
-            try {
-                parsed = JSON.parse(raw);
-            }
-            catch {
-                await removeCorruptPortFile(portFile, log);
-                continue;
-            }
-            if (!isUsablePortFileEntry(parsed, name)) {
-                await removeCorruptPortFile(portFile, log);
-                continue;
-            }
-            const entry = parsed;
-            if (!pidAlive(entry.pid))
-                await unlink(portFile).catch(() => { });
-            else if (isStalePortFile(entry, info, cutoff))
-                await removeStalePortFile(portFile, raw, info, options.beforeRemove);
-        }
+        if (!(await sweepRpcDirectory(dir, log, options, cutoff)))
+            continue;
         if (resolve(dir) !== active)
             await rmdir(dir).catch(() => { });
     }
+}
+/** Internal folder cleanup shared by full and throttled startup sweeps. */
+export async function sweepRpcDirectory(dir, log, options = {}, cutoff = staleBefore(options)) {
+    let names;
+    try {
+        names = await readdir(dir);
+    }
+    catch (error) {
+        if (error.code === 'ENOENT')
+            return false;
+        throw error;
+    }
+    for (const name of names) {
+        if (!name.startsWith('port-') || !name.endsWith('.json'))
+            continue;
+        const portFile = join(dir, name);
+        const info = await stat(portFile).catch(() => undefined);
+        let raw;
+        try {
+            raw = await readPrivateText(portFile);
+        }
+        catch (error) {
+            if (error instanceof PrivateFileError && error.code !== 'ENOENT')
+                throw error;
+            continue;
+        }
+        if (raw === undefined)
+            continue;
+        let parsed;
+        try {
+            parsed = JSON.parse(raw);
+        }
+        catch {
+            await removeCorruptPortFile(portFile, log);
+            continue;
+        }
+        if (!isUsablePortFileEntry(parsed, name)) {
+            await removeCorruptPortFile(portFile, log);
+            continue;
+        }
+        const entry = parsed;
+        if (!pidAlive(entry.pid))
+            await unlink(portFile).catch(() => { });
+        else if (isStalePortFile(entry, info, cutoff))
+            await removeStalePortFile(portFile, raw, info, options.beforeRemove);
+    }
+    return true;
 }
 /** Internal cache validation: probe only the selected file and its PID. */
 export async function portFileIdentity(dir, entry, options = {}) {
