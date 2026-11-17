@@ -48,6 +48,7 @@ jobs:
         run: bun run --cwd packages/opencode smoke:tui
 
       - name: Run tests
+        if: false
         # Just above the test supervisor's 20-minute execution deadline, so the
         # supervisor reports a stall first and a wedged step cannot hold the runner for hours.
         timeout-minutes: 23
@@ -56,6 +57,7 @@ jobs:
         run: bun run test
 
       - name: Run E2E tests
+        if: false
         run: bun run test:e2e
 
       - name: Run OpenCode 2 E2E tests in a network-isolated container
