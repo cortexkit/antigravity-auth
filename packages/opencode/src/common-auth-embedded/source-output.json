@@ -77,12 +77,12 @@
   "tarballSha256": "e2ed564b2f2af0691e17f0856e4dea1d9fd557020e58debe91a2c40688230eac",
   "sri": "sha512-3nbcYN1efUQFk5L9TsEX/cF6dpLL0Sb9LXbPWF9bmhyl46ytJL+q4QzTqGjIKMOk2w/AsdOyJ8YsWnh0gcB6yg==",
   "shasum": "f2b9e46892e0da89e957d2a0c52fb9701de58d9a",
-  "canonicalFiles": 258,
-  "canonicalBytes": 1517338,
+  "canonicalFiles": 257,
+  "canonicalBytes": 1516987,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "a5f4d0d20dc509657148d759b6c25b2fec4a4381563ae1c496e9a6f88f310bf6"
+    "sha256": "af3405654ae7bd5706be4b87bd0ebc210851463162094c761ceb6a59afba3c5a"
   },
   "files": [
     {
@@ -1315,14 +1315,6 @@
       "bytes": 1537,
       "sourceSha256": "7a7bb67f11f072e2fd655694445458295c5461579bc4e73b11559c9d18d3c93d",
       "outputSha256": "7a7bb67f11f072e2fd655694445458295c5461579bc4e73b11559c9d18d3c93d",
-      "transform": "verbatim"
-    },
-    {
-      "source": "package/dist/rpc/startup-sweep.d.ts",
-      "output": "rpc/startup-sweep.d.ts",
-      "bytes": 351,
-      "sourceSha256": "f3c11ab50246a1c32ac92b88dadda85abefc8199a9ea013428ba6386503cc6ce",
-      "outputSha256": "f3c11ab50246a1c32ac92b88dadda85abefc8199a9ea013428ba6386503cc6ce",
       "transform": "verbatim"
     },
     {

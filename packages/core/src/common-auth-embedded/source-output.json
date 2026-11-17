@@ -50,7 +50,7 @@
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "a5f4d0d20dc509657148d759b6c25b2fec4a4381563ae1c496e9a6f88f310bf6"
+    "sha256": "af3405654ae7bd5706be4b87bd0ebc210851463162094c761ceb6a59afba3c5a"
   },
   "files": [
     {
