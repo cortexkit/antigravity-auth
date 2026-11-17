@@ -4,7 +4,8 @@ import { createServer, } from 'node:http';
 import { join } from 'node:path';
 import { PrivateFileError, readPrivateText } from '../fs/private-files.js';
 import { isSessionId, } from './notifications.js';
-import { sweepRpcState, writePortFile } from './port-file.js';
+import { writePortFile } from './port-file.js';
+import { sweepRpcStateOnStart } from './startup-sweep.js';
 /**
  * Thrown by an `apply`, `drain`, or `parsePending` handler to refuse a request with a 4xx
  * status. Its message is sent on the wire as `{error: message}`, so it must
@@ -279,7 +280,7 @@ export async function startRpcServer(options) {
     server.unref();
     if (options.sweepRoot) {
         try {
-            await sweepRpcState(options.sweepRoot, options.dir, options.isManagedDir, log);
+            await sweepRpcStateOnStart(options.sweepRoot, options.dir, options.isManagedDir, log);
         }
         catch (error) {
             log.warn('rpc state sweep failed', {

@@ -24,7 +24,9 @@ export function setPrivateFilesBackendForTest(api) {
 /** The fixed `reason` of a refusal because the Windows native addon did not load. */
 export const PRIVATE_FILES_UNAVAILABLE_REASON = 'native-addon-unavailable';
 function privateFilesUnavailable(cause) {
-    return Object.assign(new Error('Windows private-files native addon is unavailable', { cause }), {
+    return Object.assign(new Error('Windows private-files native addon could not be loaded', {
+        cause,
+    }), {
         code: 'ERR_PRIVATE_FILES_UNAVAILABLE',
         reason: PRIVATE_FILES_UNAVAILABLE_REASON,
     });

@@ -404,7 +404,7 @@ export class ClaustrumScopedCustody {
                 throw error;
             if (classifyVaultFailure(error) === 'unreachable')
                 throw new ClaustrumUnreachableError(error instanceof ClaustrumUnreachableError ? error.reason : undefined);
-            throw new ClaustrumConsumerError('unavailable', 'Claustrum scoped operation unavailable');
+            throw new ClaustrumConsumerError('unavailable', 'Claustrum scoped operation failed');
         }
         finally {
             removeAbortListener?.();
