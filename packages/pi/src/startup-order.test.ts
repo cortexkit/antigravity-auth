@@ -1,4 +1,5 @@
 import { expect, it, mock } from 'bun:test'
+import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -79,13 +80,21 @@ const client: ClaustrumScopedClient = {
 it.each([
   {
     name: 'awaits the native slot swap before the real Pi loader resolves its first google model request',
-    missingStash: false,
+    transition: 'enter',
+  },
+  {
+    name: 'clears the vault marker and legacy stash before the real Pi loader starts in local mode',
+    transition: 'cleared',
+  },
+  {
+    name: 'leaves an existing local Google login unchanged in the real Pi loader',
+    transition: 'nothing-to-do',
   },
   {
     name: 'refuses the leftover vault placeholder locally with a sign-in message in the real Pi loader',
-    missingStash: true,
+    transition: 'leftover',
   },
-])('$name', async ({ missingStash }) => {
+])('$name', async ({ transition }) => {
   const directory = await mkdtemp(
     join(
       process.platform === 'win32' ? tmpdir() : '/tmp',
@@ -170,10 +179,10 @@ it.each([
         close: () => {},
       }),
     })
-    if (!missingStash)
+    if (transition === 'enter')
       expect((await setup.connectStep()).state).toBe('approved')
     const slotModule = await actualCore.loadCommonAuthPiSlot()
-    if (missingStash) {
+    if (transition === 'cleared' || transition === 'leftover') {
       await slotModule
         .openPiSlot({
           authPath,
@@ -182,8 +191,11 @@ it.each([
           placeholderKey: 'antigravity-vault-custody',
         })
         .enterVault()
-      await rm(stashPath)
     }
+    if (transition !== 'leftover')
+      await writeFile(stashPath, 'legacy credentials, not JSON', {
+        mode: 0o600,
+      })
     const authBefore = await readFile(authPath, 'utf8')
     const statBefore = await stat(authPath)
     const loadPiSlot: typeof actualCore.loadCommonAuthPiSlot = async () => ({
@@ -200,6 +212,8 @@ it.each([
           exitVault: async () => {
             events.push('slot:start')
             try {
+              // Simulate an interrupted synchronization that leaves the marker.
+              if (transition === 'leftover') return 'nothing-to-do'
               return await slot.exitVault()
             } finally {
               events.push('slot:end')
@@ -250,15 +264,26 @@ export default async function(pi) {
       events.indexOf('factory:end'),
     )
     const native = JSON.parse(await readFile(authPath, 'utf8'))
-    expect(native.google).toEqual({
-      type: 'api_key',
-      key: 'antigravity-vault-custody',
-    })
-    if (!missingStash)
-      expect(await readFile(stashPath, 'utf8')).toContain(
-        'synthetic-local-refresh',
-      )
+    if (transition === 'nothing-to-do') expect(native.google).toEqual(original)
+    else if (transition === 'cleared') expect(native.google).toBeUndefined()
+    else
+      expect(native.google).toEqual({
+        type: 'api_key',
+        key: 'antigravity-vault-custody',
+      })
+    expect(existsSync(stashPath)).toBe(false)
     await session.bindExtensions({})
+    if (transition === 'cleared' || transition === 'nothing-to-do') {
+      if (transition === 'nothing-to-do') {
+        expect(await readFile(authPath, 'utf8')).toBe(authBefore)
+        expect((await stat(authPath)).ino).toBe(statBefore.ino)
+        expect((await stat(authPath)).mtimeMs).toBe(statBefore.mtimeMs)
+      }
+      expect(localRefresh).not.toHaveBeenCalled()
+      expect(nativeRefreshes).toBe(0)
+      expect(sent).toHaveLength(0)
+      return
+    }
     const model = (await session.modelRuntime.getAvailable('google')).find(
       (model) => model.id === 'antigravity-gemini-3.8-flash',
     )
@@ -274,10 +299,10 @@ export default async function(pi) {
         ],
       })
       .result()
-    if (missingStash) {
+    if (transition === 'leftover') {
       expect(response.stopReason).toBe('error')
       expect(response.errorMessage).toBe(
-        'Pi has no saved Google login to restore. Sign in again with /login google.',
+        'Pi is no longer using the vault. Sign in to Google again with /login google.',
       )
       expect(sent).toHaveLength(0)
       expect(await readFile(authPath, 'utf8')).toBe(authBefore)
@@ -336,8 +361,8 @@ interface OwnedPiHome {
 /**
  * Lockout states the real Pi loader must survive with /antigravity and a
  * refusing google provider registered. Each writes synthetic owner-only files:
- * the enrollment state file, the mode file, Pi's auth.json and the saved-login
- * stash. The extension must not overwrite auth.json or the stash; only the
+ * the enrollment state file, the mode file and Pi's auth.json. An unsafe legacy
+ * credential path must also refuse. The extension must not overwrite auth.json; only the
  * Vault section, /login or /logout may change them.
  */
 const LOCKOUTS: Array<{
@@ -376,25 +401,12 @@ const LOCKOUTS: Array<{
     refusal: 'must be approved',
   },
   {
-    name: 'a native Google login that conflicts with the saved one',
+    name: 'an unsafe legacy Google login path',
     prepare: async (home) => {
-      // The genuine slot helper saves one login and installs the placeholder;
-      // a later native /login writes a different google entry over it.
-      await writeFile(
-        home.authPath,
-        JSON.stringify({ google: { type: 'oauth', access: 'saved' } }),
-        { mode: 0o600 },
-      )
-      const { openPiSlot } = await actualCore.loadCommonAuthPiSlot()
-      await openPiSlot({
-        authPath: home.authPath,
-        stashPath: home.stashPath,
-        provider: 'google',
-        placeholderKey: 'antigravity-vault-custody',
-      }).enterVault()
       await writeFile(home.authPath, NATIVE_AUTH, { mode: 0o600 })
+      await mkdir(home.stashPath, { mode: 0o700 })
     },
-    reason: 'native Google login changed',
+    reason: 'unsafe-path',
     refusal: 'Provider is not configured: google',
   },
 ]

@@ -183,7 +183,7 @@ async function verify(stage) {
       .digest('hex')
   }
   const expectedArchive =
-    'fc191fb1ab4786f9a320c7bd3797f7c9957291a76dbb1e03c2eed49470c9ecaf'
+    '482b5a1e8c9898ac788940be3177869407b6276cf76fe1338e09f63bb952b833'
   for (const receiptPath of [
     'packages/core/dist/common-auth-embedded/source-output.json',
     'packages/opencode/dist/src/common-auth-embedded/source-output.json',
@@ -291,10 +291,15 @@ async function verify(stage) {
     provider: 'google',
     placeholderKey: 'antigravity-vault-custody',
   })
-  // Use Pi's public slot API to stash the synthetic Google login;
+  // Use Pi's public slot API to replace the synthetic Google login;
   // no OAuth or vault enrollment request is made.
   await slot.enterVault()
-  const paths = [authPath, stashPath]
+  assert.equal(existsSync(stashPath), false)
+  await fs.writeJsonAtomic(stashPath, { legacy: 'discarded-credentials' })
+  const legacyBytes = await readFile(stashPath)
+  weakenFile(stashPath)
+  const legacyDacl = readTokenDacl(stashPath)
+  const paths = [authPath]
   const bytes = await Promise.all(paths.map((path) => readFile(path)))
   const original = paths.map(readTokenDacl)
   for (const descriptor of original) assertPrivateTokenDacl(descriptor)
@@ -433,15 +438,16 @@ async function verify(stage) {
   )
   assert.deepEqual(await slot.inspect(), {
     slot: 'placeholder',
-    stash: 'valid',
   })
+  assert.deepEqual(await readFile(stashPath), legacyBytes)
+  assert.deepEqual(readTokenDacl(stashPath), legacyDacl)
   await new Promise(setImmediate)
   const repairedDescriptors = []
   for (let index = 0; index < paths.length; index++) {
     assert.deepEqual(
       await readFile(paths[index]),
       bytes[index],
-      'Inspection changed credential/stash bytes',
+      'Inspection changed credential bytes',
     )
     const repaired = readTokenDacl(paths[index])
     repairedDescriptors.push(repaired)
@@ -459,34 +465,27 @@ async function verify(stage) {
   )
   assert.equal(
     warnings.length,
-    2,
-    'Both named files must surface their migration warning',
+    1,
+    'Only the native auth file is inspected and repaired',
   )
   assert.ok(warnings.some((warning) => warning.message.includes('auth.json')))
   assert.ok(
-    warnings.some((warning) =>
+    !warnings.some((warning) =>
       warning.message.includes('google-login-stash.json'),
     ),
   )
   result.checks.push(
-    'real fenced public inspect repaired exactly the two weak file DACLs, preserving bytes, owners and parent DACL',
+    'real fenced public inspect repaired the auth DACL, preserving bytes, owner and parent DACL; the legacy stash stayed untouched',
   )
   result.checks.push(
-    'both ordinary PrivateFileMigration warnings remained surfaced',
+    'the ordinary auth PrivateFileMigration warning remained surfaced',
   )
 
-  stage('foreign-login-refusal')
+  stage('invalid-auth-refusal')
   const { runSetup } = await import(
     '../../packages/opencode/dist/src/common-auth-embedded/setup/index.js'
   )
-  await fs.writeJsonAtomic(authPath, {
-    google: {
-      type: 'oauth',
-      refresh: 'synthetic-foreign-login',
-      access: 'synthetic-foreign-access',
-      expires: 2,
-    },
-  })
+  await writeFile(authPath, '{invalid auth')
   const foreign = await readFile(authPath)
   const stashBefore = await readFile(stashPath)
   plugin.vault.connectionFile = join(root, 'synthetic-connection.json')
@@ -521,7 +520,7 @@ async function verify(stage) {
         connect: async () => client,
       },
     ),
-    /saved login|stash|conflict/i,
+    /invalid-auth/i,
   )
   assert.deepEqual(selectedHosts, [['opencode', 'pi']])
   assert.equal(ceremonies, 0)
@@ -533,7 +532,7 @@ async function verify(stage) {
   assert.deepEqual(await readFile(authPath), foreign)
   assert.deepEqual(await readFile(stashPath), stashBefore)
   result.checks.push(
-    'foreign Pi login refused before any selected host enrollment ceremony; auth/stash bytes unchanged',
+    'invalid Pi auth refused before any selected host enrollment ceremony; auth/legacy-stash bytes unchanged',
   )
   stage('missing-authority-parent')
   const claustrum = await loadCommonAuthClaustrum()
@@ -618,8 +617,8 @@ async function verify(stage) {
   )
   assert.equal(
     warnings.length,
-    4,
-    'Auth, stash and both authority files must surface actual migration warnings',
+    3,
+    'Auth and both authority files must surface actual migration warnings; the legacy stash is never inspected',
   )
   result.authorityDacl = {
     original: authorityOriginal.map(redactDacl),

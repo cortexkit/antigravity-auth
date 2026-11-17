@@ -567,7 +567,7 @@ function enrollmentGuidance(status: ClaustrumEnrollmentStatus): string[] {
 function describeSource(status: PiVaultSetupStatus): string {
   switch (status.mode) {
     case 'custody':
-      return "Using the vault for Antigravity accounts; Pi's own login is set aside."
+      return 'Using the vault for Antigravity accounts. Sign in again with /login google after leaving the vault.'
     case 'local':
       return status.hostSlot === 'login'
         ? "Using Pi's own login (the account you signed in with /login), not the vault."

@@ -1,6 +1,6 @@
 import { describe, expect, it, mock, spyOn } from 'bun:test'
 import { existsSync, readFileSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -605,8 +605,8 @@ type RecoveryFixture = Awaited<ReturnType<typeof recoveryFixture>>
 
 /**
  * States in which the startup slot synchronization refuses: authority or mode
- * cannot be read, custody is selected without an approved enrollment, or the
- * native google entry differs from the saved login. Before the recovery
+ * cannot be read, custody is selected without an approved enrollment, or a
+ * legacy credential path is unsafe. Before the recovery
  * provider existed, each one made the extension fail to load on every start.
  */
 const LOCKOUTS: Array<{
@@ -645,25 +645,12 @@ const LOCKOUTS: Array<{
     reason: 'must be approved',
   },
   {
-    name: 'a native Google login that conflicts with the saved one',
+    name: 'an unsafe legacy Google login path',
     prepare: async (fixture) => {
-      // The genuine slot helper saves the login and installs the placeholder;
-      // a later native /login then writes a different google entry.
-      await writeFile(
-        fixture.authPath,
-        JSON.stringify({ google: { type: 'oauth', access: 'saved' } }),
-        { mode: 0o600 },
-      )
-      const { openPiSlot } = await loadCommonAuthPiSlot()
-      await openPiSlot({
-        authPath: fixture.authPath,
-        stashPath: fixture.stashPath,
-        provider: 'google',
-        placeholderKey: CUSTODY_PROVIDER_KEY_MARKER,
-      }).enterVault()
       await writeFile(fixture.authPath, NATIVE_AUTH, { mode: 0o600 })
+      await mkdir(fixture.stashPath, { mode: 0o700 })
     },
-    reason: 'native Google login changed',
+    reason: 'unsafe-path',
     local: true,
   },
 ]
@@ -712,7 +699,7 @@ async function refusal(
 }
 
 describe('Pi startup when the credential slot cannot be synchronized', () => {
-  it('leaves vault mode with a missing stash, keeps the placeholder unchanged and asks for a Google login', async () => {
+  it('leaves vault mode by clearing the placeholder and legacy stash, then asks for a Google login', async () => {
     const fixture = await recoveryFixture()
     const handlers = new Map<
       string,
@@ -720,7 +707,7 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
     >()
     const network = spyOn(globalThis, 'fetch').mockImplementation(
       Object.assign(async () => {
-        throw new Error('The missing stash fixture refuses network fetches')
+        throw new Error('The cleared slot fixture refuses network fetches')
       }, globalThis.fetch),
     )
     try {
@@ -734,7 +721,7 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
         },
         connectEnrollment: async () => ({
           enrollPropose: async () => ({
-            requestId: 'missing-stash-enrollment',
+            requestId: 'clear-slot-enrollment',
           }),
           enrollPoll: async () => ({
             status: 'approved',
@@ -759,11 +746,12 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
         (registerProvider.mock.calls.at(-1) as [string, ProviderConfig])[1]
           .oauth,
       ).toBeUndefined()
-      await rm(fixture.stashPath)
-      const before = await readFile(fixture.authPath, 'utf8')
-      const beforeStat = await stat(fixture.authPath)
+      expect(existsSync(fixture.stashPath)).toBe(false)
+      await writeFile(fixture.stashPath, 'legacy credentials, not JSON', {
+        mode: 0o600,
+      })
       const content = await extension.vaultSection.build({
-        sessionId: 'missing-stash',
+        sessionId: 'clear-slot',
         notify: () => {},
       })
       const forget = content.actions?.find((entry) => entry.id === 'forget')
@@ -772,12 +760,12 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
       const warning = await forget
         .run({
           values: {},
-          invocation: { sessionId: 'missing-stash', notify: () => {} },
+          invocation: { sessionId: 'clear-slot', notify: () => {} },
         })
         .catch((error: unknown) => error)
       expect(warning).toBeInstanceOf(PiVaultSetupError)
       const message =
-        'Pi has no saved Google login to restore. Sign in again with /login google.'
+        'Pi is no longer using the vault. Sign in to Google again with /login google.'
       expect((warning as Error).message).toBe(message)
       expect((warning as Error).message).not.toMatch(
         /\d|rate limited|rate_limit|resource_exhausted|try again later|unavailable|exhausted|overloaded/i,
@@ -793,10 +781,10 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
         stopReason: 'error',
         errorMessage: message,
       })
-      expect(await readFile(fixture.authPath, 'utf8')).toBe(before)
-      const afterStat = await stat(fixture.authPath)
-      expect(afterStat.ino).toBe(beforeStat.ino)
-      expect(afterStat.mtimeMs).toBe(beforeStat.mtimeMs)
+      expect(JSON.parse(await readFile(fixture.authPath, 'utf8'))).toEqual({
+        anthropic: { type: 'api_key', key: 'synthetic-neighbour' },
+      })
+      expect(existsSync(fixture.stashPath)).toBe(false)
       expect(network).not.toHaveBeenCalled()
     } finally {
       network.mockRestore()
@@ -808,7 +796,7 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
   it('still refuses a different PiSlotError when leaving vault mode', async () => {
     const fixture = await recoveryFixture()
     const slotModule = await loadCommonAuthPiSlot()
-    const failure = new slotModule.PiSlotError('invalid-stash')
+    const failure = new slotModule.PiSlotError('unsafe-path')
     const handlers = new Map<
       string,
       (event: unknown, context: unknown) => Promise<void>
@@ -855,8 +843,8 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
     }
   })
 
-  for (const conflict of [false, true])
-    it(`[hosted] locks and stashes the native slot, refuses a missing bridge, then ${conflict ? 'preserves a changed slot' : 'restores the login'} on leaving host mode`, async () => {
+  for (const changedSlot of [false, true])
+    it(`[hosted] replaces the native slot without a stash, refuses a missing bridge, then ${changedSlot ? 'preserves a changed slot without a notice' : 'clears the marker and asks for login'} on leaving host mode`, async () => {
       await withVaultHost('thalamus', undefined, async () => {
         const fixture = await recoveryFixture()
         const fetchImpl = Object.assign(async () => {
@@ -870,6 +858,9 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
         const registerProvider = mock()
         try {
           await writeFile(fixture.authPath, NATIVE_AUTH, { mode: 0o600 })
+          await writeFile(fixture.stashPath, 'legacy credentials, not JSON', {
+            mode: 0o600,
+          })
           const extension = await registerCortexKitPiAntigravity(
             {
               registerProvider,
@@ -882,9 +873,7 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
           expect(
             JSON.parse(await readFile(fixture.authPath, 'utf8')).google,
           ).toEqual({ type: 'api_key', key: CUSTODY_PROVIDER_KEY_MARKER })
-          expect(await readFile(fixture.stashPath, 'utf8')).toContain(
-            'synthetic-native-refresh',
-          )
+          expect(existsSync(fixture.stashPath)).toBe(false)
           const [, config] = registerProvider.mock.calls.at(-1) as unknown as [
             string,
             ProviderConfig,
@@ -905,7 +894,7 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
           expect(content.actions ?? []).toEqual([])
           expect(network).not.toHaveBeenCalled()
           expect(existsSync(fixture.enrollment.tokenPath)).toBe(false)
-          if (conflict)
+          if (changedSlot)
             await writeFile(
               fixture.authPath,
               NATIVE_AUTH.replace(
@@ -920,19 +909,27 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
             {},
             { modelRegistry: { refresh: mock() } },
           )
-          if (conflict) {
+          if (!changedSlot) {
             await expect(changing).rejects.toThrow(
-              'native Google login changed',
+              'Pi is no longer using the vault. Sign in to Google again with /login google.',
             )
-            expect(
-              (
-                registerProvider.mock.calls.at(-1) as [string, ProviderConfig]
-              )[1].oauth,
-            ).toBeUndefined()
-          } else await changing
+          } else expect(await changing).toBeUndefined()
           expect(
-            JSON.parse(await readFile(fixture.authPath, 'utf8')).google.access,
-          ).toBe(conflict ? 'new-native-access' : 'synthetic-native-access')
+            (registerProvider.mock.calls.at(-1) as [string, ProviderConfig])[1]
+              .oauth,
+          ).toBeDefined()
+          expect(
+            JSON.parse(await readFile(fixture.authPath, 'utf8')).google,
+          ).toEqual(
+            changedSlot
+              ? JSON.parse(
+                  NATIVE_AUTH.replace(
+                    'synthetic-native-access',
+                    'new-native-access',
+                  ),
+                ).google
+              : undefined,
+          )
         } finally {
           network.mockRestore()
           await handlers.get('session_shutdown')?.({}, {})
@@ -1001,7 +998,7 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
         // The Vault section is reachable and offers, as the state allows,
         // requesting vault access again, serving from the local login, or
         // forgetting the enrollment.
-        // Restoring a conflicting native login stays with Pi's /login and /logout.
+        // Replacing a native login stays with Pi's /login and /logout.
         const content = await extension.vaultSection.build({
           sessionId: 'recovery',
           notify: () => {},
@@ -1148,7 +1145,7 @@ it('finishes an older slot synchronization before a mode change registers its pr
       },
     }
     const slotModule = await loadCommonAuthPiSlot()
-    let restored = false
+    let exited = false
     const loadPiSlot: typeof loadCommonAuthPiSlot = async () => ({
       ...slotModule,
       openPiSlot: (options) => {
@@ -1157,7 +1154,7 @@ it('finishes an older slot synchronization before a mode change registers its pr
           ...slot,
           exitVault: async () => {
             const result = await slot.exitVault()
-            restored = true
+            exited = true
             return result
           },
         }
@@ -1211,7 +1208,7 @@ it('finishes an older slot synchronization before a mode change registers its pr
       await admitted.promise
       await new Promise<void>((resolve) => setImmediate(resolve))
       expect(readEntries).toBe(readsBeforeRequest)
-      expect(restored).toBe(false)
+      expect(exited).toBe(false)
       expect(registerProvider.mock.calls).toHaveLength(
         registrationsBeforeRequest,
       )
@@ -1221,21 +1218,27 @@ it('finishes an older slot synchronization before a mode change registers its pr
       await finished
     }
     // The held run may fail closed once it re-reads authority (Pi reports a
-    // session_start failure without stopping); the Forget itself must succeed.
+    // session_start failure without stopping); Forget must finish with its login notice.
     const [, forgot] = await finished
-    expect(forgot.status).toBe('fulfilled')
+    expect(forgot.status).toBe('rejected')
+    if (forgot.status === 'rejected')
+      expect((forgot.reason as Error).message).toBe(
+        'Pi is no longer using the vault. Sign in to Google again with /login google.',
+      )
 
-    expect(restored).toBe(true)
+    expect(exited).toBe(true)
     const [, last] = registerProvider.mock.calls.at(-1) as [
       string,
       ProviderConfig,
     ]
-    // The mode file now says local and the native login is back: the last
+    // The mode file now says local and the vault marker is gone: the last
     // registration must be the local provider, not whatever the overtaken
     // session_start run registered (the vault provider when it trusted its
     // stale authority read, the refusing provider when it failed closed).
     expect(last.oauth).toBeDefined()
-    expect(await readFile(fixture.authPath, 'utf8')).toBe(NATIVE_AUTH)
+    expect(
+      JSON.parse(await readFile(fixture.authPath, 'utf8')).google,
+    ).toBeUndefined()
   } finally {
     runtimeSpy.mockRestore()
     await rm(fixture.directory, { recursive: true, force: true })

@@ -1223,8 +1223,9 @@ describe('setup plugin callbacks', () => {
       provider: 'google',
       placeholderKey: 'antigravity-vault-custody',
     }).enterVault()
-    const bytes = [local.authPath, local.accountFile, authPath, stashPath].map(
-      (path) => readFileSync(path),
+    expect(existsSync(stashPath)).toBe(false)
+    const bytes = [local.authPath, local.accountFile, authPath].map((path) =>
+      readFileSync(path),
     )
     const deps = createDefaultCliDependencies()
     deps.performLogin = mock(async () => {
@@ -1243,7 +1244,6 @@ describe('setup plugin callbacks', () => {
       local.authPath,
       local.accountFile,
       authPath,
-      stashPath,
     ].entries()) {
       const expected = bytes[index]
       if (!expected) throw new Error('Missing preflight byte snapshot')
@@ -1253,7 +1253,7 @@ describe('setup plugin callbacks', () => {
     expect(existsSync(join(p.config, 'opencode.jsonc'))).toBe(false)
   })
 
-  it('foreign Pi login conflicts refuse before any selected host enrollment ceremony, with unchanged auth and stash bytes', async () => {
+  it('invalid Pi auth refuses before any selected host enrollment ceremony, with unchanged auth and legacy stash bytes', async () => {
     const p = profile(process.platform === 'win32' ? tmpdir() : '/tmp')
     fakeHostCommands(p)
     Object.assign(process.env, p.env)
@@ -1282,17 +1282,8 @@ describe('setup plugin callbacks', () => {
       provider: 'google',
       placeholderKey: 'antigravity-vault-custody',
     }).enterVault()
-    writeFileSync(
-      authPath,
-      JSON.stringify({
-        google: {
-          type: 'oauth',
-          refresh: 'synthetic-foreign',
-          access: '',
-          expires: 1,
-        },
-      }),
-    )
+    writeFileSync(authPath, '{invalid auth')
+    writeFileSync(stashPath, 'legacy credentials, not JSON', { mode: 0o600 })
     const bytes = [local.authPath, local.accountFile, authPath, stashPath].map(
       (path) => readFileSync(path),
     )
@@ -1314,7 +1305,7 @@ describe('setup plugin callbacks', () => {
         env: p.env,
         connect,
       }),
-    ).rejects.toThrow('different login from its saved stash')
+    ).rejects.toThrow('invalid-auth')
     expect(enrollPropose).not.toHaveBeenCalled()
     for (const [index, path] of [
       local.authPath,

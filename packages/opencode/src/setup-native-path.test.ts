@@ -260,14 +260,13 @@ describe('Pi native path', () => {
     expect(readFileSync(p.decoyAuth)).toEqual(p.decoyBytes)
   })
 
-  it('vault activation moves only the detected native login into the unchanged extension stash location', async () => {
+  it('vault activation replaces only the detected native login and clears it on exit without a stash', async () => {
     const p = profile(false)
     const plugin = await createSetupPlugin(p.deps, async () => 0)
     const host = plugin.vault.hosts.pi
     expect(host.paths.stateDir).toBe(
       join(p.extension, 'antigravity-auth-vault'),
     )
-    const nativeBefore = JSON.parse(readFileSync(p.nativeAuth, 'utf8')).google
     const claustrum = await loadCommonAuthClaustrum()
     const manager = new claustrum.ClaustrumEnrollmentManager({
       paths: claustrum.hostEnrollmentPaths(host.paths),
@@ -302,13 +301,15 @@ describe('Pi native path', () => {
     })
     expect(await slot.inspect()).toEqual({
       slot: 'placeholder',
-      stash: 'valid',
     })
+    expect(
+      existsSync(join(host.paths.stateDir, 'google-login-stash.json')),
+    ).toBe(false)
     expect(readFileSync(p.decoyAuth)).toEqual(p.decoyBytes)
-    expect(await slot.exitVault()).toBe('restored')
-    expect(JSON.parse(readFileSync(p.nativeAuth, 'utf8')).google).toEqual(
-      nativeBefore,
-    )
+    expect(await slot.exitVault()).toBe('cleared')
+    expect(
+      JSON.parse(readFileSync(p.nativeAuth, 'utf8')).google,
+    ).toBeUndefined()
     expect(readFileSync(p.decoyAuth)).toEqual(p.decoyBytes)
   })
 })

@@ -570,7 +570,7 @@ const GRANT =
 const LOCAL =
   "Using Pi's own login, not the vault, but you are not signed in. Run /login to sign in."
 const CUSTODY =
-  "Using the vault for Antigravity accounts; Pi's own login is set aside."
+  'Using the vault for Antigravity accounts. Sign in again with /login google after leaving the vault.'
 const WAITING =
   'Vault access: waiting for the vault operator to approve this request.'
 const APPROVED = 'Vault access: approved by the vault operator.'

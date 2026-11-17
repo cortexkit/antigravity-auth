@@ -53,7 +53,7 @@ export const CUSTODY_PLACEHOLDER_REFRESH_PREFIX = 'claustrum-tombstone:v1:'
 export const CUSTODY_PROVIDER_KEY_MARKER = 'antigravity-vault-custody'
 
 const MISSING_GOOGLE_LOGIN_MESSAGE =
-  'Pi has no saved Google login to restore. Sign in again with /login google.'
+  'Pi is no longer using the vault. Sign in to Google again with /login google.'
 
 function textImageInput(): Array<'text' | 'image'> {
   return ['text', 'image']
@@ -325,7 +325,7 @@ export async function registerCortexKitPiAntigravity(
       )
       throw error
     }
-    // A missing saved login leaves local OAuth usable for /login google. Report
+    // Clearing the vault marker leaves local OAuth usable for /login google. Report
     // the remedy without replacing the successfully registered local provider.
     if (warning) throw warning
   }
@@ -340,9 +340,7 @@ export async function registerCortexKitPiAntigravity(
   }
   const swapSlotForMode = async () => {
     const mode = await currentMode()
-    const { openPiSlot, PiSlotError } = await (
-      seams.loadPiSlot ?? loadCommonAuthPiSlot
-    )()
+    const { openPiSlot } = await (seams.loadPiSlot ?? loadCommonAuthPiSlot)()
     const slot = openPiSlot({
       authPath: seams.nativeAuthPath ?? join(getAgentDir(), 'auth.json'),
       stashPath:
@@ -356,18 +354,8 @@ export async function registerCortexKitPiAntigravity(
     })
     let warning: PiVaultSetupError | undefined
     if (mode.mode === 'custody') await slot.enterVault()
-    else {
-      try {
-        if ((await slot.exitVault()) === 'conflict')
-          throw new PiVaultSetupError(
-            'The native Google login changed. It was not overwritten; restore the saved login after resolving the conflict.',
-          )
-      } catch (error) {
-        if (!(error instanceof PiSlotError) || error.code !== 'missing-stash')
-          throw error
-        warning = new PiVaultSetupError(MISSING_GOOGLE_LOGIN_MESSAGE)
-      }
-    }
+    else if ((await slot.exitVault()) === 'cleared')
+      warning = new PiVaultSetupError(MISSING_GOOGLE_LOGIN_MESSAGE)
     const after = await currentMode()
     if (after.mode !== mode.mode)
       throw new PiVaultSetupError(
