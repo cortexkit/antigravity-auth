@@ -1531,6 +1531,24 @@ describe('GA ownership harness preparation (source controls, not native proof)',
       inventory = [{ ...google, methods: [{ type: 'invented' }] }]
     if (fault === 'bad-connection')
       inventory = [{ ...google, connections: [{}] }]
+    if (fault.startsWith('captured-')) {
+      const captured: unknown[] = JSON.parse(
+        readFileSync(
+          join(
+            import.meta.dir,
+            'fixtures/opencode-ga-host/integration-inventory-230.json',
+          ),
+          'utf8',
+        ),
+      )
+      inventory = captured
+      if (fault === 'captured-malformed-google') delete record(captured[0]).name
+      if (fault === 'captured-missing-google') inventory = captured.slice(1)
+      if (fault === 'captured-duplicate-google') captured.push(captured[0])
+      if (fault === 'captured-null-entry') captured.push(null)
+      if (fault === 'captured-missing-id') delete record(captured[1]).id
+      if (fault === 'captured-nonstring-id') record(captured[1]).id = 7
+    }
     const server = Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
@@ -1612,6 +1630,47 @@ describe('GA ownership harness preparation (source controls, not native proof)',
       mock: { url: `http://127.0.0.1:${server.port}` },
     }
     return { paths, harness, barrier, firstRequest, calls, premature, server }
+  }
+
+  it('accepts Google from a captured 2.3 inventory with unrelated external auth methods', async () => {
+    const f = activationFixture('captured-230')
+    f.barrier.resolve()
+    try {
+      expect((await connectGaNativeKey(f.harness)).id).toBe('native-id')
+      expect(f.calls).toContain('POST /api/integration/google/connect/key')
+      expect(f.premature).toEqual([])
+    } finally {
+      await f.server.stop(true)
+    }
+  })
+
+  for (const fault of [
+    'captured-malformed-google',
+    'captured-missing-google',
+    'captured-duplicate-google',
+    'captured-null-entry',
+    'captured-missing-id',
+    'captured-nonstring-id',
+  ]) {
+    it(`refuses ${fault} without a key or OAuth action`, async () => {
+      const f = activationFixture(fault)
+      f.barrier.resolve()
+      try {
+        await expect(connectGaNativeKey(f.harness)).rejects.toThrow(
+          fault === 'captured-missing-google' ||
+            fault === 'captured-duplicate-google'
+            ? 'GA_GOOGLE_INTEGRATION_MISSING_AFTER_ACTIVATION'
+            : 'GA_INTEGRATION_INVENTORY_MALFORMED',
+        )
+        expect(f.calls).toEqual([
+          'GET /api/plugin',
+          'activation settled',
+          'GET /api/integration',
+        ])
+      } finally {
+        await f.server.stop(true)
+      }
+    })
   }
 
   it('awaits wrapper activation before native key creation', async () => {

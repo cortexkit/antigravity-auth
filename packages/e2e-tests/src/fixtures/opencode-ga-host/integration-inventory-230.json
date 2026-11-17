@@ -1,0 +1,66 @@
+[
+  {
+    "id": "google",
+    "name": "Google",
+    "methods": [
+      { "type": "key" },
+      {
+        "type": "env",
+        "names": [
+          "GOOGLE_API_KEY",
+          "GOOGLE_GENERATIVE_AI_API_KEY",
+          "GEMINI_API_KEY"
+        ]
+      },
+      {
+        "id": "antigravity-auth-pool-browser",
+        "type": "oauth",
+        "label": "Google (antigravity-auth pool, browser)"
+      },
+      {
+        "id": "antigravity-auth-pool-paste",
+        "type": "oauth",
+        "label": "Google (antigravity-auth pool, paste redirect URL)"
+      },
+      {
+        "id": "antigravity-vault",
+        "type": "oauth",
+        "label": "Use approved Antigravity vault"
+      },
+      {
+        "id": "antigravity-auth-pool-reconnect",
+        "type": "oauth",
+        "label": "Use existing local Antigravity pool"
+      }
+    ],
+    "connections": [{ "type": "env", "name": "GOOGLE_GENERATIVE_AI_API_KEY" }]
+  },
+  {
+    "id": "amazon-bedrock",
+    "name": "Amazon Bedrock",
+    "methods": [
+      { "type": "key", "label": "Bedrock API key" },
+      { "type": "env", "names": ["AWS_BEARER_TOKEN_BEDROCK"] },
+      {
+        "id": "aws-profile",
+        "type": "external",
+        "label": "AWS profile (SSO or named profile)",
+        "form": [
+          {
+            "key": "profile",
+            "title": "AWS profile",
+            "description": "No profiles found in your AWS configuration.",
+            "required": true,
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S",
+            "placeholder": "Profile name",
+            "options": [],
+            "custom": true
+          }
+        ]
+      }
+    ],
+    "connections": []
+  }
+]

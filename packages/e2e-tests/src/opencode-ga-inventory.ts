@@ -106,24 +106,37 @@ export async function awaitGaGoogleIntegration(
       record(envelope.location).directory === harness.paths.project,
       'Unexpected inventory location',
     )
-    const decoded: unknown = effect.Schema.decodeUnknownSync(
-      effect.Schema.Array(integration.Info),
-      { onExcessProperty: 'error' },
-    )(envelope.data)
     requireCondition(
-      Array.isArray(decoded),
+      Array.isArray(envelope.data),
       'Expected integration inventory array',
     )
-    inventory = decoded.map(record)
+    inventory = envelope.data.map((value) => {
+      const entry = record(value)
+      requireCondition(typeof entry.id === 'string', 'Expected integration ID')
+      return entry
+    })
   } catch {
     throw new Error('GA_INTEGRATION_INVENTORY_MALFORMED')
   }
   const google = inventory.filter((entry) => entry.id === 'google')
-  const entry = google[0]
+  const match = google[0]
   requireCondition(
-    google.length === 1 && entry,
+    google.length === 1 && match,
     'GA_GOOGLE_INTEGRATION_MISSING_AFTER_ACTIVATION',
   )
+  // OpenCode 2.3 added external auth methods to unrelated providers. The schema
+  // for the minimum supported version, 2.0.22, cannot decode them, so the smoke
+  // strictly decodes only the Google integration it exercises.
+  let entry: Record<string, unknown>
+  try {
+    entry = record(
+      effect.Schema.decodeUnknownSync(integration.Info, {
+        onExcessProperty: 'error',
+      })(match),
+    )
+  } catch {
+    throw new Error('GA_INTEGRATION_INVENTORY_MALFORMED')
+  }
   if (requireKeyMethod) {
     requireCondition(
       Array.isArray(entry.methods) &&
