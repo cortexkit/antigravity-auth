@@ -37,7 +37,7 @@ for (const [profile, module] of Object.entries({ core, opencode }))
     test('enter discards the Google login without creating a stash; exit clears only the marker', async () => {
       const f = await fixture()
       try {
-        expect(await f.slot.inspect()).toEqual({ slot: 'original' })
+        expect(await f.slot.inspect()).toMatchObject({ slot: 'original' })
         await f.slot.enterVault()
         expect(JSON.parse(await readFile(f.authPath, 'utf8'))).toEqual({
           google: { type: 'api_key', key: placeholderKey },

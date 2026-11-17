@@ -6,6 +6,7 @@ for (const [profile, module] of Object.entries({ core, opencode }))
   test(`${profile} addon-load refusal keeps its reason off the host-visible message`, () => {
     const cause = Object.assign(new Error('synthetic addon failure'), {
       code: 'ERR_PRIVATE_FILES_UNAVAILABLE',
+      reason: 'native-addon-unavailable',
     })
     const error = new module.PrivateFileError(
       'synthetic-owned-file',
