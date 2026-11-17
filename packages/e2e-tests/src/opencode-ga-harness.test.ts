@@ -1183,6 +1183,20 @@ it('admits Linux x64 artifact preparation without asserting runtime container me
 })
 
 describe('GA ownership harness preparation (source controls, not native proof)', () => {
+  function activeWrapper(directory: string) {
+    return {
+      location: { directory },
+      data: [
+        {
+          id: 'antigravity-e2e-wrapper',
+          source: { type: 'local', path: '/fixture/wrapper' },
+          features: { server: true },
+          state: { status: 'active' },
+        },
+      ],
+    }
+  }
+
   it('labels an inventory timeout and retains observations before failed smoke disposal', async () => {
     const out = root()
     const paths = prepareGaRoot(root())
@@ -1196,7 +1210,9 @@ describe('GA ownership harness preparation (source controls, not native proof)',
     const log = spyOn(console, 'error').mockImplementation((value) => {
       stderr.push(String(value))
     })
-    const fetchMock = spyOn(globalThis, 'fetch').mockRejectedValue(timeout)
+    const fetchMock = spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(Response.json(activeWrapper(paths.project)))
+      .mockRejectedValue(timeout)
     let disposed = 0
     let persistedBeforeDispose = false
     const harness = {
@@ -1225,10 +1241,10 @@ describe('GA ownership harness preparation (source controls, not native proof)',
       expect(diagnostics).toContain('case=ga-ownership-pool-login')
       expect(diagnostics).toContain('step=connect.integration-inventory')
       expect(diagnostics).toMatch(
-        /GET \/api\/integration deadlineMs=15000 elapsedMs=\d+ cause=TimeoutError/,
+        /GET \/api\/integration deadlineMs=\d+ elapsedMs=\d+ cause=TimeoutError/,
       )
       expect(diagnostics).not.toContain('step=connect.key-post')
-      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(fetchMock).toHaveBeenCalledTimes(2)
       expect(disposed).toBe(1)
       expect(persistedBeforeDispose).toBe(true)
       expect(
@@ -1256,16 +1272,28 @@ describe('GA ownership harness preparation (source controls, not native proof)',
     }
   })
 
-  it('uses the startup budget only for integration inventory and keeps the state RPC default', async () => {
+  it('shares the startup budget with plugin activation and keeps the state RPC default', async () => {
     const paths = prepareGaRoot(root())
+    let now = 0
+    const clock = spyOn(performance, 'now').mockImplementation(() => now)
     const deadlines: number[] = []
     const timeout = spyOn(AbortSignal, 'timeout').mockImplementation((ms) => {
       deadlines.push(ms)
       return new AbortController().signal
     })
-    const fetchMock = spyOn(globalThis, 'fetch').mockRejectedValue(
-      new DOMException('The operation timed out.', 'TimeoutError'),
-    )
+    const fetchMock = spyOn(globalThis, 'fetch')
+      .mockImplementationOnce(
+        Object.assign(
+          async () => {
+            now += 4000
+            return Response.json(activeWrapper(paths.project))
+          },
+          { preconnect() {} },
+        ),
+      )
+      .mockRejectedValue(
+        new DOMException('The operation timed out.', 'TimeoutError'),
+      )
     const log = spyOn(console, 'error').mockImplementation(() => {})
     try {
       await connectGaNativeKey({
@@ -1287,11 +1315,13 @@ describe('GA ownership harness preparation (source controls, not native proof)',
           ([url, init]) => `${init?.method} ${new URL(String(url)).pathname}`,
         ),
       ).toEqual([
+        'GET /api/plugin',
         'GET /api/integration',
         'POST /api/rpc/antigravity-auth/state',
       ])
-      expect(deadlines).toEqual([15000, 5000])
+      expect(deadlines).toEqual([5000, 11000, 5000])
     } finally {
+      clock.mockRestore()
       timeout.mockRestore()
       fetchMock.mockRestore()
       log.mockRestore()
@@ -1380,6 +1410,103 @@ describe('GA ownership harness preparation (source controls, not native proof)',
     })
   }
 
+  it('polls past active builtin plugins until the wrapper is active before reading integrations', async () => {
+    const paths = prepareGaRoot(root())
+    const builtin = activeWrapper(paths.project)
+    builtin.data[0]!.id = 'builtin-catalog'
+    const fetchMock = spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(Response.json(builtin))
+      .mockResolvedValueOnce(Response.json(activeWrapper(paths.project)))
+      .mockResolvedValueOnce(
+        Response.json({ location: { directory: paths.project }, data: [] }),
+      )
+    try {
+      await expect(
+        connectGaNativeKey({
+          paths,
+          host: { url: 'http://127.0.0.1:1234' },
+        }),
+      ).rejects.toThrow('GA_GOOGLE_INTEGRATION_MISSING_AFTER_ACTIVATION')
+      expect(
+        fetchMock.mock.calls.map(([url]) => new URL(String(url)).pathname),
+      ).toEqual(['/api/plugin', '/api/plugin', '/api/integration'])
+    } finally {
+      fetchMock.mockRestore()
+    }
+  })
+
+  it('bounds missing wrapper activation to five seconds without reading integrations', async () => {
+    const paths = prepareGaRoot(root())
+    let now = 0
+    const clock = spyOn(performance, 'now').mockImplementation(() => now)
+    const fetchMock = spyOn(globalThis, 'fetch').mockImplementation(
+      Object.assign(
+        async () => {
+          now += 5000
+          return Response.json({
+            location: { directory: paths.project },
+            data: [],
+          })
+        },
+        { preconnect() {} },
+      ),
+    )
+    try {
+      await expect(
+        connectGaNativeKey({
+          paths,
+          host: { url: 'http://127.0.0.1:1234' },
+        }),
+      ).rejects.toThrow(
+        'Missing actual scenario observation: antigravity-e2e-wrapper active',
+      )
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+      expect(new URL(String(fetchMock.mock.calls[0]![0])).pathname).toBe(
+        '/api/plugin',
+      )
+    } finally {
+      clock.mockRestore()
+      fetchMock.mockRestore()
+    }
+  })
+
+  for (const fault of [
+    'failed',
+    'wrong-location',
+    'bad-state',
+    'not-array',
+  ] as const) {
+    it(`refuses ${fault} plugin readiness before reading integrations`, async () => {
+      const paths = prepareGaRoot(root())
+      const inventory = activeWrapper(paths.project)
+      if (fault === 'wrong-location')
+        inventory.location.directory = '/other-project'
+      const data: unknown = fault === 'not-array' ? {} : inventory.data
+      if (fault === 'failed' || fault === 'bad-state')
+        Object.assign(inventory.data[0]!, {
+          state: { status: fault, error: 'fixture activation diagnostic' },
+        })
+      const fetchMock = spyOn(globalThis, 'fetch').mockResolvedValue(
+        Response.json({ ...inventory, data }),
+      )
+      try {
+        await expect(
+          connectGaNativeKey({ paths, host: { url: 'http://127.0.0.1:1234' } }),
+        ).rejects.toThrow(
+          fault === 'failed'
+            ? 'GA_WRAPPER_PLUGIN_FAILED: fixture activation diagnostic'
+            : 'GA_PLUGIN_INVENTORY_MALFORMED',
+        )
+        expect(fetchMock).toHaveBeenCalledTimes(1)
+        expect(new URL(String(fetchMock.mock.calls[0]![0])).pathname).toBe(
+          '/api/plugin',
+        )
+      } finally {
+        fetchMock.mockRestore()
+      }
+    })
+  }
+
   function activationFixture(fault = '') {
     const paths = prepareGaRoot(root())
     const barrier = Promise.withResolvers<void>()
@@ -1420,10 +1547,19 @@ describe('GA ownership harness preparation (source controls, not native proof)',
             `Basic ${Buffer.from('opencode:synthetic-ga-server-password').toString('base64')}`,
           )
         }
-        if (call === 'GET /api/integration') {
+        if (call === 'GET /api/plugin') {
+          expect(url.searchParams.get('location[directory]')).toBe(
+            paths.project,
+          )
+          expect(request.headers.get('authorization')).toBe(
+            `Basic ${Buffer.from('opencode:synthetic-ga-server-password').toString('base64')}`,
+          )
           await barrier.promise
           ready = true
           calls.push('activation settled')
+          return Response.json(activeWrapper(paths.project))
+        }
+        if (call === 'GET /api/integration') {
           return Response.json({
             location: {
               directory:
@@ -1431,7 +1567,7 @@ describe('GA ownership harness preparation (source controls, not native proof)',
                   ? '/different-project'
                   : paths.project,
             },
-            data: inventory,
+            data: ready ? inventory : [],
           })
         }
         if (!ready && url.pathname.startsWith('/api/integration')) {
@@ -1478,22 +1614,23 @@ describe('GA ownership harness preparation (source controls, not native proof)',
     return { paths, harness, barrier, firstRequest, calls, premature, server }
   }
 
-  it('awaits completed list activation before native key creation', async () => {
+  it('awaits wrapper activation before native key creation', async () => {
     const f = activationFixture()
     const pending = connectGaNativeKey(f.harness).then(
       (value) => ({ value }),
       (error: unknown) => ({ error }),
     )
     try {
-      expect(await f.firstRequest.promise).toBe('GET /api/integration')
-      expect(f.calls).toEqual(['GET /api/integration'])
+      expect(await f.firstRequest.promise).toBe('GET /api/plugin')
+      expect(f.calls).toEqual(['GET /api/plugin'])
       f.barrier.resolve()
       const result = await pending
       if ('error' in result) throw result.error
       expect(result.value.id).toBe('native-id')
-      expect(f.calls.slice(0, 3)).toEqual([
-        'GET /api/integration',
+      expect(f.calls.slice(0, 4)).toEqual([
+        'GET /api/plugin',
         'activation settled',
+        'GET /api/integration',
         'POST /api/integration/google/connect/key',
       ])
       expect(f.premature).toEqual([])
@@ -1504,15 +1641,15 @@ describe('GA ownership harness preparation (source controls, not native proof)',
     }
   })
 
-  it('awaits completed list activation before pool browser method lookup', async () => {
+  it('awaits wrapper activation before pool browser method lookup', async () => {
     const f = activationFixture()
     const pending = loginGaPool(f.harness).then(
       (value) => ({ value }),
       (error: unknown) => ({ error }),
     )
     try {
-      expect(await f.firstRequest.promise).toBe('GET /api/integration')
-      expect(f.calls).toEqual(['GET /api/integration'])
+      expect(await f.firstRequest.promise).toBe('GET /api/plugin')
+      expect(f.calls).toEqual(['GET /api/plugin'])
       f.barrier.resolve()
       const result = await pending
       // Stop at the missing browser method so this control measures lookup
@@ -1521,8 +1658,9 @@ describe('GA ownership harness preparation (source controls, not native proof)',
         'GA_POOL_BROWSER_METHOD_MISSING',
       )
       expect(f.calls).toEqual([
-        'GET /api/integration',
+        'GET /api/plugin',
         'activation settled',
+        'GET /api/integration',
         'GET /api/integration/google',
       ])
       expect(f.premature).toEqual([])
@@ -1591,8 +1729,9 @@ describe('GA ownership harness preparation (source controls, not native proof)',
               : 'GA_INTEGRATION_INVENTORY_MALFORMED',
           )
           expect(f.calls).toEqual([
-            'GET /api/integration',
+            'GET /api/plugin',
             'activation settled',
+            'GET /api/integration',
           ])
           expect(f.premature).toEqual([])
         } finally {
@@ -1609,7 +1748,11 @@ describe('GA ownership harness preparation (source controls, not native proof)',
       await expect(connectGaNativeKey(f.harness)).rejects.toThrow(
         'GA_NATIVE_KEY_METHOD_MISSING_AFTER_ACTIVATION',
       )
-      expect(f.calls).toEqual(['GET /api/integration', 'activation settled'])
+      expect(f.calls).toEqual([
+        'GET /api/plugin',
+        'activation settled',
+        'GET /api/integration',
+      ])
     } finally {
       await f.server.stop(true)
     }
@@ -1684,6 +1827,7 @@ describe('GA ownership harness preparation (source controls, not native proof)',
         const url = new URL(request.url)
         calls.push(`${request.method} ${url.pathname}`)
         if (
+          url.pathname === '/api/plugin' ||
           url.pathname === '/api/integration' ||
           url.pathname.startsWith('/api/integration/')
         )
@@ -1691,6 +1835,8 @@ describe('GA ownership harness preparation (source controls, not native proof)',
             paths.project,
           )
         else expect(url.search).toBe('')
+        if (url.pathname === '/api/plugin')
+          return Response.json(activeWrapper(paths.project))
         if (url.pathname === '/api/integration') {
           return Response.json({
             location: { directory: paths.project },
@@ -1807,6 +1953,7 @@ describe('GA ownership harness preparation (source controls, not native proof)',
         const url = new URL(request.url)
         calls.push(`${request.method} ${url.pathname}`)
         if (
+          url.pathname === '/api/plugin' ||
           url.pathname === '/api/integration' ||
           url.pathname.startsWith('/api/integration/')
         )
@@ -1814,6 +1961,8 @@ describe('GA ownership harness preparation (source controls, not native proof)',
             paths.project,
           )
         else expect(url.search).toBe('')
+        if (url.pathname === '/api/plugin')
+          return Response.json(activeWrapper(paths.project))
         if (url.pathname === '/api/integration') {
           return Response.json({
             location: { directory: paths.project },

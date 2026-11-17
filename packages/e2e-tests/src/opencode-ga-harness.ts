@@ -77,6 +77,7 @@ import {
   assertOwnedCommandSucceeded,
   startOwnedCommand,
 } from './fixtures/opencode-ga-host/owned-command.ts'
+import { awaitGaGoogleIntegration } from './opencode-ga-inventory.ts'
 
 /**
  * Run a setup command to completion; a nonzero exit throws with its stderr, as
@@ -4938,67 +4939,12 @@ function gaIntegrationPath(
   return `/api/integration/google${suffix}?${new URLSearchParams({ 'location[directory]': harness.paths.project })}`
 }
 
-async function awaitGaGoogleIntegration(
-  harness: {
-    paths: GaPaths
-    host: Pick<GaHostSession, 'url'>
-  },
-  requireKeyMethod = false,
-): Promise<void> {
-  // The pinned host's list handler awaits plugin activation; its single-get
-  // and connect handlers can read the initially empty registry before it settles.
-  // Activation is startup work, so it shares the host readiness budget.
-  const response = await gaNativeRequest(
-    harness.host.url,
-    'GET',
-    `/api/integration?${new URLSearchParams({ 'location[directory]': harness.paths.project })}`,
-    undefined,
-    200,
-    false,
-    GA_HOST_STARTUP_BUDGET_MS,
-  )
-  const plugin = realpathSync(
-    resolve('packages/opencode/node_modules/@opencode/plugin'),
-  )
-  const [integration, effect] = await Promise.all([
-    import(
-      pathToFileURL(Bun.resolveSync('@opencode/schema/integration', plugin))
-        .href
-    ),
-    import(pathToFileURL(Bun.resolveSync('effect', plugin)).href),
-  ])
-  let inventory: Record<string, unknown>[]
-  try {
-    const envelope = record(response)
-    requireCondition(
-      record(envelope.location).directory === harness.paths.project,
-      'Unexpected inventory location',
-    )
-    const decoded: unknown = effect.Schema.decodeUnknownSync(
-      effect.Schema.Array(integration.Info),
-      { onExcessProperty: 'error' },
-    )(envelope.data)
-    requireCondition(
-      Array.isArray(decoded),
-      'Expected integration inventory array',
-    )
-    inventory = decoded.map(record)
-  } catch {
-    throw new Error('GA_INTEGRATION_INVENTORY_MALFORMED')
-  }
-  const google = inventory.filter((entry) => entry.id === 'google')
-  const entry = google[0]
-  requireCondition(
-    google.length === 1 && entry,
-    'GA_GOOGLE_INTEGRATION_MISSING_AFTER_ACTIVATION',
-  )
-  if (requireKeyMethod) {
-    requireCondition(
-      Array.isArray(entry.methods) &&
-        entry.methods.some((method) => record(method).type === 'key'),
-      'GA_NATIVE_KEY_METHOD_MISSING_AFTER_ACTIVATION',
-    )
-  }
+const gaInventoryControls = {
+  gaNativeRequest,
+  waitForGaObservation,
+  record,
+  requireCondition,
+  startupBudgetMs: GA_HOST_STARTUP_BUDGET_MS,
 }
 
 export async function connectGaNativeKey(harness: {
@@ -5006,7 +4952,7 @@ export async function connectGaNativeKey(harness: {
   host: Pick<GaHostSession, 'url'>
 }): Promise<Record<string, unknown>> {
   console.error('step=connect.integration-inventory')
-  await awaitGaGoogleIntegration(harness, true)
+  await awaitGaGoogleIntegration(harness, true, gaInventoryControls)
   console.error('step=connect.key-post')
   await gaNativeRequest(
     harness.host.url,
@@ -5056,7 +5002,7 @@ export async function loginGaPool(harness: {
   host: Pick<GaHostSession, 'url'>
   mock: Pick<GaMock, 'url'>
 }): Promise<{ id: string; value: unknown }> {
-  await awaitGaGoogleIntegration(harness)
+  await awaitGaGoogleIntegration(harness, false, gaInventoryControls)
   const inventory = record(
     record(
       await gaNativeRequest(
@@ -5195,7 +5141,7 @@ export async function reconnectGaPool(harness: {
   paths: GaPaths
   host: Pick<GaHostSession, 'url'>
 }): Promise<{ id: string; value: unknown }> {
-  await awaitGaGoogleIntegration(harness)
+  await awaitGaGoogleIntegration(harness, false, gaInventoryControls)
   const inventory = record(
     record(
       await gaNativeRequest(
