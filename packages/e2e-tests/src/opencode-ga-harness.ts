@@ -105,7 +105,7 @@ export const GA_PIN_PATH = 'packages/e2e-tests/docker/ga-binary-pin.json'
 export const GA_CONTRACT_PATH =
   'packages/opencode/docs/opencode2-ga-2.0.22-contract.md'
 export const GA_PLATFORM = 'linux/amd64'
-export const GA_VERSION = '2.0.22'
+export const GA_VERSION = '2.3.0'
 export const GA_HOSTNAMES = [
   'daily-cloudcode-pa.googleapis.com',
   'cloudcode-pa.googleapis.com',
@@ -2344,7 +2344,7 @@ console.log(JSON.stringify({ user: getUserConfigPath(), project: getProjectConfi
 export interface GaBinaryPin {
   schema: 1
   package: '@opencode/cli-linux-x64'
-  version: '2.0.22'
+  version: '2.3.0'
   tarballURL: string
   sri: string
   binaryPath: 'package/bin/opencode'
@@ -2404,7 +2404,7 @@ export function parseGaPin(input: unknown): GaBinaryPin {
   )
   requireCondition(
     value.tarballURL ===
-      'https://registry.npmjs.org/@opencode/cli-linux-x64/-/cli-linux-x64-2.0.22.tgz',
+      'https://registry.npmjs.org/@opencode/cli-linux-x64/-/cli-linux-x64-2.3.0.tgz',
     'Wrong GA registry artifact URL',
   )
   requireCondition(
@@ -2415,11 +2415,11 @@ export function parseGaPin(input: unknown): GaBinaryPin {
   requireCondition(
     typeof value.binarySha256 === 'string' &&
       /^[a-f0-9]{64}$/.test(value.binarySha256) &&
-      value.binaryBytes === 204482016,
+      value.binaryBytes === 250685616,
     'Malformed GA pin executable digest or size',
   )
   requireCondition(
-    value.reportedVersion === 'opencode v2.0.22',
+    value.reportedVersion === 'opencode v2.3.0',
     'Wrong GA pin reported version',
   )
   const runtime = record(value.runtime)
@@ -2436,14 +2436,14 @@ export function parseGaPin(input: unknown): GaBinaryPin {
   ])
   requireCondition(
     runtime.name === 'Bun' &&
-      runtime.version === '1.4.2' &&
-      runtime.revision === '744846f844374847c902b5e7fd59b4342a51ef99',
+      runtime.version === '1.4.4' &&
+      runtime.revision === '38afee6c84fcf48c0edb2466aa4b27d287a59c30',
     'Wrong GA pin runtime identity',
   )
   requireCondition(
     source.repository === 'https://github.com/anomalyco/opencode' &&
-      source.tag === 'v2.0.22' &&
-      source.commit === '527f0b931d1f9b3ebd34e106c51b31ce5db5b075',
+      source.tag === 'v2.3.0' &&
+      source.commit === 'a6b15d33daf6ab7d35569f6d711fdb630b9f04e7',
     'Wrong GA pin source identity',
   )
   for (const key of ['artifact', 'runtime', 'limits'])
@@ -2460,12 +2460,12 @@ export function parseGaPin(input: unknown): GaBinaryPin {
   return {
     schema: 1,
     package: '@opencode/cli-linux-x64',
-    version: '2.0.22',
+    version: '2.3.0',
     tarballURL: String(value.tarballURL),
     sri: value.sri,
     binaryPath: 'package/bin/opencode',
     binarySha256: value.binarySha256,
-    binaryBytes: 204482016,
+    binaryBytes: 250685616,
     elfMachine: 62,
     platform: 'linux/amd64',
     reportedVersion: String(value.reportedVersion),
@@ -4303,7 +4303,7 @@ function publicGaModel(
 function gaPrimaryRequests(harness: GaHarness): GaRecordedRequest[] {
   return harness.mock.requests.filter((request) => request.kind === 'primary')
 }
-// The recorded OpenCode 2.0.22 text event identifies a session and message but
+// The recorded OpenCode 2.3.0 text event identifies a session and message but
 // is not a terminal receipt. After CLI exit and session.wait, SDK reads must
 // show that fresh assistant finished with stop and a subsequent idle succeeded.
 export function assertGaSuccess(result: GaRunResult, nonce: string): void {

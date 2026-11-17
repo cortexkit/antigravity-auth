@@ -111,9 +111,9 @@ function runtime(value: unknown) {
   const r = object(value, ['name', 'version', 'revision'])
   return {
     name: oneOf(r.name, ['Bun'] as const),
-    version: oneOf(r.version, ['1.4.2'] as const),
+    version: oneOf(r.version, ['1.4.4'] as const),
     revision: oneOf(r.revision, [
-      '744846f844374847c902b5e7fd59b4342a51ef99',
+      '38afee6c84fcf48c0edb2466aa4b27d287a59c30',
     ] as const),
   }
 }
@@ -145,23 +145,23 @@ function parsePin(value: unknown) {
   return {
     schema: oneOf(p.schema, [1] as const),
     package: oneOf(p.package, ['@opencode/cli-linux-x64'] as const),
-    version: oneOf(p.version, ['2.0.22'] as const),
+    version: oneOf(p.version, ['2.3.0'] as const),
     tarballURL: oneOf(p.tarballURL, [
-      'https://registry.npmjs.org/@opencode/cli-linux-x64/-/cli-linux-x64-2.0.22.tgz',
+      'https://registry.npmjs.org/@opencode/cli-linux-x64/-/cli-linux-x64-2.3.0.tgz',
     ] as const),
     sri: string(p.sri, /^sha512-[A-Za-z0-9+/]{86}==$/),
     binaryPath: oneOf(p.binaryPath, ['package/bin/opencode'] as const),
     binarySha256: digest(p.binarySha256),
-    binaryBytes: oneOf(p.binaryBytes, [204482016] as const),
+    binaryBytes: oneOf(p.binaryBytes, [250685616] as const),
     elfMachine: oneOf(p.elfMachine, [62] as const),
     platform: oneOf(p.platform, ['linux/amd64'] as const),
-    reportedVersion: oneOf(p.reportedVersion, ['opencode v2.0.22'] as const),
+    reportedVersion: oneOf(p.reportedVersion, ['opencode v2.3.0'] as const),
     runtime: runtime(p.runtime),
     source: {
       repository: string(s.repository),
-      tag: oneOf(s.tag, ['v2.0.22'] as const),
+      tag: oneOf(s.tag, ['v2.3.0'] as const),
       commit: oneOf(s.commit, [
-        '527f0b931d1f9b3ebd34e106c51b31ce5db5b075',
+        'a6b15d33daf6ab7d35569f6d711fdb630b9f04e7',
       ] as const),
     },
     provenance: {
@@ -986,7 +986,7 @@ function assertNativeJob(value: unknown) {
       sha256: digest(e.sha256),
       bytes: positiveInteger(e.bytes),
       elfMachine: oneOf(e.elfMachine, [62] as const),
-      reportedVersion: oneOf(e.reportedVersion, ['opencode v2.0.22'] as const),
+      reportedVersion: oneOf(e.reportedVersion, ['opencode v2.3.0'] as const),
     },
     runtime: runtime(n.runtime),
     runner: {
