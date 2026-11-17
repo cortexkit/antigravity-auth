@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Embed published common-auth 0.52.1, including safe vault-unreachable messages and stale RPC port cleanup at startup.
 - Keep diagnostic error codes out of runtime-layout refusal messages so OpenCode does not mistake them for retry hints; retain the codes in the plugin log.
 
 ## [3.1.7] - 2026-11-17

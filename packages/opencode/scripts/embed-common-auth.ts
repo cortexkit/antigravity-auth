@@ -12,14 +12,14 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.52.0.tgz'
-export const producerVersion = '0.52.0'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.52.1.tgz'
+export const producerVersion = '0.52.1'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  shasum: '17cee2f576a4bd9005f2732adb3b48659137c1c5',
-  sha256: 'c29dfd830c1515a2d2785d575726b20be4efdb77991c37eaf4de940ee0486df5',
-  sri: 'sha512-rl6Y0fr5ljXxukT/XcG0uh4qjt3+Xp6Cgt+BM8jRuIGxtf71sH5GSUcyyGk9Ptr7le27Z04f+RXjv5MhBtASfg==',
+  shasum: '1fb897d0c61aba544da941f38ca4d4e651525aac',
+  sha256: 'fc191fb1ab4786f9a320c7bd3797f7c9957291a76dbb1e03c2eed49470c9ecaf',
+  sri: 'sha512-9ji8cQwPEdEsJdcUVGkZYlDhk6Su4O6lZdY95aoUGKh2/f/y7dWqb6ZG1yEpXBxq5G9aFt9Xf0LS05tYzVukYg==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -217,8 +217,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/availability.js',
-    4615,
-    '11eaa35ab38ab433f249b4b11b9e284fac5ab7e785c965fe070aef8cde593089',
+    4613,
+    '848f2c5224a37b903b186cd5dd43710ad0d5cfe590600263b613b0ea22ff1585',
   ],
   [
     'claustrum/consumer.d.ts',
@@ -237,8 +237,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/custody.js',
-    43691,
-    '65a376031c602bc4592fa6402c3cb5a14219245c10c134aed7239fdf11f1e88c',
+    43686,
+    '174adfdaa909149453a34666fdf656aff90c7357e0000338c5a0a2a29d7c1e90',
   ],
   [
     'claustrum/enrollment.d.ts',
@@ -482,8 +482,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/private-files.js',
-    15098,
-    'd26406b3fd7c4452905c4afe2da1e24c8079a20b89a449d2af45e95c4b5cc189',
+    15116,
+    '0c9cbfc8c492d944002e91b50b1a51075fda1becb3935e8a253b94549a1adf58',
   ],
   [
     'fs/refresh-file-lock.d.ts',
@@ -822,13 +822,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'rpc/index.d.ts',
-    417,
-    '62bda8e27c98b193ba0aee81a9e405472688618952907d91c53b9635b1142eef',
+    603,
+    '30cd1c8dfe8f0fee79139e72c376a3e1da0d98284ce7549af5fc1e7a97b7f1df',
   ],
   [
     'rpc/index.js',
-    172,
-    '31aadda5190c9f8c5dd4b7c0f4bb11ce87fb79715ac4785163008fb5f0062998',
+    308,
+    '26d0da9478fb8e7f10939321515388cce283070ea9b1df3132c74350c7a2b435',
   ],
   [
     'rpc/notifications.d.ts',
@@ -842,13 +842,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'rpc/port-file.d.ts',
-    2015,
-    'ce68cc6b458df9296e4227aef1cddce4ca5912c629ef8fa3cc53c35b90362b75',
+    2293,
+    'e4b3574f71fa5a497b1d806913d19811e0baa0cc107165b4b99533453396484d',
   ],
   [
     'rpc/port-file.js',
-    10599,
-    'd8061667a56a35d331ce5698fd78685fee2833d985f46505d286648aef7251aa',
+    10758,
+    '2c497513d8a3f185f17e55633b50883f633421cbe12305e0c46f86b6b820d9f2',
   ],
   [
     'rpc/rpc-client.d.ts',
@@ -867,8 +867,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'rpc/rpc-server.js',
-    14231,
-    '62b92588917afeaa5ddb187c0e47fe5e318c313bc3e6065806052c3bef008f04',
+    14282,
+    '658fc7e48f327037bbb5e4e0b750417426865b06f08914cd2d775fe7f34bd8b7',
   ],
   [
     'rpc/server-registry.d.ts',
@@ -879,6 +879,11 @@ const canonical: readonly (readonly [string, number, string])[] = [
     'rpc/server-registry.js',
     1537,
     '7a7bb67f11f072e2fd655694445458295c5461579bc4e73b11559c9d18d3c93d',
+  ],
+  [
+    'rpc/startup-sweep.js',
+    1356,
+    '674fe3a16b48b3c184273d7bc55531b83e703b6aa32f2413aec98a50f0dd1e30',
   ],
   [
     'settings/define.d.ts',
@@ -1546,9 +1551,9 @@ export function validatePublication(
   )
     throw new Error('publication: license')
   if (
-    entries.size !== 369 ||
+    entries.size !== 371 ||
     sha256(`${[...entries.keys()].sort().join('\n')}\n`) !==
-      '8fad1c3a4636bda1c2a205d88b8011d0ddabf5d6a4e4edb8460c1d5a64bd6210'
+      '4c51b6fe88b8328d03d095e996ad2ae1c8283853fd7b1ea5f2012e3cd7606393'
   )
     throw new Error('publication: inventory')
   for (const { source, output, bytes, hash } of canonicalEntries('opencode')) {
@@ -1558,7 +1563,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '624215a892f0e960cb64f2bbdbbdc1c8151f606a13722d75d70137836b50d7d3'
+    '9dc96467b902990db0ae1bbcceb40b2e8be8afaf0f1822ce4641711f83c63ee4'
   )
     throw new Error('publication: manifest bytes')
 }

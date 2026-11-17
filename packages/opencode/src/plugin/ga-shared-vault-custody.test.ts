@@ -520,7 +520,7 @@ describe('stall watchdog on the shared vault source', () => {
     const started = Date.now()
     // The request now waits for the source's own outcome instead of a fixed 2 s cutoff (issue #61).
     expect(await request(location.serving)).toBe(
-      'Claustrum scoped operation unavailable',
+      'Claustrum vault could not be reached',
     )
     const elapsed = Date.now() - started
     expect(elapsed).toBeGreaterThanOrEqual(9_000)
