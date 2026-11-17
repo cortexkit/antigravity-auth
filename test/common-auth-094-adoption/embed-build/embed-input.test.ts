@@ -270,8 +270,8 @@ test('embed.attribution', async () => {
     './quota-sidebar': publication.sidebarRoot,
     './routing-accessor': publication.routingAccessorRoot,
   })
-  expect(manifest.canonicalFiles).toBe(256)
-  expect(manifest.canonicalBytes).toBe(1514810)
+  expect(manifest.canonicalFiles).toBe(258)
+  expect(manifest.canonicalBytes).toBe(1517338)
   expect(manifest.generator.version).toBe(4)
   expect(manifest.files).toEqual([
     ...publication.files.map(([path, bytes, digest]) => ({

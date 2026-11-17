@@ -9877,7 +9877,7 @@ describe('bounded vault receipt wait through the real engine', () => {
         f.clock.drive(f.executor.execute(NON_STREAM_URL, CHAT_INIT())),
       ).rejects.toMatchObject({
         kind: 'unavailable',
-        message: 'Claustrum scoped operation unavailable',
+        message: 'Claustrum vault could not be reached',
       })
       expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
       expect(f.clock.elapsed()).toBeLessThan(11_000)
@@ -9916,7 +9916,7 @@ describe('bounded vault receipt wait through the real engine', () => {
         error: {
           code: 502,
           status: 'UNAVAILABLE',
-          message: 'Claustrum scoped operation unavailable',
+          message: 'Claustrum vault could not be reached',
         },
       })
       expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
@@ -9953,7 +9953,7 @@ describe('bounded vault receipt wait through the real engine', () => {
         f.clock.drive(f.executor.execute(NON_STREAM_URL, CHAT_INIT())),
       ).rejects.toMatchObject({
         kind: 'unavailable',
-        message: 'Claustrum scoped operation unavailable',
+        message: 'Claustrum vault could not be reached',
       })
       expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
       expect(f.clock.elapsed()).toBeLessThan(15_000)

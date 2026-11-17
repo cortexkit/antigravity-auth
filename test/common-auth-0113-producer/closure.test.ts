@@ -267,6 +267,8 @@ test('producer.legacy_bytes_and_stop_order', async () => {
   expect(changed).toEqual([
     'logger/engine.d.ts',
     'logger/engine.js',
+    'rpc/index.d.ts',
+    'rpc/index.js',
     'rpc/port-file.d.ts',
     'rpc/port-file.js',
     'rpc/rpc-client.d.ts',
@@ -297,8 +299,8 @@ test('producer.verbatim_map', async () => {
     './quota-sidebar': publication.sidebarRoot,
     './routing-accessor': publication.routingAccessorRoot,
   })
-  expect(map.canonicalFiles).toBe(256)
-  expect(map.canonicalBytes).toBe(1514810)
+  expect(map.canonicalFiles).toBe(258)
+  expect(map.canonicalBytes).toBe(1517338)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
@@ -422,7 +424,7 @@ test('producer.shared_core_profile_exact_closure', async () => {
   )
   expect(required.length).toBe(186)
   expect(map.canonicalFiles).toBe(186)
-  expect(map.canonicalBytes).toBe(1170446)
+  expect(map.canonicalBytes).toBe(1170457)
   expect(map.publicRoots).toEqual(profile.publicRoots)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.files.map((file: { output: string }) => file.output)).toEqual(
