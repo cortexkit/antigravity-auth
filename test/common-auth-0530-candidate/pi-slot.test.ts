@@ -99,6 +99,7 @@ for (const [profile, module] of Object.entries({ core, opencode }))
         try {
           if (action === 'exitVault') await f.slot.enterVault()
           await writeFile(target, 'keep these bytes', { mode: 0o600 })
+          await rm(f.stashPath, { force: true })
           await symlink(target, f.stashPath)
           await expect(f.slot[action]()).rejects.toMatchObject({
             code: 'unsafe-path',
