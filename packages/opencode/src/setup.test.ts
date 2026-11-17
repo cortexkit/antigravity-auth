@@ -1283,6 +1283,7 @@ describe('setup plugin callbacks', () => {
       placeholderKey: 'antigravity-vault-custody',
     }).enterVault()
     writeFileSync(authPath, '{invalid auth')
+    mkdirSync(dirname(stashPath), { recursive: true, mode: 0o700 })
     writeFileSync(stashPath, 'legacy credentials, not JSON', { mode: 0o600 })
     const bytes = [local.authPath, local.accountFile, authPath, stashPath].map(
       (path) => readFileSync(path),

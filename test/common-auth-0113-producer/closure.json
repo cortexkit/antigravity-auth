@@ -400,7 +400,6 @@
       "../fs/atomic-write.js",
       "../fs/private-files.js",
       "./lock.js",
-      "node:crypto",
       "node:fs",
       "node:fs/promises",
       "node:path",
