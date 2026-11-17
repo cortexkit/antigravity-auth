@@ -52,6 +52,9 @@ export const CUSTODY_PLACEHOLDER_REFRESH_PREFIX = 'claustrum-tombstone:v1:'
 /** Non-secret key that lets Pi list custody models without a login; never sent. */
 export const CUSTODY_PROVIDER_KEY_MARKER = 'antigravity-vault-custody'
 
+const MISSING_GOOGLE_LOGIN_MESSAGE =
+  'Pi has no saved Google login to restore. Sign in again with /login google.'
+
 function textImageInput(): Array<'text' | 'image'> {
   return ['text', 'image']
 }
@@ -163,7 +166,13 @@ function localProviderConfig(
       },
     },
     streamSimple: (model, context, options) =>
-      streamCortexKitAntigravity(model, context, options, assertLocalAdmission),
+      streamCortexKitAntigravity(model, context, options, async () => {
+        await assertLocalAdmission()
+        // Pi resolves an api_key slot verbatim, even when it is our vault marker.
+        // Keep login available, but never send the marker as a Google bearer.
+        if (options?.apiKey === CUSTODY_PROVIDER_KEY_MARKER)
+          throw new PiVaultSetupError(MISSING_GOOGLE_LOGIN_MESSAGE)
+      }),
   }
 }
 
@@ -301,8 +310,9 @@ export async function registerCortexKitPiAntigravity(
       )
   }
   const synchronizeSlotOnce = async () => {
+    let warning: PiVaultSetupError | undefined
     try {
-      await swapSlotForMode()
+      warning = await swapSlotForMode()
     } catch (error) {
       // Leave the provider registered but refusing, so a failed swap neither
       // serves from the wrong credential nor unregisters the models.
@@ -315,6 +325,9 @@ export async function registerCortexKitPiAntigravity(
       )
       throw error
     }
+    // A missing saved login leaves local OAuth usable for /login google. Report
+    // the remedy without replacing the successfully registered local provider.
+    if (warning) throw warning
   }
   // Startup, session_start and every mode change synchronize the slot. Run them
   // one at a time: each reads the mode when it starts, so the run that
@@ -327,7 +340,9 @@ export async function registerCortexKitPiAntigravity(
   }
   const swapSlotForMode = async () => {
     const mode = await currentMode()
-    const { openPiSlot } = await (seams.loadPiSlot ?? loadCommonAuthPiSlot)()
+    const { openPiSlot, PiSlotError } = await (
+      seams.loadPiSlot ?? loadCommonAuthPiSlot
+    )()
     const slot = openPiSlot({
       authPath: seams.nativeAuthPath ?? join(getAgentDir(), 'auth.json'),
       stashPath:
@@ -339,17 +354,27 @@ export async function registerCortexKitPiAntigravity(
       provider: ANTIGRAVITY_PROVIDER_ID,
       placeholderKey: CUSTODY_PROVIDER_KEY_MARKER,
     })
+    let warning: PiVaultSetupError | undefined
     if (mode.mode === 'custody') await slot.enterVault()
-    else if ((await slot.exitVault()) === 'conflict')
-      throw new PiVaultSetupError(
-        'The native Google login changed. It was not overwritten; restore the saved login after resolving the conflict.',
-      )
+    else {
+      try {
+        if ((await slot.exitVault()) === 'conflict')
+          throw new PiVaultSetupError(
+            'The native Google login changed. It was not overwritten; restore the saved login after resolving the conflict.',
+          )
+      } catch (error) {
+        if (!(error instanceof PiSlotError) || error.code !== 'missing-stash')
+          throw error
+        warning = new PiVaultSetupError(MISSING_GOOGLE_LOGIN_MESSAGE)
+      }
+    }
     const after = await currentMode()
     if (after.mode !== mode.mode)
       throw new PiVaultSetupError(
         'Vault enrollment changed while the credential slot was being synchronized. The account source was not activated.',
       )
     register({ ok: true, record: after })
+    return warning
   }
   // Pi's first catalog refresh reads auth.json to decide which models are usable.
   // Install the vault marker before the factory returns so discovery and the

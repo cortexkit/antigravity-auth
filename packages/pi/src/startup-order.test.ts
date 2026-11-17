@@ -1,5 +1,5 @@
 import { expect, it, mock } from 'bun:test'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -76,7 +76,16 @@ const client: ClaustrumScopedClient = {
   close: () => {},
 }
 
-it('awaits the native slot swap before the real Pi loader resolves its first google model request', async () => {
+it.each([
+  {
+    name: 'awaits the native slot swap before the real Pi loader resolves its first google model request',
+    missingStash: false,
+  },
+  {
+    name: 'refuses the leftover vault placeholder locally with a sign-in message in the real Pi loader',
+    missingStash: true,
+  },
+])('$name', async ({ missingStash }) => {
   const directory = await mkdtemp(
     join(
       process.platform === 'win32' ? tmpdir() : '/tmp',
@@ -161,8 +170,22 @@ it('awaits the native slot swap before the real Pi loader resolves its first goo
         close: () => {},
       }),
     })
-    expect((await setup.connectStep()).state).toBe('approved')
+    if (!missingStash)
+      expect((await setup.connectStep()).state).toBe('approved')
     const slotModule = await actualCore.loadCommonAuthPiSlot()
+    if (missingStash) {
+      await slotModule
+        .openPiSlot({
+          authPath,
+          stashPath,
+          provider: 'google',
+          placeholderKey: 'antigravity-vault-custody',
+        })
+        .enterVault()
+      await rm(stashPath)
+    }
+    const authBefore = await readFile(authPath, 'utf8')
+    const statBefore = await stat(authPath)
     const loadPiSlot: typeof actualCore.loadCommonAuthPiSlot = async () => ({
       ...slotModule,
       openPiSlot: (options) => {
@@ -173,6 +196,14 @@ it('awaits the native slot swap before the real Pi loader resolves its first goo
             events.push('slot:start')
             await slot.enterVault()
             events.push('slot:end')
+          },
+          exitVault: async () => {
+            events.push('slot:start')
+            try {
+              return await slot.exitVault()
+            } finally {
+              events.push('slot:end')
+            }
           },
         }
       },
@@ -223,9 +254,10 @@ export default async function(pi) {
       type: 'api_key',
       key: 'antigravity-vault-custody',
     })
-    expect(await readFile(stashPath, 'utf8')).toContain(
-      'synthetic-local-refresh',
-    )
+    if (!missingStash)
+      expect(await readFile(stashPath, 'utf8')).toContain(
+        'synthetic-local-refresh',
+      )
     await session.bindExtensions({})
     const model = (await session.modelRuntime.getAvailable('google')).find(
       (model) => model.id === 'antigravity-gemini-3.8-flash',
@@ -242,19 +274,31 @@ export default async function(pi) {
         ],
       })
       .result()
-    expect(response.stopReason).toBe('stop')
-    expect(sent).toHaveLength(1)
-    expect(sent[0]?.authorization).toBe(`Bearer ${bearer}`)
-    expect(sent[0]?.body).toContain('startup-owned-nonce')
-    expect(sent[0]?.body).toContain('synthetic-vault-project')
-    expect(sent[0]?.body).not.toContain(original.access)
-    expect(sent[0]?.body).not.toContain(original.refresh)
+    if (missingStash) {
+      expect(response.stopReason).toBe('error')
+      expect(response.errorMessage).toBe(
+        'Pi has no saved Google login to restore. Sign in again with /login google.',
+      )
+      expect(sent).toHaveLength(0)
+      expect(await readFile(authPath, 'utf8')).toBe(authBefore)
+      const statAfter = await stat(authPath)
+      expect(statAfter.ino).toBe(statBefore.ino)
+      expect(statAfter.mtimeMs).toBe(statBefore.mtimeMs)
+    } else {
+      expect(response.stopReason).toBe('stop')
+      expect(sent).toHaveLength(1)
+      expect(sent[0]?.authorization).toBe(`Bearer ${bearer}`)
+      expect(sent[0]?.body).toContain('startup-owned-nonce')
+      expect(sent[0]?.body).toContain('synthetic-vault-project')
+      expect(sent[0]?.body).not.toContain(original.access)
+      expect(sent[0]?.body).not.toContain(original.refresh)
+      expect(events.indexOf('request:physical')).toBeGreaterThan(
+        events.indexOf('factory:end'),
+      )
+    }
     expect(localRefresh).not.toHaveBeenCalled()
     expect(nativeRefreshes).toBe(0)
     expect(localProject).not.toHaveBeenCalled()
-    expect(events.indexOf('request:physical')).toBeGreaterThan(
-      events.indexOf('factory:end'),
-    )
   } finally {
     try {
       await session?.dispose()
