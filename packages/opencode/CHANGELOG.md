@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Tell OpenCode 2 not to replay failed Antigravity bridge requests, including buffered generations that bypass the retry hook.
+
 ## [3.1.6] - 2026-11-17
 
 - Rewrite Pi and Pi-Bolt's stock system-prompt opener to the shorter coding-assistant identity accepted by Antigravity ([#76](https://github.com/cortexkit/antigravity-auth/issues/76)).

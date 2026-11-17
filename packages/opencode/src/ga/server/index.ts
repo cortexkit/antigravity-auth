@@ -373,7 +373,7 @@ export interface GaJobContext {
  * Runs one job: request transformation, account selection, retries and the
  * response adaptation to native Gemini SSE or JSON. The shared request
  * pipeline provides it. A thrown error before a Response exists becomes an
- * HTTP 502 answer; a Response is streamed back unchanged.
+ * HTTP 502 answer; a Response body is streamed back unchanged.
  */
 export type GaJobExecutor = (
   job: GaBridgeJob,
@@ -886,6 +886,9 @@ async function pipeResponse(
     return
   }
   const extraHeaders = collectForwardedHeaders(upstream.headers)
+  // Only owned requests become bridge jobs. The executor has already handled
+  // retries; OpenCode's session.generate retry loop skips the retry hook.
+  if (upstream.status >= 400) extraHeaders['x-should-retry'] = 'false'
   writeResponseHead(response, upstream.status, contentType, extraHeaders)
   response.flushHeaders()
   onHandoff()
@@ -923,6 +926,8 @@ async function pipeResponse(
     }
   } catch (caught) {
     const error = caught instanceof Error ? caught : new Error(String(caught))
+    // Headers are already sent, so a cut-off success cannot gain the failure-only
+    // x-should-retry header. OpenCode's session.generate may still retry that read.
     // The captured upstream body error is recorded before the loopback body
     // ends, so the job's `http.response` hook adapter (`adaptResponse`) finds
     // it when the host reads the end of the body and fails the read with it.
