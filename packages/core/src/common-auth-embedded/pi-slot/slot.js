@@ -1,10 +1,9 @@
-import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, unlink } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { writeJsonAtomic } from '../fs/atomic-write.js';
-import { ensurePrivateDirectory, PrivateFileError, readPrivateBuffer, windowsPrivateFiles, } from '../fs/private-files.js';
+import { ensurePrivateDirectory, PrivateFileError, readPrivateBuffer, verifySafeDirectory, windowsPrivateFiles, } from '../fs/private-files.js';
 import { acquirePiLock } from './lock.js';
 /** Errors deliberately contain neither paths nor credentials nor underlying error messages. */
 export class PiSlotError extends Error {
@@ -79,31 +78,17 @@ function rootSpans(text) {
 function object(value) {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-function canonical(value) {
-    if (Array.isArray(value))
-        return `[${value.map(canonical).join(',')}]`;
-    if (object(value)) {
-        return `{${Object.keys(value)
-            .sort()
-            .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
-            .join(',')}}`;
-    }
-    return JSON.stringify(value);
-}
-function digest(value) {
-    return createHash('sha256').update(canonical(value)).digest('hex');
-}
 function code(error) {
     return object(error) ? error.code : undefined;
 }
-async function safeRead(path, privateFile = false, afterReadCheck) {
+async function safeRead(path, afterReadCheck) {
     if (windowsPrivateFiles) {
         try {
             await afterReadCheck?.(path);
             const bytes = await readPrivateBuffer(path, true);
             const text = bytes.toString('utf8');
             if (!bytes.equals(Buffer.from(text)))
-                throw new PiSlotError(privateFile ? 'invalid-stash' : 'invalid-auth');
+                throw new PiSlotError('invalid-auth');
             return text;
         }
         catch (error) {
@@ -116,7 +101,7 @@ async function safeRead(path, privateFile = false, afterReadCheck) {
     try {
         file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
         const stat = await file.stat();
-        if (!stat.isFile() || (privateFile && (stat.mode & 0o777) !== 0o600)) {
+        if (!stat.isFile()) {
             throw new PiSlotError('unsafe-path');
         }
         await afterReadCheck?.(path);
@@ -130,7 +115,7 @@ async function safeRead(path, privateFile = false, afterReadCheck) {
         const bytes = await file.readFile();
         const text = bytes.toString('utf8');
         if (!bytes.equals(Buffer.from(text))) {
-            throw new PiSlotError(privateFile ? 'invalid-stash' : 'invalid-auth');
+            throw new PiSlotError('invalid-auth');
         }
         return text;
     }
@@ -169,12 +154,6 @@ function parseAuth(text, provider) {
         throw new PiSlotError('invalid-auth');
     }
 }
-function entryText(auth) {
-    const value = auth.property?.value;
-    return value
-        ? auth.text.slice(value.offset, value.offset + value.length)
-        : null;
-}
 function replaceEntry(auth, provider, next) {
     const { text, root, property } = auth;
     const properties = root.children ?? [];
@@ -199,7 +178,7 @@ function replaceEntry(auth, provider, next) {
     if (next === null)
         return text;
     const last = properties.at(-1);
-    // Insert next to the last value, not after its whitespace, so deletion reverses an empty-slot swap.
+    // Insert next to the last value so removal preserves the surrounding whitespace.
     const offset = last ? last.offset + last.length : root.offset + 1;
     return `${text.slice(0, offset)}${last ? ',' : ''}${JSON.stringify(provider)}:${next}${text.slice(offset)}`;
 }
@@ -257,34 +236,11 @@ export function createPiSlot(options, onStep, hooks) {
     if (authPath === stashPath || stashPath === `${authPath}.lock`) {
         throw new PiSlotError('invalid-options');
     }
-    const authIdentity = digest(authPath);
-    const placeholderIdentity = digest(placeholderKey);
     const placeholder = { type: 'api_key', key: placeholderKey };
-    const isPlaceholder = (entry) => digest(entry) === digest(placeholder);
-    async function loadStash() {
-        const text = await safeRead(stashPath, true, hooks?.afterReadCheck);
-        if (text === undefined)
-            return undefined;
-        try {
-            const stash = JSON.parse(text);
-            if (stash.version !== 1 ||
-                stash.provider !== provider ||
-                stash.authIdentity !== authIdentity ||
-                stash.placeholderIdentity !== placeholderIdentity ||
-                (stash.entry !== null && !object(stash.entry)) ||
-                stash.sha256 !== digest(stash.entry) ||
-                (stash.entry === null
-                    ? stash.entryJson !== null
-                    : typeof stash.entryJson !== 'string' ||
-                        digest(JSON.parse(stash.entryJson)) !== stash.sha256)) {
-                throw new Error();
-            }
-            return stash;
-        }
-        catch {
-            throw new PiSlotError('invalid-stash');
-        }
-    }
+    const isPlaceholder = (entry) => entry !== null &&
+        Object.keys(entry).length === 2 &&
+        entry.type === placeholder.type &&
+        entry.key === placeholder.key;
     async function locked(fn) {
         let release;
         let assertFresh;
@@ -334,11 +290,27 @@ export function createPiSlot(options, onStep, hooks) {
         }
     }
     async function load() {
-        const auth = parseAuth((await safeRead(authPath, false, hooks?.afterReadCheck)) ?? '{}', provider);
-        const stash = await loadStash();
-        return { auth, stash };
+        return parseAuth((await safeRead(authPath, hooks?.afterReadCheck)) ?? '{}', provider);
     }
     async function deleteStash(assertLock) {
+        // Legacy credentials are discarded without opening or parsing their contents.
+        try {
+            const file = await lstat(stashPath);
+            if (!file.isFile())
+                throw new PiSlotError('unsafe-path');
+        }
+        catch (error) {
+            if (code(error) === 'ENOENT')
+                return;
+            throw error;
+        }
+        if (windowsPrivateFiles)
+            await verifySafeDirectory(dirname(stashPath));
+        else {
+            const dir = await lstat(dirname(stashPath));
+            if (!dir.isDirectory() || (dir.mode & 0o777) !== 0o700)
+                throw new PiSlotError('unsafe-path');
+        }
         assertLock();
         await unlink(stashPath);
         await syncDir(dirname(stashPath));
@@ -346,66 +318,31 @@ export function createPiSlot(options, onStep, hooks) {
     }
     return {
         inspect: () => locked(async () => {
-            const { auth, stash } = await load();
+            const auth = await load();
             const slot = isPlaceholder(auth.entry)
                 ? 'placeholder'
                 : auth.entry === null
                     ? 'empty'
-                    : !stash || digest(auth.entry) === stash.sha256
-                        ? 'original'
-                        : 'foreign';
-            return { slot, stash: stash ? 'valid' : 'missing' };
+                    : 'original';
+            return { slot };
         }),
         enterVault: () => locked(async (assertLock) => {
-            const { auth, stash } = await load();
-            if (isPlaceholder(auth.entry)) {
-                if (!stash)
-                    throw new PiSlotError('missing-stash');
-                return;
-            }
-            if (stash && digest(auth.entry) !== stash.sha256)
-                throw new PiSlotError('conflict');
-            if (!stash) {
-                if (windowsPrivateFiles)
-                    await ensurePrivateDirectory(dirname(stashPath));
-                else {
-                    await mkdir(dirname(stashPath), { recursive: true, mode: 0o700 });
-                    const dir = await lstat(dirname(stashPath));
-                    if (!dir.isDirectory() || (dir.mode & 0o777) !== 0o700)
-                        throw new PiSlotError('unsafe-path');
-                }
-                const saved = {
-                    version: 1,
-                    provider,
-                    authIdentity,
-                    placeholderIdentity,
-                    entry: auth.entry,
-                    entryJson: entryText(auth),
-                    sha256: digest(auth.entry),
-                };
-                await atomicWrite(stashPath, JSON.stringify(saved), assertLock, hooks?.beforeRename);
-                onStep?.('stash-written');
-            }
-            await atomicWrite(authPath, replaceEntry(auth, provider, JSON.stringify(placeholder)), assertLock, hooks?.beforeRename);
-            onStep?.('auth-written');
-        }),
-        exitVault: () => locked(async (assertLock) => {
-            const { auth, stash } = await load();
-            if (!stash) {
-                if (isPlaceholder(auth.entry))
-                    throw new PiSlotError('missing-stash');
-                return 'nothing-to-do';
-            }
-            if (isPlaceholder(auth.entry)) {
-                await atomicWrite(authPath, replaceEntry(auth, provider, stash.entryJson), assertLock, hooks?.beforeRename);
+            const auth = await load();
+            if (!isPlaceholder(auth.entry)) {
+                await atomicWrite(authPath, replaceEntry(auth, provider, JSON.stringify(placeholder)), assertLock, hooks?.beforeRename);
                 onStep?.('auth-written');
             }
-            else if (digest(auth.entry) !== stash.sha256) {
-                return 'conflict';
-            }
-            // Also completes a restore interrupted between the auth rename and stash deletion.
             await deleteStash(assertLock);
-            return 'restored';
+        }),
+        exitVault: () => locked(async (assertLock) => {
+            const auth = await load();
+            const cleared = isPlaceholder(auth.entry);
+            if (cleared) {
+                await atomicWrite(authPath, replaceEntry(auth, provider, null), assertLock, hooks?.beforeRename);
+                onStep?.('auth-written');
+            }
+            await deleteStash(assertLock);
+            return cleared ? 'cleared' : 'nothing-to-do';
         }),
     };
 }
