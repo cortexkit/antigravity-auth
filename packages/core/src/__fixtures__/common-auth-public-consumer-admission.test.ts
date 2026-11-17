@@ -77,9 +77,9 @@ it('admits the complete published archive and records every member payload', asy
   const fixture = await provisionPublicConsumer()
   try {
     const admitted = await admitPublicConsumer(fixture.root)
-    expect(admitted.receipt.archive.bytes).toBe(500511)
+    expect(admitted.receipt.archive.bytes).toBe(500371)
     expect(admitted.receipt.archive.sha256).toBe(
-      '482b5a1e8c9898ac788940be3177869407b6276cf76fe1338e09f63bb952b833',
+      'f9ffedd0b1fdfbb689c6eb1cae27561228b6e80a52d26ec5e6fa4dd1fe47e7ab',
     )
     expect(admitted.entries).toEqual(await admittedPublicArchive())
     const pkg = JSON.parse(

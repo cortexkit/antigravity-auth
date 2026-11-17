@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Embed published common-auth 0.53.0: while Pi uses the vault, it no longer keeps a copy of its own Google login, and any old saved copy is deleted. Leaving vault mode removes the vault marker and asks you to sign in again with `/login google`.
 - Embed published common-auth 0.52.1, including safe vault-unreachable messages and stale RPC port cleanup at startup.
 - Keep diagnostic error codes out of runtime-layout refusal messages so OpenCode does not mistake them for retry hints; retain the codes in the plugin log.
 

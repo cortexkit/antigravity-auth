@@ -8,7 +8,7 @@
 
 ### Fixed
 
-- Leaving vault mode without a saved Google login now enables local sign-in and asks for `/login google`, without sending the leftover vault placeholder or changing Pi's auth file.
+- While Pi uses the vault, it no longer keeps a copy of its own Google login, and any old saved copy is deleted. Leaving vault mode removes the vault marker and asks you to sign in again with `/login google`.
 - Remove only the codemode clause from Pi's stock docs bullet in outgoing system prompts to avoid Antigravity's false quota refusal, preserving its other documentation pointers.
 - Rewrite Pi and Pi-Bolt's stock system-prompt opener to the shorter coding-assistant identity accepted by Antigravity ([#76](https://github.com/cortexkit/antigravity-auth/issues/76)).
 

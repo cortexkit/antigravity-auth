@@ -261,7 +261,8 @@ test('embed.attribution', async () => {
   )
   expect(manifest.package).toBe('@cortexkit/common-auth')
   expect(manifest.version).toBe('0.53.0')
-  expect(manifest.artifactStatus).toBe('candidate')
+  expect(manifest.artifactStatus).toBe('published')
+  expect(manifest.archiveBytes).toBe(publication.archiveBytes)
   expect(manifest.tarballSha256).toBe(publication.sha256)
   expect(manifest.shasum).toBe(publication.shasum)
   expect(manifest.sri).toBe(publication.sri)
@@ -297,6 +298,14 @@ test('embed.attribution', async () => {
     hash(await readFile(join(root, manifest.generator.path))),
   )
   expect(manifest.transforms).toEqual([])
+  const coreManifest = JSON.parse(
+    await readFile(join(root, coreOutputPath, 'source-output.json'), 'utf8'),
+  )
+  expect(coreManifest.artifactStatus).toBe('published')
+  expect(coreManifest.archiveBytes).toBe(publication.archiveBytes)
+  expect(coreManifest.tarballSha256).toBe(publication.sha256)
+  expect(coreManifest.shasum).toBe(publication.shasum)
+  expect(coreManifest.sri).toBe(publication.sri)
 })
 
 test('embed.archive_refusals', async () => {
