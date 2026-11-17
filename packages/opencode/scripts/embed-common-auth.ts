@@ -12,14 +12,14 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.52.1.tgz'
-export const producerVersion = '0.52.1'
-export const artifactStatus = 'published'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.53.0.tgz'
+export const producerVersion = '0.53.0'
+export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  shasum: '1fb897d0c61aba544da941f38ca4d4e651525aac',
-  sha256: 'fc191fb1ab4786f9a320c7bd3797f7c9957291a76dbb1e03c2eed49470c9ecaf',
-  sri: 'sha512-9ji8cQwPEdEsJdcUVGkZYlDhk6Su4O6lZdY95aoUGKh2/f/y7dWqb6ZG1yEpXBxq5G9aFt9Xf0LS05tYzVukYg==',
+  shasum: '709d5c225526c4b865cd9e55cb44ff6c966084c4',
+  sha256: '482b5a1e8c9898ac788940be3177869407b6276cf76fe1338e09f63bb952b833',
+  sri: 'sha512-FyKJcPK4+APDPOSrxXRi5FbgHhFpOlkNQEthr9Eb9UOEdyBuOQYiaIyJ/N6io0v5ehG38D3v/DHQogcEIJhiNQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -482,8 +482,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/private-files.js',
-    15116,
-    '0c9cbfc8c492d944002e91b50b1a51075fda1becb3935e8a253b94549a1adf58',
+    15235,
+    '4fd7ca5b40dbdcc27044be3d73eaf6910dd75572cf199aea049fd658bcadf64c',
   ],
   [
     'fs/refresh-file-lock.d.ts',
@@ -662,13 +662,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'pi-slot/index.d.ts',
-    230,
-    '8b2c9f002a5f8ee7f5e1da5ed2f1e13e0acfbeb0c8d9f0296d5215c3150e8798',
+    253,
+    'd095c841ccfdf0d40665409a03c459e1143ba39d7dd9f9ad4ed424592ced3e26',
   ],
   [
     'pi-slot/index.js',
-    138,
-    '4364d23400afcc9650b055673cccceacd2c1239bac4abe6cda34cf1e34a88472',
+    161,
+    'd12cf2c6d6ee31c089955de1ef7d6039afbe08e7792e1702fdf83cd10d8a084d',
   ],
   [
     'pi-slot/lock.js',
@@ -677,13 +677,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'pi-slot/slot.d.ts',
-    2394,
-    'b92f1590f1f0e4dbbc6331923b9d2cf95e3200936063d5ed192a186f3271eb17',
+    2135,
+    'bf45905365a9f9eb6be3e54e845420a3b22de479c51fe1c5c8d5009468a2f9b3',
   ],
   [
     'pi-slot/slot.js',
-    15120,
-    '13a7d5941b79c6d444cf9dc6f23263cf9237146c7dd5de7d162dbc21e015532c',
+    12323,
+    'f7bf6aada7b772b3e7214a7fbe3d3bb993307905041b31ad712e608e4c3f3636',
   ],
   [
     'quota/codec.d.ts',
@@ -1563,7 +1563,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '9dc96467b902990db0ae1bbcceb40b2e8be8afaf0f1822ce4641711f83c63ee4'
+    'aa163230a8a9c26fe1af7e72e1aeb45406e59befdc4009e7a8212eb4c5b50c53'
   )
     throw new Error('publication: manifest bytes')
 }

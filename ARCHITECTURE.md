@@ -87,7 +87,7 @@ Authority is read at the start of each unit of work, and again before a credenti
 **Host slots.**
 - **OpenCode 1** needs some saved `google` auth record before it loads the provider at all. In vault and host mode the plugin never reads or refreshes that record.
 - **OpenCode 2** owns a request only when its prepared `x-goog-api-key` equals common-auth's `placeholderSecret('google')`. The "Use approved Antigravity vault" login installs that placeholder.
-- **Pi** saves its native `google` login in a stash and installs the placeholder, holding Pi's `auth.json` lock (common-auth `pi-slot`). It restores the saved login on leaving vault or host mode, only if the slot still holds the placeholder. If startup can't reach a consistent state, Pi registers a refusing `google` provider and keeps `/antigravity` for recovery.
+- **Pi** replaces its native `google` login with the placeholder, holding Pi's `auth.json` lock (common-auth `pi-slot`), without saving the login. On leaving vault or host mode it removes the placeholder; local use requires `/login google` again. A changed entry is left alone, and legacy saved-login files are deleted without reading them. If startup can't reach a consistent state, Pi registers a refusing `google` provider and keeps `/antigravity` for recovery.
 
 ## Storage and files
 

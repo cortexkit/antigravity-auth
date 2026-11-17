@@ -147,7 +147,7 @@ async function custodyAccounts(
 function localLoginLine(status: PiVaultSetupStatus): string {
   switch (status.hostSlot) {
     case 'dormant':
-      return "Pi's own login is set aside while Pi uses the vault."
+      return 'Pi uses the vault instead of its own Google login. Leaving the vault requires /login google.'
     case 'login':
       return "Signed in with Pi's own login. Pi's /login replaces it and /logout removes it."
     case 'placeholder':

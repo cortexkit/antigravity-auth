@@ -3,6 +3,8 @@
 // even when a MOTOR job opts the other tests into its private /dev/shm mount.
 // Keep reasons here, and add new filesystem-sensitive suites conservatively.
 export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
+  'test/common-auth-0530-candidate/pi-slot.test.ts':
+    'Pi slot durable auth writes, legacy-file deletion ordering, permissions, and symlink refusals.',
   'packages/opencode/src/plugin/config/loader.test.ts':
     'Real file and directory symlink identities determine shared controller keys.',
   'packages/opencode/src/settings/location.test.ts':

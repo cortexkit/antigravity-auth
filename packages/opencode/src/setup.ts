@@ -331,23 +331,12 @@ export async function createSetupPlugin(
           })
         } else if (selected === 'pi') {
           const { openPiSlot } = await loadCommonAuthPiSlot()
-          const inspection = await openPiSlot({
+          await openPiSlot({
             authPath: nativeAuthPath('pi', context),
             stashPath: join(piDir, 'google-login-stash.json'),
             provider: ANTIGRAVITY_PROVIDER_ID,
             placeholderKey: PI_PLACEHOLDER_KEY,
           }).inspect()
-          if (inspection.slot === 'foreign')
-            throw new Error(
-              'Pi has a different login from its saved stash; resolve the conflict before vault setup.',
-            )
-          if (
-            inspection.slot === 'placeholder' &&
-            inspection.stash === 'missing'
-          )
-            throw new Error(
-              'Pi holds a vault marker without its saved login stash; resolve it before vault setup.',
-            )
         }
       }
       if (
@@ -480,7 +469,7 @@ export async function createSetupPlugin(
         )
         if (needsOpenCode2) nativeNextStep(OPENCODE2_VAULT_AUTH_LABEL)
       } else {
-        // Pi's existing slot editor moves the original login to its private stash.
+        // Replace Pi's Google login with the vault marker; no local login is saved.
         // Serving sees only the non-secret marker, never simultaneous local/vault credentials.
         const { openPiSlot } = await loadCommonAuthPiSlot()
         await assertSetupHostsStopped()

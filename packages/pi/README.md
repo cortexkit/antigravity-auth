@@ -37,26 +37,25 @@ to `google` automatically.
 
 Use `/antigravity` to request vault access and select a vault account. Local and
 vault modes use the same `google/antigravity-…` model IDs. After the operator
-approves access, the extension backs up Pi's native Google login and temporarily
-replaces its slot with a non-secret marker before the first model request.
+approves access, the extension replaces Pi's native Google login with a
+non-secret marker before the first model request. No local login is saved.
 Requests then use only vault credentials; an empty or unreachable vault does not
-fall back to the local login. Disconnecting vault enrollment attempts to restore
-the saved Google login only when the native slot still matches the non-secret
-marker installed for that enrollment.
-If another process changed the slot, the extension keeps the backup and refuses
-to overwrite that change; re-login may be needed. This is not a promise to restore
-every native auth record when changing plugin versions.
+fall back to a local login. Disconnecting vault enrollment removes that marker;
+sign in to Google again with `/login google` to use local mode. If another
+process has replaced the marker with a login, the extension leaves it unchanged.
+Legacy saved-login files from older builds are deleted without reading them when
+entering or leaving vault mode.
 
 ### Inside Thalamus
 
 Thalamus provides Pi's vault accounts. No `setup --claustrum` is needed; setup
 and Pi's vault connection action refuse because Thalamus owns the connection.
 The `/antigravity` Vault section shows **Served by Thalamus**, without Connect or
-Disconnect. Pi saves its native Google login and puts the non-secret vault
+Disconnect. Pi discards its native Google login and puts the non-secret vault
 marker in Pi's `google` slot in `auth.json`, while holding that file's lock.
-When Pi later runs outside Thalamus, it restores the saved login only if the
-`google` slot still holds that marker, the same rule as for disconnecting an
-enrolled vault. Otherwise nothing changes outside Thalamus.
+When Pi later runs outside Thalamus, it removes that marker, just as when
+disconnecting an enrolled vault. Sign in again with `/login google` for local
+mode. An entry that no longer matches the marker is left unchanged.
 
 ## Models
 
@@ -129,9 +128,9 @@ run `/login google`: credentials in the `google-antigravity` auth slot are not
 automatically moved or overwritten.
 
 Before changing builds while enrolled in a vault, disconnect via `/antigravity` →
-Vault in the currently installed extension, then re-login if safe native-slot
-restoration is not possible. An older build may expect a different provider slot;
-do not copy tokens between slots or assume disconnect restores all native records.
+Vault in the currently installed extension, then sign in again with `/login google`.
+An older build may expect a different provider slot; do not copy tokens between
+slots or expect a saved local login to survive vault use.
 If you also use an OpenCode legacy pool, follow its separate
 [offline migration/rollback guide](../../README.md#major-upgrades-migration-and-rollback).
 The provider and custody behavior is implemented in [`src/index.ts`](src/index.ts)

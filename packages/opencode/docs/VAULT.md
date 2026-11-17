@@ -20,7 +20,7 @@ Activation is host-specific:
 
 - **OpenCode 1:** a saved Google auth entry is the host's prerequisite for loading the provider. Once loaded, approved enrollment supplies vault credentials without reading, validating, or refreshing that dormant entry. Existing ordinary Google logins and placeholders from other enrollments remain unchanged. Explicit fresh activation refuses to overwrite an occupied Google slot or an unreadable native auth file.
 - **OpenCode 2:** after approval, run `opencode auth login` → Google → **Use approved Antigravity vault** (`antigravity-vault`), then select the saved **Antigravity** connection. This is a login method distinct from **Google (antigravity-auth pool, browser)**, which adds local pool accounts. Request ownership means which outgoing requests the adapter handles: it checks the host-prepared Google placeholder, not connection metadata or a marker unique to one enrollment. See the [marker-only request boundary](OPENCODE-2.md#request-ownership-marker-only-support-boundary).
-- **Pi:** custody saves the native Google login in a private backup and replaces the native Google slot with a non-secret marker for the enrollment. Pi requires that marker for vault streams. Startup or slot conflicts refuse rather than silently using ordinary local credentials.
+- **Pi:** custody replaces the native Google login with a non-secret marker without saving the login. Pi requires that marker for vault streams. Leaving vault mode removes the marker; sign in again with `/login google` for local use. A login written over the marker is left unchanged. Other startup or slot errors refuse rather than silently using local credentials.
 
 OpenCode 1 leaves an existing saved Google login unused while vault credentials serve. OpenCode 2 instead checks each outgoing request for the placeholder before handling it. Pi checks its native Google-slot custody marker. These are different contracts; do not transplant one host's rules into another.
 
@@ -34,9 +34,9 @@ Renderer snapshots and command responses must exclude refresh/access tokens, pro
 
 ## Preflight is not activation authority
 
-Real-run setup preflight runs **only after the stopped-host check**; all OpenCode and Pi processes must be stopped so credential inspection does not race a running host. Unchanged public readers may create missing owned auth/state parents, acquire/release Pi-specific native-slot or stash locks, and tighten Windows auth, saved-login-stash, and authority-file DACLs (access permissions) to owner-only. `PrivateFileMigration` warnings report repairs to existing Windows file permissions and remain visible.
+Real-run setup preflight runs **only after the stopped-host check**; all OpenCode and Pi processes must be stopped so credential inspection does not race a running host. Public readers may create missing owned auth/state parents, acquire/release Pi-specific native-slot locks, and tighten Windows auth and authority-file DACLs (access permissions) to owner-only. `PrivateFileMigration` warnings report repairs to existing Windows file permissions and remain visible. Pi's legacy saved-login file is not read; activation and exit delete regular legacy files and refuse symlinks.
 
-Those metadata effects never change file contents, ownership, permissions on existing ancestors, account authority, or configuration. `enterVault` and each operation's fresh authority/slot checks remain authoritative; preflight is advisory, not a reusable permission to mutate credentials. A changed native slot, revoked enrollment, or inconsistent saved backup must still refuse. **Dry-run invokes none of these readers, locks, or repairs and writes nothing.**
+Those metadata effects never change file contents, ownership, permissions on existing ancestors, account authority, or configuration. `enterVault` and each operation's fresh authority/slot checks remain authoritative; preflight is advisory, not a reusable permission to mutate credentials. Revoked enrollment and unsafe credential paths still refuse. **Dry-run invokes none of these readers, locks, or repairs and writes nothing.**
 
 Pi's native folder follows `PI_CODING_AGENT_DIR` (including `~` expansion), or `~/.pi/agent`. `PI_AGENT_DIR` and `PI_ANTIGRAVITY_AUTH_FILE` retain plugin account/vault-state roles and do not redirect the native login. See [setup](CONFIGURATION.md#guided-setup).
 
@@ -48,7 +48,7 @@ OpenCode's vault files (`antigravity-auth-vault/`: enrollment token and state, v
 
 ## Disconnect and change builds safely
 
-Disconnect through `/antigravity` → Vault in the currently installed plugin/extension before changing builds. Restoration is conditional: it must not overwrite a native login changed by another process, and conflicting saved custody state refuses. Re-login may be needed; no complete restoration of all native host records is promised.
+Disconnect through `/antigravity` → Vault in the currently installed plugin/extension before changing builds. Pi does not save its native Google login while using the vault: disconnect clears the marker and local use requires `/login google` again. It does not overwrite a different login written by another process.
 
 [Migration and rollback](MIGRATION.md) manage local OpenCode account storage; they do not migrate vault credentials, restore native Google records, or migrate Pi's native auth file. Do not delete enrollment/custody state or saved native-login backups as a generic reset.
 
