@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Troubleshooting explains that on OpenCode 2.3 a Google sign-in picked right after start can lack the plugin's methods, and how to get them back.
+- The OpenCode 2 end-to-end test waits for the plugin to load before reading OpenCode's sign-in list, as OpenCode 2.3's own CLI does.
 - Tell OpenCode 2 not to replay failed Antigravity bridge requests, including buffered generations that bypass the retry hook.
 
 ## [3.1.6] - 2026-11-17

@@ -43,6 +43,9 @@ In both cases OpenCode 2 sends Google requests itself instead of through the plu
 
 See [pool browser login](OPENCODE-2.md#pool-browser-login).
 
+### The Google sign-in list has no antigravity-auth methods
+From OpenCode 2.3, OpenCode lists Google before plugins finish loading. If you pick Google in the connect dialog in the first moment after OpenCode starts, that sign-in shows only Google's own API-key option. Go back and pick Google again, or reopen the dialog: the plugin's methods (pool browser login, paste redirect URL and the approved vault) are there once it has loaded. `opencode auth login` waits for plugins, so it always shows them.
+
 ### "This version of Antigravity is no longer supported"
 This almost always means an outdated Antigravity `User-Agent` is still being used.
 
