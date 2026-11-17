@@ -8,8 +8,8 @@
   "manifestSha256": "9dc96467b902990db0ae1bbcceb40b2e8be8afaf0f1822ce4641711f83c63ee4",
   "inventorySha256": "4c51b6fe88b8328d03d095e996ad2ae1c8283853fd7b1ea5f2012e3cd7606393",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
-  "canonicalFiles": 251,
-  "canonicalBytes": 1476212,
+  "canonicalFiles": 250,
+  "canonicalBytes": 1475861,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -896,11 +896,6 @@
       "rpc/server-registry.js",
       1537,
       "7a7bb67f11f072e2fd655694445458295c5461579bc4e73b11559c9d18d3c93d"
-    ],
-    [
-      "rpc/startup-sweep.d.ts",
-      351,
-      "f3c11ab50246a1c32ac92b88dadda85abefc8199a9ea013428ba6386503cc6ce"
     ],
     [
       "rpc/startup-sweep.js",

@@ -881,11 +881,6 @@ const canonical: readonly (readonly [string, number, string])[] = [
     '7a7bb67f11f072e2fd655694445458295c5461579bc4e73b11559c9d18d3c93d',
   ],
   [
-    'rpc/startup-sweep.d.ts',
-    351,
-    'f3c11ab50246a1c32ac92b88dadda85abefc8199a9ea013428ba6386503cc6ce',
-  ],
-  [
     'rpc/startup-sweep.js',
     1356,
     '674fe3a16b48b3c184273d7bc55531b83e703b6aa32f2413aec98a50f0dd1e30',

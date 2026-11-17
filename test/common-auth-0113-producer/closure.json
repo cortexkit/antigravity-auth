@@ -501,7 +501,6 @@
       "node:path"
     ],
     "rpc/server-registry.d.ts": ["./rpc-server.js"],
-    "rpc/startup-sweep.d.ts": ["./index.js"],
     "rpc/startup-sweep.js": ["./port-file.js", "node:fs/promises", "node:path"],
     "settings/define.d.ts": ["./descriptors.js"],
     "settings/define.js": ["./descriptors.js"],

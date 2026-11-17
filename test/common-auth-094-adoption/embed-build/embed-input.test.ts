@@ -184,7 +184,7 @@ test('embed.inventory', async () => {
     expect(hash(data)).toBe(String(digest))
     total += data.length
   }
-  expect(total).toBe(1476212)
+  expect(total).toBe(1475861)
   for (const [property, value, message] of [
     ['name', 'wrong', 'identity'],
     ['version', '0.9.4', 'version'],
@@ -270,8 +270,8 @@ test('embed.attribution', async () => {
     './quota-sidebar': publication.sidebarRoot,
     './routing-accessor': publication.routingAccessorRoot,
   })
-  expect(manifest.canonicalFiles).toBe(258)
-  expect(manifest.canonicalBytes).toBe(1517338)
+  expect(manifest.canonicalFiles).toBe(257)
+  expect(manifest.canonicalBytes).toBe(1516987)
   expect(manifest.generator.version).toBe(4)
   expect(manifest.files).toEqual([
     ...publication.files.map(([path, bytes, digest]) => ({
