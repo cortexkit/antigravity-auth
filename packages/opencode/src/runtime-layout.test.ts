@@ -27,6 +27,7 @@ import {
   vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 
+import { expectNoOpenCodeRetryHints } from './plugin/__fixtures__/opencode-retry-hints.test'
 import { RuntimeLayoutLockTrace } from './plugin/__fixtures__/runtime-layout-lock-trace.test'
 import { OPENCODE_VAULT_ENROLLMENT_NAME } from './plugin/vault-custody'
 import {
@@ -39,6 +40,7 @@ import {
   prepareRuntimeLayout,
   RUNTIME_LAYOUT_DEFERRED_MESSAGE,
   type RuntimeLayoutOptions,
+  RuntimeLayoutRefusal,
   removeMovedVaultStateLeftover,
   VAULT_FILE_NAMES,
 } from './runtime-layout'
@@ -53,6 +55,53 @@ const VERSION = '3.0.14'
 const ENV_NAMES = ['OPENCODE_CONFIG_DIR', 'XDG_STATE_HOME'] as const
 const POSIX = process.platform !== 'win32'
 const NAME = OPENCODE_VAULT_ENROLLMENT_NAME
+
+describe('RuntimeLayoutRefusal', () => {
+  const stateDir =
+    '/home/alice/.local/state/cortexkit/antigravity-auth/opencode'
+  const errorClasses = [
+    'ERR_PRIVATE_FILES_UNAVAILABLE',
+    'ETIMEDOUT',
+    'ECONNRESET',
+    'ERR_PRIVATE_FILES_SECURITY',
+    'lock-timeout',
+    'foreign-folder',
+  ]
+
+  it.each(errorClasses)('has no OpenCode retry hints for %s', (errorClass) => {
+    const refusal = new RuntimeLayoutRefusal(stateDir, errorClass)
+    expectNoOpenCodeRetryHints(refusal.message)
+    expect(refusal.message).not.toContain(errorClass)
+    expect(refusal.message).toContain(stateDir)
+    expect(refusal.message).toContain('Check the plugin log for details.')
+  })
+
+  it.each(
+    errorClasses,
+  )('keeps the original errorClass for diagnosis: %s', (errorClass) => {
+    const refusal = new RuntimeLayoutRefusal(stateDir, errorClass)
+    expect(refusal.errorClass).toBe(errorClass)
+  })
+
+  it('keeps the private-folder security remedy distinct from write failures', () => {
+    const refusal = new RuntimeLayoutRefusal(
+      stateDir,
+      'ERR_PRIVATE_FILES_SECURITY',
+    )
+    expect(refusal.message).toContain(
+      'is not a folder only your user can access, or it is a link',
+    )
+    expect(refusal.message).toContain(
+      'Replace it with a plain folder of your own, then restart OpenCode.',
+    )
+    expect(refusal.message).not.toContain('can be created and written')
+  })
+
+  it('keeps the exact repair path even when its name contains a retry hint', () => {
+    const path = '/home/alice/unavailable/antigravity-auth'
+    expect(new RuntimeLayoutRefusal(path, 'ETIMEDOUT').message).toContain(path)
+  })
+})
 
 let root: string
 let saved: Record<string, string | undefined>

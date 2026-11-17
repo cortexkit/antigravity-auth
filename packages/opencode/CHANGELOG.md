@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Keep diagnostic error codes out of runtime-layout refusal messages so OpenCode does not mistake them for retry hints; retain the codes in the plugin log.
+
 ## [3.1.7] - 2026-11-17
 
 - Troubleshooting explains that on OpenCode 2.3 a Google sign-in picked right after start can lack the plugin's methods, and how to get them back.

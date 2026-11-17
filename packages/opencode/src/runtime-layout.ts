@@ -283,11 +283,14 @@ export class RuntimeLayoutRefusal extends Error {
 }
 
 function refusalMessage(stateDir: string, errorClass: string): string {
+  // Error codes stay in errorClass and the plugin log: OpenCode can mistake
+  // them for retry hints. Keep the folder path even if its name has a retry
+  // hint, because the user needs the exact path to repair the layout.
   // The private-files check refused the folder itself: it is a link, or
   // others can reach it. Creating or writing it is not the problem.
   if (errorClass === 'ERR_PRIVATE_FILES_SECURITY')
-    return `antigravity-auth cannot start: ${stateDir} is not a folder only your user can access, or it is a link, so the plugin will not use it (${errorClass}). Replace it with a plain folder of your own, then restart OpenCode.`
-  return `antigravity-auth cannot start: it could not settle where its vault files live in ${stateDir} (${errorClass}). Check that this folder can be created and written by your user, then restart OpenCode.`
+    return `antigravity-auth cannot start: ${stateDir} is not a folder only your user can access, or it is a link, so the plugin will not use it. Replace it with a plain folder of your own, then restart OpenCode. Check the plugin log for details.`
+  return `antigravity-auth cannot start: it could not settle where its vault files live in ${stateDir}. Check that this folder can be created and written by your user, then restart OpenCode. Check the plugin log for details.`
 }
 
 function foreignFolder(stateDir: string, identity: string) {
