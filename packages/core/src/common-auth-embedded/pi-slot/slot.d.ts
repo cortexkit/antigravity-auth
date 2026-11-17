@@ -1,4 +1,4 @@
-export type PiSlotErrorCode = 'invalid-options' | 'invalid-auth' | 'invalid-stash' | 'unsafe-path' | 'missing-stash' | 'conflict' | 'lock-timeout' | 'lock-compromised' | 'io';
+export type PiSlotErrorCode = 'invalid-options' | 'invalid-auth' | 'unsafe-path' | 'lock-timeout' | 'lock-compromised' | 'io';
 /** Errors deliberately contain neither paths nor credentials nor underlying error messages. */
 export declare class PiSlotError extends Error {
     readonly code: PiSlotErrorCode;
@@ -10,10 +10,8 @@ export interface PiSlotOptions {
     authPath: string;
     provider: string;
     /**
-     * Where the provider's original Pi login is kept while the vault serves.
-     * Put it in a private directory, and give each provider its own file: one
-     * stash holds one provider's original login, and a second provider writing
-     * to it would overwrite the first one's backup.
+     * Where older versions kept the original Pi login; deleted when found.
+     * Keep the same path across upgrades so legacy credentials can be removed.
      */
     stashPath: string;
     /**
@@ -26,13 +24,12 @@ export interface PiSlotOptions {
     lockTimeoutMs?: number;
 }
 export interface PiSlotInspection {
-    slot: 'original' | 'placeholder' | 'foreign' | 'empty';
-    stash: 'valid' | 'missing';
+    slot: 'original' | 'placeholder' | 'empty';
 }
 export interface PiSlot {
     inspect(): Promise<PiSlotInspection>;
     enterVault(): Promise<void>;
-    exitVault(): Promise<'restored' | 'conflict' | 'nothing-to-do'>;
+    exitVault(): Promise<'cleared' | 'nothing-to-do'>;
 }
 /**
  * Production entry point. Pi caches which models are usable; after a
@@ -44,7 +41,7 @@ export declare function openPiSlot(options: PiSlotOptions): PiSlot;
  * Internal test entry point: pause reads, renewals, or renames to simulate races,
  * and observe durable writes/deletion to simulate crashes. Not a public export.
  */
-export declare function createPiSlot(options: PiSlotOptions, onStep?: (step: 'stash-written' | 'auth-written' | 'stash-deleted') => void, hooks?: {
+export declare function createPiSlot(options: PiSlotOptions, onStep?: (step: 'auth-written' | 'stash-deleted') => void, hooks?: {
     afterReadCheck?: (path: string) => Promise<void>;
     onRenew?: (renew: () => Promise<void>) => void;
     beforeRename?: (path: string) => Promise<void>;
