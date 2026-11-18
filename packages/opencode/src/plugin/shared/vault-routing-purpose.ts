@@ -1,7 +1,11 @@
 export const VAULT_ROUTING_PURPOSE_HEADER =
   'x-antigravity-internal-request-purpose'
 
-/** The legacy host passes the title agent's name through its chat.headers hook. */
+/**
+ * OpenCode 1 sends no request kind, so its chat.headers hook marks the
+ * purpose from the agent name: the host's `title` agent, the `build` and
+ * `plan` turns, and everything else as auxiliary.
+ */
 export function createVaultRoutingHeaders(providerId: string) {
   return async (
     input: { agent: string; model: { providerID: string } },
