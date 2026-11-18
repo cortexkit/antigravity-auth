@@ -1533,6 +1533,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     let routingPlacementConsidered = false
     let routedCandidate: RoutingCandidate | undefined
     let continueRouting: AskRoutingInput['exhausted']
+    let continueOnlyLogin = false
     const refusedRoutes = new Map<
       string,
       NonNullable<AskRoutingInput['exhausted']>
@@ -1625,10 +1626,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       const choice = routedCandidate
       routedCandidate = undefined
       const exhausted = continueRouting
+      const onlyLoginContinuation = continueOnlyLogin
       continueRouting = undefined
+      continueOnlyLogin = false
       if (exhausted) refusedRoutes.set(routingIdentityKey(exhausted), exhausted)
       const accountCount = accountManager.getAccountCount()
-      if (accountCount === 0) {
+      if (accountCount === 0 && !onlyLoginContinuation) {
         if (choice) return failedRoutedPick()
         // Mirror the no-account short-circuit inside the retry loop so callers
         // that race with account removal still get a proper 401 instead of a
@@ -1965,6 +1968,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           checkAborted()
           if (answer && 'refused' in answer)
             return routingRefusalResponse(answer.refused)
+          if (!answer && onlyLoginContinuation && candidates.length === 0)
+            return failedRoutedPick()
           if (exhausted && answer?.hold) {
             if (
               !canHold ||
@@ -3431,6 +3436,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 continue
               }
 
+              if (routed429 && exhaustion) {
+                const { accountId, credentialId } = routed429
+                continueRouting = { accountId, credentialId, ...exhaustion }
+              }
               const switchAccountDelayMs = config.switch_account_delay_ms ?? 500
 
               if (accountCount > 1) {
@@ -3442,7 +3451,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   'warning',
                 )
                 await sleep(switchAccountDelayMs, abortSignal)
-              } else {
+              } else if (!continueRouting || isHardEligible(account)) {
                 const expBackoffMs = Math.min(
                   FIRST_RETRY_DELAY_MS * 2 ** (backoff.attempt - 1),
                   60000,
@@ -3463,10 +3472,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               }
 
               retainHttpFailure(response)
-              if (routed429 && exhaustion) {
-                const { accountId, credentialId } = routed429
-                continueRouting = { accountId, credentialId, ...exhaustion }
-              }
               shouldSwitchAccount = true
               break
             }
@@ -4001,6 +4006,17 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       if (shouldSwitchAccount) {
         // Unconfirmed refusals have their own request-wide retry budget.
         if (switchedForUnconfirmed) continue
+        if (
+          accountCount === 1 &&
+          continueRouting &&
+          (continueRouting.limitWindow === 'signed_out' ||
+            !isHardEligible(account))
+        ) {
+          // Tell routing the last login signed out or exhausted its quota even
+          // when the pool counts no usable logins. The ask itself sends nothing.
+          continueOnlyLogin = true
+          continue
+        }
         accountSwitchCount++
 
         if (accountSwitchCount > maxAccountSwitches) {
