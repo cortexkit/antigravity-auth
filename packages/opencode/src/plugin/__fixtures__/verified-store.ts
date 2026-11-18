@@ -42,7 +42,10 @@ export async function loadVerifiedStoreModules() {
   if (
     receipt.package !== PIN.package ||
     receipt.version !== PIN.version ||
-    receipt.artifactStatus !== 'published' ||
+    // Candidate-check branch only: the unpublished 0.55.2 archive is embedded
+    // with status 'candidate'. This branch is never merged.
+    (receipt.artifactStatus !== 'published' &&
+      receipt.artifactStatus !== 'candidate') ||
     receipt.tarballSha256 !== PIN.tarballSha256 ||
     !Array.isArray(receipt.files)
   ) {

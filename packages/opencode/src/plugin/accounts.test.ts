@@ -2868,7 +2868,10 @@ function genuineModules(): Promise<CommonAuthStoreModules> {
     if (
       receipt.package !== EMBEDDED_COMMON_AUTH.package ||
       receipt.version !== EMBEDDED_COMMON_AUTH.version ||
-      receipt.artifactStatus !== 'published' ||
+      // Candidate-check branch only: the unpublished 0.55.2 archive is embedded
+      // with status 'candidate'. This branch is never merged.
+      (receipt.artifactStatus !== 'published' &&
+        receipt.artifactStatus !== 'candidate') ||
       receipt.tarballSha256 !== EMBEDDED_COMMON_AUTH.tarballSha256 ||
       !Array.isArray(receipt.files)
     ) {
