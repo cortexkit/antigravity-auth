@@ -37,7 +37,12 @@ export type AskRoutingInput<Candidate extends RoutingCandidate = RoutingCandidat
     sessionId: string;
     provider: string;
     modelId: string;
-    /** Only routes eligible under the vault and the user's configured rules. */
+    /**
+     * The routable set: routes the vault allows, minus any the user's own rules
+     * exclude. It is not the account the plugin's local selection would choose,
+     * so it can include routes that selection would skip for model or quota
+     * reasons; routing picks among them.
+     */
     candidates: readonly Candidate[];
     /** Defaults to 1500 ms, above routing's normal tail; clamped to 1–2000 ms. */
     deadlineMs?: number;

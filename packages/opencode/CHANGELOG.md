@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Embed published common-auth 0.55.1: the Windows setup process check retries once after a PowerShell crash, and vault logins whose sign-in kind doesn't match their type are refused.
+
 ## [3.1.9] - 2026-11-18
 
 - Ask vault routing on the first model request in each session and model family, including generate and compaction requests. Titles don't set or move the session's account, routing's choice survives roster reordering, and proactive account switching stays off while routing is available.

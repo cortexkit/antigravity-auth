@@ -145,22 +145,38 @@ function credentialTypeOf(row, family) {
         }
         return { kind: 'refused', code: 'unclassified' };
     }
-    if (row.credentialType !== 'oauth' && row.credentialType !== 'api_key')
+    const type = row.credentialType;
+    if (type === 'oauth') {
+        if (row.refreshAdapter !== family.refreshAdapter)
+            return notMine;
+    }
+    else if (type === 'api_key') {
+        if (!family.apiKeys || row.refreshAdapter !== undefined)
+            return notMine;
+    }
+    else {
         return notMine;
-    if (row.credentialType === 'oauth')
-        return row.refreshAdapter === family.refreshAdapter
-            ? { kind: 'mine', type: 'oauth' }
-            : notMine;
-    if (row.credentialType === 'api_key' && family.apiKeys)
-        return row.refreshAdapter === undefined
-            ? { kind: 'mine', type: 'api_key' }
-            : notMine;
-    return notMine;
+    }
+    const { authMethod } = rowFactsOf(row, { includeProviderIds: false });
+    // Older vaults omit the method. If present, it must match the serving type.
+    if (authMethod !== undefined) {
+        const matchesType = type === 'oauth'
+            ? authMethod === 'chatgpt' ||
+                authMethod === 'antigravity' ||
+                authMethod === 'oauth'
+            : authMethod === 'apikey';
+        if (!matchesType)
+            return { kind: 'refused', code: 'unknown-auth-method' };
+    }
+    return { kind: 'mine', type };
 }
 /** Structural access keeps the public facts independent of client declarations. */
-function rowFactsOf(row) {
+function rowFactsOf(row, { includeProviderIds = true } = {}) {
     const metadata = row;
-    return { providerIds: metadata.providerIds, authMethod: metadata.authMethod };
+    return {
+        providerIds: includeProviderIds ? metadata.providerIds : undefined,
+        authMethod: metadata.authMethod,
+    };
 }
 /**
  * The grants named in the vault's list reply, or undefined when it names none.
@@ -513,14 +529,15 @@ export class ClaustrumScopedCustody {
         for (const record of skipped)
             this.#logger.warn('skipped malformed vault record', record);
         const grantReach = grantReachOf(inventory);
+        const classifying = 'classify' in this.#family;
         return {
             view: inventory.view,
             credentials: Object.freeze(credentials),
             skipped: Object.freeze(skipped),
-            ...('classify' in this.#family && {
+            ...((classifying || refused.length > 0) && {
                 refused: Object.freeze(refused),
-                notMine,
             }),
+            ...(classifying && { notMine }),
             ...(grantReach && { grantReach }),
         };
     }

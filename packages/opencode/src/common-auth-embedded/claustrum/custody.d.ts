@@ -1,13 +1,20 @@
-import { type ClaustrumClient, type ClaustrumReporterSource, type EnrollmentTokenFile } from '@cortexkit/claustrum-client';
+import { type ClaustrumClient, type ClaustrumReporterSource, type EnrollmentTokenFile, type ScopedInventoryRow } from '@cortexkit/claustrum-client';
 import { type ClaustrumLogger } from './errors.js';
 import type { InsulaUsageTransport } from './insula.js';
 import { type ClaustrumUsageReading, type ClaustrumUsageReportState, type ScopedUsageSource } from './usage.js';
 import { type ScopedWatchSource, type WatchMode } from './watch.js';
+type ScopedRow = Omit<ScopedInventoryRow, 'authMethod'> & {
+    readonly authMethod?: string;
+};
+type ScopedInventory = Omit<Awaited<ReturnType<ClaustrumClient['listScoped']>>, 'rows'> & {
+    readonly rows: readonly ScopedRow[];
+};
 /**
  * claustrum-client adds watchScoped in 0.12.0 and reportUsageScoped in 0.14.0.
  * Older clients keep polling and simply do not send reply quota readings.
  */
-export type ClaustrumScopedClient = Pick<ClaustrumClient, 'listScoped' | 'getScoped' | 'reportAuthFailureScoped' | 'close'> & {
+export type ClaustrumScopedClient = Pick<ClaustrumClient, 'getScoped' | 'reportAuthFailureScoped' | 'close'> & {
+    listScoped(enrollmentToken?: string): Promise<ScopedInventory>;
     insula?: InsulaUsageTransport;
 } & ScopedWatchSource & ScopedUsageSource;
 /** The two credential types a plugin's family can hold; routing differs by type. */
@@ -16,7 +23,8 @@ export type VaultCredentialType = 'oauth' | 'api_key';
  * Which vault rows belong to this plugin. `refreshAdapter` classifies an OAuth
  * row by the protocol it speaks; `category` is the grant that authorizes this
  * consumer to read it. Static API keys carry no refresh adapter, so they are
- * admitted only when `apiKeys` is set and only by category.
+ * admitted only when `apiKeys` is set. If a row declares an auth method, it
+ * must agree with the credential type.
  */
 export interface ClaustrumFamily {
     refreshAdapter: string;
@@ -111,8 +119,10 @@ export interface VaultInventory {
     readonly credentials: readonly VaultCredential[];
     readonly skipped: readonly SkippedVaultRecord[];
     /**
-     * Classifying families only: declared policy codes or the fixed library codes
-     * `unknown-auth-method`, `unmapped` and `unclassified`, never classifier errors.
+     * Refused rows and their codes, never classifier errors. Category families
+     * omit this field if no rows were refused and use only `unknown-auth-method`.
+     * Classifying families can also use declared policy codes, `unmapped` and
+     * `unclassified`.
      */
     readonly refused?: readonly {
         credentialId?: string;
@@ -364,3 +374,4 @@ export declare class ClaustrumScopedCustody {
     /** Stop accepting work; give token reads and reply reports one shared 2 s drain. */
     dispose(onTimeout?: (pendingOperations: number) => void): Promise<void>;
 }
+export {};
