@@ -337,7 +337,6 @@ const createAntigravityPluginRuntime =
         pool: createOpenCodeVaultAccountPool({
           source,
           durable: { source, readState: () => vaultCustody.readState() },
-          grantPrincipal: () => vaultCustody.grantPrincipal(),
         }),
       }
       return vaultPool

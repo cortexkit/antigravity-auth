@@ -721,12 +721,17 @@ describe('Vault section enrollment guidance', () => {
     ])
   })
 
+  const noGrantRefusal =
+    'Vault access is approved, but the vault has not granted this plugin read access. Open the Vault section of the Antigravity menu for grant instructions.'
+  const unmatchedGrantRefusal = [
+    'Vault access is approved, but the read grant reaches no Antigravity login in the vault.',
+    "The vault operator updates the vault's logins with: ck auth reclassify --from-registry",
+    'Then they check them with: ck auth status',
+  ].join('\n')
+
   /**
-   * Approve this host's enrollment, let the real consumer discover an empty
-   * roster whose listing reports `grants` and `grantTuples`, then check the
-   * request path's no-account message, the Vault section lines and the
-   * request-access action's text. The operator approves the enrollment as
-   * `approvedName`; a request's message is `refusal`.
+   * Check the request refusal and menu guidance after the real consumer
+   * discovers an empty roster for the supplied enrollment name and grants.
    */
   async function expectEmptyRosterGuidance(
     grants: number | undefined,
@@ -760,10 +765,7 @@ describe('Vault section enrollment guidance', () => {
       // The source's own custody check reads the approval before listing;
       // nothing else has read the enrollment yet when the request path asks.
       await source.refresh()
-      const pool = createOpenCodeVaultAccountPool({
-        source,
-        grantPrincipal: () => custody.grantPrincipal(),
-      })
+      const pool = createOpenCodeVaultAccountPool({ source })
       expect(pool.credentials.emptyRosterRefusal?.()).toBe(refusal)
       expect((await custody.menuSection().build(invocation)).lines).toEqual([
         'Mode: vault',
@@ -796,7 +798,7 @@ describe('Vault section enrollment guidance', () => {
       'Vault access is approved. The vault has not granted antigravity-auth-opencode read access.',
       `The vault operator grants it with: ${GRANT}`,
     ]
-    await expectEmptyRosterGuidance(0, [], lines, lines.join('\n'))
+    await expectEmptyRosterGuidance(0, [], lines, noGrantRefusal)
   })
 
   it('says the grant reaches no login and gives the reclassify and status commands when a grant exists', async () => {
@@ -815,22 +817,16 @@ describe('Vault section enrollment guidance', () => {
         },
       ],
       lines,
-      lines.join('\n'),
+      unmatchedGrantRefusal,
     )
   })
 
-  it('names the enrollment the operator approved under another name in the grant command and messages', async () => {
+  it('names the approved enrollment only in the Vault menu and request-access result', async () => {
     const noGrant = [
       `Vault access is approved. The vault has not granted ${OTHER_NAME} read access.`,
       `The vault operator grants it with: ${OTHER_GRANT}`,
     ]
-    await expectEmptyRosterGuidance(
-      0,
-      [],
-      noGrant,
-      noGrant.join('\n'),
-      OTHER_NAME,
-    )
+    await expectEmptyRosterGuidance(0, [], noGrant, noGrantRefusal, OTHER_NAME)
   })
 
   it('names the enrollment the operator approved under another name when the grants are unknown', async () => {
@@ -862,7 +858,7 @@ describe('Vault section enrollment guidance', () => {
         },
       ],
       lines,
-      lines.join('\n'),
+      unmatchedGrantRefusal,
       OTHER_NAME,
     )
   })

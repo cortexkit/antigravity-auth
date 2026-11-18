@@ -2015,7 +2015,6 @@ async function createGaVaultLocationServices(input: {
               error: error instanceof Error ? error.name : 'unknown',
             }),
         },
-        grantPrincipal: () => custody.grantPrincipal?.(),
       })
       pipeline = await createGaVaultRequestPipeline({
         ...(input.assertAdmission

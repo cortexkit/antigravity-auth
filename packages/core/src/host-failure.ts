@@ -126,5 +126,18 @@ export function hostFailure(
     return error
   const chain = errorChain(error)
   log(diagnostics(chain, error))
+  if (
+    error instanceof Error &&
+    error.name === 'ClaustrumCredentialError' &&
+    'code' in error &&
+    error.code === 'grant_denied'
+  ) {
+    return Object.assign(
+      new HostRefusalError(
+        'The vault refused access to the selected account. Check the plugin log for details.',
+      ),
+      { code: 'grant_denied' as const },
+    )
+  }
   return new HostRefusalError(failureMessage(chain))
 }

@@ -1950,8 +1950,6 @@ describe('GA composed transport', () => {
 })
 
 describe('GA vault request when the approved vault serves no accounts', () => {
-  const GRANT =
-    'ck auth grant --principal enrolled:antigravity-auth-opencode --selector-kind category --selector antigravity-native --operation read'
   const CATEGORY_GRANT = [
     {
       selectorKind: 'category',
@@ -2042,14 +2040,11 @@ describe('GA vault request when the approved vault serves no accounts', () => {
   })
 
   ownedIt(
-    'says no grant exists and gives the grant command when the vault reports zero grants',
+    'says no grant exists and points to the Vault menu without naming the enrollment',
     async (scope) => {
       expect(await requestOnEmptyVault(scope, 0, [])).toEqual(
         noAccountRefusal(
-          [
-            'Vault access is approved. The vault has not granted antigravity-auth-opencode read access.',
-            `The vault operator grants it with: ${GRANT}`,
-          ].join('\n'),
+          'Vault access is approved, but the vault has not granted this plugin read access. Open the Vault section of the Antigravity menu for grant instructions.',
         ),
       )
     },
@@ -2061,7 +2056,7 @@ describe('GA vault request when the approved vault serves no accounts', () => {
       expect(await requestOnEmptyVault(scope, 1, CATEGORY_GRANT)).toEqual(
         noAccountRefusal(
           [
-            'Vault access is approved. antigravity-auth-opencode has read access, but it reaches no Antigravity login in the vault.',
+            'Vault access is approved, but the read grant reaches no Antigravity login in the vault.',
             "The vault operator updates the vault's logins with: ck auth reclassify --from-registry",
             'Then they check them with: ck auth status',
           ].join('\n'),

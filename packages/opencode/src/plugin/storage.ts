@@ -558,7 +558,7 @@ export interface OpenAccountStoreOptions {
   legacyPath?: string
 }
 
-function refusalMessage(admission: NotServing): string {
+export function accountStoreAdmissionMessage(admission: NotServing): string {
   switch (admission.status) {
     case 'busy':
       return new AccountStoreBusyError().message
@@ -614,7 +614,7 @@ function unboundOpening(
   return {
     status: 'refused',
     admission: binding,
-    message: refusalMessage(binding),
+    message: accountStoreAdmissionMessage(binding),
   }
 }
 
@@ -671,7 +671,7 @@ export async function openAccountStore(
       return {
         status: 'refused',
         admission,
-        message: refusalMessage(admission),
+        message: accountStoreAdmissionMessage(admission),
       }
   }
 }

@@ -41,7 +41,13 @@ import type {
   SessionHttpRequest,
   SessionRetry,
 } from '@opencode/plugin/promise/session'
+import {
+  hostFileError,
+  hostFileErrorKinds,
+  retryHintPath,
+} from '../../../../../test/support/host-file-errors.test.ts'
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
+import { expectNoOpenCodeRetryHints } from '../../plugin/__fixtures__/opencode-retry-hints.test.ts'
 import { RELEASE_MODEL_IDS } from '../../plugin/__fixtures__/release-model-ids'
 
 type SenderCall = {
@@ -1893,6 +1899,42 @@ describe('setup against a host context', () => {
       'antigravity-auth could not complete the operation. Check the plugin log for details.',
     )
     expect(log).toEqual(['dispose services'])
+  })
+
+  it.each(
+    hostFileErrorKinds,
+  )('keeps a GA setup %s error out of the host refusal', async (kind) => {
+    prepareRoot()
+    const error = await hostFileError(kind)
+    const logs: string[] = []
+    const lifecycle: string[] = []
+    const stderr = spyOn(process.stderr, 'write').mockImplementation((text) => {
+      logs.push(String(text))
+      return true
+    })
+    try {
+      const refusal = await server
+        .setupGaActivation(
+          fakeHost(locationDirectory('a'), lifecycle, { register: error }),
+          fakeServices(lifecycle),
+        )
+        .then(
+          () => undefined,
+          (error: unknown) => error,
+        )
+      expect(refusal).toBeInstanceOf(Error)
+      expectNoOpenCodeRetryHints(String(refusal))
+      expect(String(refusal)).not.toContain('x.json')
+      expect(
+        logs.filter(
+          (entry) =>
+            entry.includes('[antigravity]') && entry.includes(retryHintPath),
+        ),
+      ).toHaveLength(1)
+      expect(lifecycle).toEqual(['dispose services'])
+    } finally {
+      stderr.mockRestore()
+    }
   })
 
   it('rolls back already-registered hooks and RPC when a later hook fails', async () => {

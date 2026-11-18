@@ -48,6 +48,7 @@ import {
 import {
   AccountStorageUnreadableError,
   type AccountStoreOpening,
+  accountStoreAdmissionMessage,
   clearAccounts,
   initializeFreshAccountStoreFor,
   loadAccounts,
@@ -69,6 +70,25 @@ const failureLog = createCoreLogger('auth-loader')
 function loaderFailure(error: unknown): Error {
   if (error instanceof RuntimeLayoutRefusal) return error
   return hostFailure(error, (diagnostic) => failureLog.error(diagnostic))
+}
+
+function openingFailure(opening: AccountStoreOpening): Error {
+  if (opening.status === 'recovery-required') {
+    return new HostRefusalError(
+      'An account clear or pool replacement was interrupted; it must be finished before the accounts are used.',
+    )
+  }
+  if (opening.status === 'refused') {
+    const { admission } = opening
+    if (admission.status === 'busy') return new AccountStoreBusyError()
+    if (admission.status === 'pending' || admission.status === 'inactive') {
+      return new HostRefusalError(accountStoreAdmissionMessage(admission))
+    }
+    failureLog.error('Refusing to start: the account store cannot serve', {
+      message: opening.message,
+    })
+  }
+  return new HostRefusalError(HOST_STORE_READ_FAILURE)
 }
 
 /**
@@ -561,19 +581,7 @@ export function createAuthLoader({
       return finishLoad(provider)
     }
     if (!usesPoolFile(opening)) {
-      const refusal =
-        opening.status === 'refused' && opening.admission.status === 'busy'
-          ? new AccountStoreBusyError()
-          : opening.status === 'recovery-required'
-            ? new HostRefusalError(
-                'An account clear or pool replacement was interrupted; finish the interrupted operation before using the accounts.',
-              )
-            : new HostRefusalError(HOST_STORE_READ_FAILURE)
-      if (opening.status === 'refused' && opening.admission.status !== 'busy') {
-        failureLog.error('Refusing to start: the account store cannot serve', {
-          message: opening.message,
-        })
-      }
+      const refusal = openingFailure(opening)
       try {
         await client.tui.showToast({
           body: {

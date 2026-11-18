@@ -112,6 +112,8 @@ Select a model with `/model` or `pi -m google/antigravity-gemini-3.8-flash`.
 
 ## Notes
 
+If a request or startup refusal points to the plugin log, start Pi with `ANTIGRAVITY_CORE_CONSOLE_LOG=1` to see the underlying diagnostic in its console output.
+
 This package shares its transport, OAuth, fingerprint, and request-transform
 logic with the unified OpenCode V1/GA plugin via
 [`@cortexkit/antigravity-auth-core`](../core). Local mode uses one account in Pi's

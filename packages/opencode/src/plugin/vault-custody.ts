@@ -1081,37 +1081,36 @@ function emptyRosterGuidance(
 }
 
 /**
- * The message for a request that finds no account because the vault serves
- * this host none: the Vault section's lines for the same cause, one per line.
- * `principal` is the enrollment name the operator approved; without it the
- * default name is used. An unknown cause returns undefined, so the request
- * keeps the general vault remedy.
+ * A model request explains why the vault serves no account. Keep the name
+ * the operator chose when approving the plugin in the Vault menu, where the
+ * exact grant command is shown; the host might read a name as a retry hint.
  */
 export function openCodeEmptyVaultRosterRefusal(
   cause: EmptyVaultRosterCause,
-  principal: string = OPENCODE_VAULT_ENROLLMENT_NAME,
 ): string | undefined {
-  return cause === 'unknown'
-    ? undefined
-    : emptyRosterGuidance(cause, principal).join('\n')
+  switch (cause) {
+    case 'no-grant':
+      return 'Vault access is approved, but the vault has not granted this plugin read access. Open the Vault section of the Antigravity menu for grant instructions.'
+    case 'grant-reaches-nothing':
+      return [
+        'Vault access is approved, but the read grant reaches no Antigravity login in the vault.',
+        `The vault operator updates the vault's logins with: ${VAULT_RECLASSIFY_COMMAND}`,
+        `Then they check them with: ${VAULT_STATUS_COMMAND}`,
+      ].join('\n')
+    case 'unknown':
+      return undefined
+  }
 }
 
 /**
- * The vault account pool both OpenCode hosts send requests through. A request
- * that finds no account names the cause the Vault section names, for the
- * enrollment name `grantPrincipal` returns (custody's `grantPrincipal`);
- * without one, or when it returns undefined, the default name.
+ * The vault account pool both OpenCode hosts send requests through.
  */
 export function createOpenCodeVaultAccountPool(
-  options: Omit<VaultAccountPoolOptions, 'emptyRosterRefusal'> & {
-    readonly grantPrincipal?: () => string | undefined
-  },
+  options: Omit<VaultAccountPoolOptions, 'emptyRosterRefusal'>,
 ): VaultAccountPool {
-  const { grantPrincipal: principal, ...poolOptions } = options
   return createVaultAccountPool({
-    ...poolOptions,
-    emptyRosterRefusal: (cause) =>
-      openCodeEmptyVaultRosterRefusal(cause, principal?.()),
+    ...options,
+    emptyRosterRefusal: openCodeEmptyVaultRosterRefusal,
   })
 }
 

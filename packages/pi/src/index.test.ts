@@ -7,6 +7,7 @@ import {
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
   loadCommonAuthPiSlot,
+  setLogSink,
   type VaultScopedClient,
 } from '@cortexkit/antigravity-auth-core'
 import {
@@ -15,7 +16,13 @@ import {
   ModelRuntime,
   type ProviderConfig,
 } from '@earendil-works/pi-coding-agent'
+import {
+  hostFileError,
+  hostFileErrorKinds,
+  retryHintPath,
+} from '../../../test/support/host-file-errors.test.ts'
 import { withVaultHost } from '../../../test/support/vault-host.ts'
+import { expectNoOpenCodeRetryHints } from '../../opencode/src/plugin/__fixtures__/opencode-retry-hints.test.ts'
 
 import cortexKitPiAntigravityAuth, {
   CUSTODY_PROVIDER_KEY_MARKER,
@@ -650,7 +657,7 @@ const LOCKOUTS: Array<{
       await writeFile(fixture.authPath, NATIVE_AUTH, { mode: 0o600 })
       await mkdir(fixture.stashPath, { mode: 0o700 })
     },
-    reason: 'unsafe-path',
+    reason: 'Check the plugin log for details.',
     local: true,
   },
 ]
@@ -1010,7 +1017,7 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
       }
     })
 
-  it('names the slot failure in the refusal', async () => {
+  it('refuses unsynchronized slots without showing the library error code', async () => {
     for (const lockout of LOCKOUTS) {
       const fixture = await recoveryFixture()
       try {
@@ -1030,6 +1037,41 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
       } finally {
         await rm(fixture.directory, { recursive: true, force: true })
       }
+    }
+  })
+
+  it.each(
+    hostFileErrorKinds,
+  )('keeps a Pi slot loader %s error out of the model refusal', async (kind) => {
+    const fixture = await recoveryFixture()
+    const error = await hostFileError(kind)
+    const logs: string[] = []
+    const registerProvider = mock()
+    setLogSink((record) => logs.push(record.message))
+    try {
+      await registerCortexKitPiAntigravity(
+        { registerProvider, registerCommand: mock() } as never,
+        {
+          ...fixture.seams,
+          loadPiSlot: async () => {
+            throw error
+          },
+        },
+      )
+      const [, config] = registerProvider.mock.calls[0] as unknown as [
+        string,
+        ProviderConfig,
+      ]
+      const result = await refusal(config, CUSTODY_PROVIDER_KEY_MARKER)
+      expect(result.stopReason).toBe('error')
+      expectNoOpenCodeRetryHints(result.errorMessage ?? '')
+      expect(result.errorMessage).not.toContain('x.json')
+      expect(
+        logs.filter((entry) => entry.includes(retryHintPath)),
+      ).toHaveLength(1)
+    } finally {
+      setLogSink(null)
+      await rm(fixture.directory, { recursive: true, force: true })
     }
   })
 
