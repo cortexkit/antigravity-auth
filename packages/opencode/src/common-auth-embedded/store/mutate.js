@@ -1,6 +1,6 @@
-import { setTimeout as snapshotDelay } from 'node:timers/promises';
+import { setTimeout as delay } from 'node:timers/promises';
 import { AtomicSyncError, syncJsonFile, writeJsonAtomic, writeJsonAtomicTracked, } from '../fs/atomic-write.js';
-import { readPrivateText, windowsPrivateFiles } from '../fs/private-files.js';
+import { isWindowsSharingViolation, readPrivateText, windowsPrivateFiles, } from '../fs/private-files.js';
 import { LockContentionError, LockOwnershipError } from '../fs/with-lock.js';
 import { PoolOperationError, } from './errors.js';
 import { callFailureHook } from './hooks.js';
@@ -8,14 +8,25 @@ import { LockStack, } from './refresh-lock.js';
 import { assertNotReserved } from './reserved.js';
 import { CREDENTIAL_STAMP_KEY, classifyConfig, classifyState, ensureEntries, entryIn, isRecord, LEGACY_STORE_VERSION, POOL_KEY, POOL_ROWS_KEY, POOL_SCHEMA_VERSION, retireEpochsIn, rosterOf, rosterRowIn, setEntryIn, } from './schema.js';
 import { completeTornRows, loadRows } from './torn.js';
+// About 1 s in total. A replace usually clears in milliseconds, but an
+// OpenCode 2 turn ends if the first pool read of a request fails, and a
+// scanner opening the new file can hold it longer.
+const sharingRetryDelays = [5, 10, 20, 40, 80, 160, 320, 400];
 async function readText(path) {
-    try {
-        return await readPrivateText(path, windowsPrivateFiles);
-    }
-    catch (error) {
-        if (error.code === 'ENOENT')
-            return undefined;
-        throw error;
+    for (let attempt = 0;; attempt++) {
+        try {
+            return await readPrivateText(path, windowsPrivateFiles);
+        }
+        catch (error) {
+            if (error.code === 'ENOENT')
+                return undefined;
+            const wait = sharingRetryDelays[attempt];
+            // An atomic replace can briefly block a Windows read. Permission
+            // refusals are not evidence of a replace and must still surface at once.
+            if (wait === undefined || !isWindowsSharingViolation(error))
+                throw error;
+            await delay(wait);
+        }
     }
 }
 function parseFile(text) {
@@ -39,12 +50,22 @@ export async function readPoolConfig(path) {
  */
 export async function readPool(ctx) {
     for (let attempt = 0; attempt < 3; attempt++) {
-        const configText = await readText(ctx.configPath);
-        const stateText = await readText(ctx.statePath);
-        const checkedConfigText = await readText(ctx.configPath);
+        let configText;
+        let stateText;
+        let checkedConfigText;
+        try {
+            configText = await readText(ctx.configPath);
+            stateText = await readText(ctx.statePath);
+            checkedConfigText = await readText(ctx.configPath);
+        }
+        catch (error) {
+            if (isWindowsSharingViolation(error))
+                break;
+            throw error;
+        }
         if (configText !== checkedConfigText) {
             if (attempt < 2)
-                await snapshotDelay(2 + Math.floor(Math.random() * 4));
+                await delay(2 + Math.floor(Math.random() * 4));
             continue;
         }
         const config = classifyConfig(parseFile(configText));

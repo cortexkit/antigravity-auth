@@ -1,7 +1,12 @@
 import type { ChooseAccountResult, HeaderEdits, InstallOpenCode2AuthOptions, OpenCode2AuthAdapter, OpenCode2AuthInstallation, OpenCode2HookContext } from './types.js';
 export declare const DEFAULT_MAX_RECORDS = 512;
-/** Allow a one-hour cache lifetime plus the maximum session jitter. */
+/** Cache-bound holds allow a one-hour cache lifetime plus maximum session jitter. */
 export declare const MAX_RETRY_HOLD_MS = 3621000;
+/**
+ * Terminal quota waits allow a seven-day reset plus margin while staying below
+ * the signed 32-bit millisecond timer limit (2^31 - 1 ms).
+ */
+export declare const MAX_TERMINAL_HOLD_MS = 691200000;
 /**
  * The request header `model.request` sets to the attempt it started. The
  * host builds the HTTP request and the WebSocket handshake from the headers
