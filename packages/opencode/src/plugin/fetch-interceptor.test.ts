@@ -19,9 +19,16 @@ import type {
 import {
   ANTIGRAVITY_ENDPOINT_DAILY,
   createAntigravityVaultAccountSource,
+  HostRefusalError,
   loadCommonAuthClaustrum,
+  setLogSink,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  hostFileError,
+  hostFileErrorKinds,
+  retryHintPath,
+} from '../../../../test/support/host-file-errors.test.ts'
 import { vaultWaitClock } from '../../../../test/support/vault-wait-clock.test.ts'
 import {
   keptReceipts,
@@ -2425,10 +2432,44 @@ describe('createFetchInterceptor', () => {
   })
 })
 
+it.each(
+  hostFileErrorKinds,
+)('keeps a model fetch %s error out of the host rejection', async (kind) => {
+  const error = await hostFileError(kind)
+  const context = await makeContext({
+    assertAdmission: async () => {
+      throw error
+    },
+  })
+  const interceptor = createFetchInterceptor(context)
+  const logs: unknown[] = []
+  setLogSink((record) => logs.push(record))
+  try {
+    const rejection = await interceptor
+      .fetch(GENERATIVE_URL, GENERATIVE_INIT)
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+    expect(rejection).toBeInstanceOf(Error)
+    expectNoOpenCodeRetryHints(String(rejection))
+    expect(String(rejection)).not.toContain('x.json')
+    expect(
+      logs.filter((record) => JSON.stringify(record).includes(retryHintPath)),
+    ).toHaveLength(1)
+  } finally {
+    setLogSink(null)
+    await interceptor.dispose()
+    await context.accountManager.dispose()
+  }
+})
+
 it('admits no further local physical attempt when enrollment changes during a failed send', async () => {
   let local = true
   let physicalAttempts = 0
-  const admissionError = new Error('Local work is excluded by vault enrollment')
+  const admissionError = new HostRefusalError(
+    'Local work is excluded by vault enrollment',
+  )
   const context = await makeContext({
     assertAdmission: async () => {
       if (!local) throw admissionError

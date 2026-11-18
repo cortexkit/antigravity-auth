@@ -1,6 +1,9 @@
 import {
   type AccountRepository,
+  createLogger as createCoreLogger,
   fetchWithAgyCliTransport,
+  HostRefusalError,
+  hostFailure,
 } from '@cortexkit/antigravity-auth-core'
 import { upsertSidebarActiveRouting } from '../sidebar-state'
 import { extractAccountAccessErrorDetails } from './account-access'
@@ -47,6 +50,18 @@ import { AntigravityTokenRefreshError, refreshAccessToken } from './token'
 import type { PluginClient } from './types'
 
 const log = createLogger('fetch-interceptor')
+const failureLog = createCoreLogger('fetch-interceptor')
+
+function fetchFailure(
+  error: unknown,
+  input: RequestInfo | URL,
+  init?: RequestInit,
+): unknown {
+  const signal =
+    init?.signal ?? (input instanceof Request ? input.signal : undefined)
+  if (signal?.aborted && error === signal.reason) return error
+  return hostFailure(error, (diagnostic) => failureLog.error(diagnostic))
+}
 
 /** Production transport — used when the interceptor context omits one. */
 const defaultAgyTransport: AgyTransport = (url, init, options) =>
@@ -358,17 +373,23 @@ export function createFetchInterceptor(
     init?: RequestInit,
     onResponseHandoff?: RegisterResponseHandoff,
   ): Promise<Response> {
-    await context.assertAdmission?.()
-    // Disposal may have begun during the admission read; nothing more is
-    // read or sent for this request.
-    if (disposed) throw new Error('The local request runtime is disposed')
-    if (accountSource.kind === 'pool-file') {
-      const latestAuth = await getAuth()
-      if (disposed) throw new Error('The local request runtime is disposed')
-      if (!isOAuthAuth(latestAuth)) return upstreamFetch(input, init)
-    }
+    try {
+      await context.assertAdmission?.()
+      // Disposal may have begun during the admission read; nothing more is
+      // read or sent for this request.
+      if (disposed)
+        throw new HostRefusalError('The local request runtime is disposed')
+      if (accountSource.kind === 'pool-file') {
+        const latestAuth = await getAuth()
+        if (disposed)
+          throw new HostRefusalError('The local request runtime is disposed')
+        if (!isOAuthAuth(latestAuth)) return upstreamFetch(input, init)
+      }
 
-    return executor.execute(input, init, { onResponseHandoff })
+      return await executor.execute(input, init, { onResponseHandoff })
+    } catch (error) {
+      throw fetchFailure(error, input, init)
+    }
   }
 
   async function fetch(
@@ -496,7 +517,9 @@ export function createVaultFetchInterceptor(
   ): Promise<Response> {
     if (!isGenerativeLanguageRequest(input)) return upstreamFetch(input, init)
     if (disposed) throw new Error('The vault request runtime is disposed')
-    return executor.execute(input, init)
+    return executor.execute(input, init).catch((error: unknown) => {
+      throw fetchFailure(error, input, init)
+    })
   }
 
   function dispose(): Promise<void> {

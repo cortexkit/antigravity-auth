@@ -22,6 +22,11 @@ import {
 } from '@earendil-works/pi-ai'
 import type { ProviderConfig } from '@earendil-works/pi-coding-agent'
 import { ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent'
+import {
+  hostFileError,
+  hostFileErrorKinds,
+  retryHintPath,
+} from '../../../test/support/host-file-errors.test.ts'
 import { vaultWaitClock } from '../../../test/support/vault-wait-clock.test.ts'
 import opusLow from '../../../test-fixtures/agy-cli-1.3.3/native-opus-low.json'
 import sonnetLow from '../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
@@ -35,6 +40,7 @@ import {
 } from '../../../test-fixtures/agy-cli-1.5.8/assert-identity.test'
 import stockPiPrompt from '../../../test-fixtures/pi-1.5.2-system-prompt.json'
 import { outageVault } from '../../core/src/__fixtures__/vault-outage.ts'
+import { expectNoOpenCodeRetryHints } from '../../opencode/src/plugin/__fixtures__/opencode-retry-hints.test.ts'
 import { rememberPackedRefresh } from './credential-cache.ts'
 
 const ensureProjectContextMock = mock(async () => ({
@@ -149,6 +155,32 @@ function stalledSseResponse(frame: string): {
 function userContext(): Context {
   return { messages: [{ role: 'user', content: 'test', timestamp: 1 }] }
 }
+
+it.each(
+  hostFileErrorKinds,
+)('keeps a Pi model call %s error out of the error event', async (kind) => {
+  const error = await hostFileError(kind)
+  const logs: unknown[] = []
+  actualCore.setLogSink((record) => logs.push(record))
+  try {
+    const result = await streamCortexKitAntigravity(
+      fakeModel(),
+      userContext(),
+      { apiKey: 'test-token' },
+      async () => {
+        throw error
+      },
+    ).result()
+    expect(result.stopReason).toBe('error')
+    expectNoOpenCodeRetryHints(result.errorMessage ?? '')
+    expect(result.errorMessage).not.toContain('x.json')
+    expect(
+      logs.filter((record) => JSON.stringify(record).includes(retryHintPath)),
+    ).toHaveLength(1)
+  } finally {
+    actualCore.setLogSink(null)
+  }
+})
 
 function observeCallerListeners(signal: AbortSignal) {
   const listeners = new Set<EventListenerOrEventListenerObject>()
@@ -403,7 +435,8 @@ describe('selected credential boundary', () => {
         userContext(),
         { apiKey: 'test-token' },
         async () => {
-          if (!admitted) throw new Error('local enrollment changed')
+          if (!admitted)
+            throw new actualCore.HostRefusalError('local enrollment changed')
         },
       ),
     )
@@ -523,7 +556,7 @@ describe('selected credential boundary', () => {
 
     expect(result.stopReason).toBe('error')
     expect(result.errorMessage).not.toContain(projectId)
-    expect(result.errorMessage).toContain('my-r****3456')
+    expect(result.errorMessage).not.toContain('my-r****3456')
     expect(fetchWithAgyCliTransportMock).not.toHaveBeenCalled()
   })
 

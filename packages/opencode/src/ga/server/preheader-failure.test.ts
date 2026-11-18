@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'bun:test'
-import { redactCredentialError } from '@cortexkit/antigravity-auth-core'
+import {
+  HostRefusalError,
+  markUpstreamFailure,
+  redactCredentialError,
+} from '@cortexkit/antigravity-auth-core'
+import {
+  hostFileError,
+  hostFileErrorKinds,
+  retryHintPath,
+} from '../../../../../test/support/host-file-errors.test.ts'
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
+import { expectNoOpenCodeRetryHints } from '../../plugin/__fixtures__/opencode-retry-hints.test.ts'
 import { transformAntigravityResponse } from '../../plugin/request.ts'
 import { createNativeGoogleErrorResponse } from '../../plugin/request-helpers.ts'
 import {
@@ -24,6 +34,41 @@ const TEST_JOB: GaBridgeJob = {
   body: '{}',
 }
 
+it.each(
+  hostFileErrorKinds,
+)('keeps a bridge %s error out of the failure body', async (kind) => {
+  const error = await hostFileError(kind)
+  const logs: string[] = []
+  const bridge = await startGaLoopbackBridge({
+    send: async () => {
+      throw new Error('not used')
+    },
+    execute: async () => {
+      throw error
+    },
+    onError: (message) => logs.push(message),
+  })
+  try {
+    const request = bridge.rewrite(new Request(TEST_JOB.url), TEST_JOB, {})
+    const response = await fetch(request)
+    expect(response.status).toBe(502)
+    expect(response.headers.get('x-should-retry')).toBe('false')
+    const wire = await response.text()
+    const { error: body } = JSON.parse(wire)
+    expect(body.code).toBe(502)
+    expect(body.status).toBe('UNAVAILABLE')
+    expectNoOpenCodeRetryHints(body.message)
+    for (const segment of retryHintPath.split('/').filter(Boolean)) {
+      expect(wire).not.toContain(segment)
+    }
+    expect(logs.filter((entry) => entry.includes(retryHintPath))).toHaveLength(
+      1,
+    )
+  } finally {
+    await bridge.dispose()
+  }
+})
+
 describe('gaPreHeaderFailureResponse', () => {
   it('maps HTTP status codes to corresponding Google RPC statuses', async () => {
     const cases = [
@@ -41,16 +86,17 @@ describe('gaPreHeaderFailureResponse', () => {
     ]
 
     for (const c of cases) {
-      const resp = gaPreHeaderFailureResponse({
-        statusCode: c.status,
-        message: 'Something went wrong',
-      })
+      const resp = gaPreHeaderFailureResponse(
+        Object.assign(new HostRefusalError('The request was refused.'), {
+          statusCode: c.status,
+        }),
+      )
       expect(resp.status).toBe(c.expectedStatus)
       const data = await resp.json()
       expect(data).toEqual({
         error: {
           code: c.expectedStatus,
-          message: 'Something went wrong',
+          message: 'The request was refused.',
           status: c.expectedRpc,
         },
       })
@@ -68,7 +114,9 @@ describe('gaPreHeaderFailureResponse', () => {
   })
 
   it('defaults to 502 UNAVAILABLE when error has no status', async () => {
-    const resp = gaPreHeaderFailureResponse(new Error('Network error'))
+    const resp = gaPreHeaderFailureResponse(
+      markUpstreamFailure(new Error('Network error')),
+    )
     expect(resp.status).toBe(502)
     const data = await resp.json()
     expect(data.error.code).toBe(502)
@@ -81,24 +129,30 @@ describe('gaPreHeaderFailureResponse', () => {
     expect(resp.status).toBe(502)
     const data = await resp.json()
     expect(data.error.message).toBe(
-      'Antigravity request failed before a response arrived',
+      'antigravity-auth could not complete the operation. Check the plugin log for details.',
     )
   })
 
   it('normalizes duration wording on quota errors', async () => {
-    const resp = gaPreHeaderFailureResponse({
-      status: 429,
-      message: 'Rate limit exceeded. Resets in 2h55m14s.',
-    })
+    const resp = gaPreHeaderFailureResponse(
+      markUpstreamFailure(
+        Object.assign(new Error('Rate limit exceeded. Resets in 2h55m14s.'), {
+          status: 429,
+        }),
+      ),
+    )
     const data = await resp.json()
     expect(data.error.message).toContain('quota resets in 2h 55m 14s.')
   })
 
   it('does not normalize reset duration on non-quota errors', async () => {
-    const resp = gaPreHeaderFailureResponse({
-      statusCode: 400,
-      message: 'Invalid parameters: Session resets in 5m.',
-    })
+    const resp = gaPreHeaderFailureResponse(
+      markUpstreamFailure(
+        Object.assign(new Error('Invalid parameters: Session resets in 5m.'), {
+          statusCode: 400,
+        }),
+      ),
+    )
     const data = await resp.json()
     expect(data.error.message).toBe('Invalid parameters: Session resets in 5m.')
     expect(data.error.message).not.toContain('quota resets in')
@@ -261,24 +315,27 @@ describe('gaPreHeaderFailureResponse', () => {
 
   it('direct consumer handles overflow and invalid numeric RetryInfo without RangeError, resolving metadata.quotaResetDelay and valid priority', async () => {
     // 1. Invalid numeric RetryInfo (1e308) skips to metadata.quotaResetDelay (20s) over conflicting message and headers without RangeError
-    const respMeta = gaPreHeaderFailureResponse({
-      statusCode: 429,
-      details: [
-        {
-          '@type': 'type.googleapis.com/google.rpc.RetryInfo',
-          retryDelay: 1e308,
-        },
-        {
-          metadata: {
-            quotaResetDelay: '20s',
+    const respMeta = gaPreHeaderFailureResponse(
+      markUpstreamFailure(
+        Object.assign(new Error('Quota exceeded. Resets in 50s.'), {
+          statusCode: 429,
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+              retryDelay: 1e308,
+            },
+            {
+              metadata: {
+                quotaResetDelay: '20s',
+              },
+            },
+          ],
+          headers: {
+            'Retry-After': '90',
           },
-        },
-      ],
-      message: 'Quota exceeded. Resets in 50s.',
-      headers: {
-        'Retry-After': '90',
-      },
-    })
+        }),
+      ),
+    )
     expect(respMeta.status).toBe(429)
     expect(respMeta.headers.get('retry-after')).toBe('20')
     expect(respMeta.headers.get('retry-after-ms')).toBe('20000')
@@ -531,7 +588,10 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
       const body = (await resp.json()) as any
       expect(body.error.code).toBe(429)
       expect(body.error.status).toBe('RESOURCE_EXHAUSTED')
-      expect(body.error.message).toContain('Antigravity pool rate limited')
+      expectNoOpenCodeRetryHints(body.error.message)
+      expect(body.error.message).toBe(
+        'antigravity-auth could not complete the operation. Check the plugin log for details.',
+      )
     } finally {
       await bridge.dispose()
     }

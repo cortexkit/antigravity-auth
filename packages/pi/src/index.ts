@@ -2,8 +2,10 @@ import { join } from 'node:path'
 import {
   ANTIGRAVITY_PROVIDER_ID,
   authorizeAntigravity,
+  createLogger,
   exchangeAntigravity,
   getPublicModelDefinitions,
+  hostFailure,
   loadCommonAuthPiSlot,
   refreshAntigravityToken,
   vaultAuthority,
@@ -316,14 +318,14 @@ export async function registerCortexKitPiAntigravity(
     } catch (error) {
       // Leave the provider registered but refusing, so a failed swap neither
       // serves from the wrong credential nor unregisters the models.
+      const refusal = hostFailure(error, (diagnostic) =>
+        failureLog.error(diagnostic),
+      )
       pi.registerProvider(
         ANTIGRAVITY_PROVIDER_ID,
-        refusingProviderConfig(
-          models,
-          error instanceof Error ? error.message : String(error),
-        ),
+        refusingProviderConfig(models, refusal.message),
       )
-      throw error
+      throw refusal
     }
     // Clearing the vault marker leaves local OAuth usable for /login google. Report
     // the remedy without replacing the successfully registered local provider.
@@ -405,8 +407,12 @@ export async function registerCortexKitPiAntigravity(
   return extension
 }
 
+const failureLog = createLogger('pi-loader')
+
 export default async function cortexKitPiAntigravityAuth(
   pi: ExtensionAPI,
 ): Promise<void> {
-  await registerCortexKitPiAntigravity(pi)
+  await registerCortexKitPiAntigravity(pi).catch((error: unknown) => {
+    throw hostFailure(error, (diagnostic) => failureLog.error(diagnostic))
+  })
 }

@@ -5,10 +5,13 @@ import {
   type AntigravityQuotaCheckReport,
   type CommonAuthCommandsModule,
   fetchWithActiveTimeout,
+  HostRefusalError,
+  hostFailure,
   loadCommonAuthCommands,
   type RowRef,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import { RuntimeLayoutRefusal } from '../runtime-layout.ts'
 
 /** The `/antigravity` menu, as the shared core factory builds it. */
 type CommandMenu = ReturnType<CommonAuthCommandsModule['createCommandMenu']>
@@ -186,7 +189,7 @@ export function registerQuotaManagerProducer(
   lifecycle.register({ dispose: () => quotaManager.dispose() }, 'producer')
 }
 
-export const createAntigravityPlugin =
+const createAntigravityPluginRuntime =
   (providerId: string, options: CreateAntigravityPluginOptions = {}) =>
   async (input: PluginInput): Promise<PluginResult> => {
     const dependencies: PluginDependencies = resolvePluginDependencies(
@@ -892,7 +895,7 @@ export const createAntigravityPlugin =
         return createVaultFetchInterceptor({
           assertAdmission: async () => {
             if (!['host', 'vault'].includes(await readAuthority()))
-              throw new Error(unavailableMessage)
+              throw new HostRefusalError(unavailableMessage)
           },
           client,
           config,
@@ -919,7 +922,7 @@ export const createAntigravityPlugin =
         createFetchInterceptor({
           assertAdmission: async () => {
             if ((await readAuthority()) !== 'local')
-              throw new Error(unavailableMessage)
+              throw new HostRefusalError(unavailableMessage)
           },
           client,
           directory,
@@ -1110,6 +1113,18 @@ export const createAntigravityPlugin =
       },
     }
   }
+
+export const createAntigravityPlugin = (
+  providerId: string,
+  options: CreateAntigravityPluginOptions = {},
+) => {
+  const load = createAntigravityPluginRuntime(providerId, options)
+  return (input: PluginInput): Promise<PluginResult> =>
+    load(input).catch((error: unknown) => {
+      if (error instanceof RuntimeLayoutRefusal) throw error
+      throw hostFailure(error, (diagnostic) => logger.error(diagnostic))
+    })
+}
 
 export const AntigravityCLIOAuthPlugin = createAntigravityPlugin(
   ANTIGRAVITY_PROVIDER_ID,

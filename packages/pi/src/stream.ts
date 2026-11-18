@@ -5,13 +5,18 @@ import {
   applyAgyNativeGenerationConfig,
   buildAgyAgentRequestMetadata,
   buildAntigravityHarnessUserAgent,
+  createLogger,
   ensureProjectContext,
   fetchWithAgyCliTransport,
   forwardAbort,
+  HostRefusalError,
+  hostFailure,
   isGeminiArgonModel,
   isGeminiCarbonModel,
   isGeminiHydrogenModel,
   isRetiredAgyModel,
+  isUpstreamFailure,
+  markUpstreamFailure,
   orderAgyRequestPayloadInPlace,
   type PreResponseClock,
   PreResponseDeadline,
@@ -47,6 +52,7 @@ const STREAM_ACTION = 'streamGenerateContent'
 const FALLBACK_SESSION_KEY = '__default__'
 const TRAILING_USAGE_TIMEOUT_MS = 1_000
 const requestSessions = new AgyRequestSessionStore()
+const failureLog = createLogger('pi-stream')
 
 async function nextWithTimeout<T>(
   iterator: AsyncIterator<T>,
@@ -272,7 +278,9 @@ export async function* parseGeminiSse(
 
   try {
     while (true) {
-      const { done, value } = await reader.read()
+      const { done, value } = await reader.read().catch((error: unknown) => {
+        throw markUpstreamFailure(error)
+      })
       if (done) break
       // Antigravity uses CRLF line endings (`\r\n\r\n` frame separators);
       // normalize so a single boundary check works for both LF and CRLF.
@@ -387,7 +395,7 @@ function prepareAntigravityRequest(options: {
   )
   const wireModel = resolved.actualModel
   if (isRetiredAgyModel(options.model.id) || isRetiredAgyModel(wireModel)) {
-    throw new Error(RETIRED_AGY_MODEL_MESSAGE)
+    throw new HostRefusalError(RETIRED_AGY_MODEL_MESSAGE)
   }
 
   const request: Record<string, unknown> = {
@@ -461,7 +469,9 @@ function dispatchAntigravityRequest(
       body: JSON.stringify(envelope),
     },
     { signal },
-  )
+  ).catch((error: unknown) => {
+    throw markUpstreamFailure(error)
+  })
 }
 
 /** Local mode only; custody sends never reach this path. */
@@ -477,7 +487,7 @@ async function sendAntigravityRequest(options: {
   deadline: PreResponseDeadline
 }): Promise<Response> {
   if (isRetiredAgyModel(options.model.id)) {
-    throw new Error(RETIRED_AGY_MODEL_MESSAGE)
+    throw new HostRefusalError(RETIRED_AGY_MODEL_MESSAGE)
   }
   // Pi passes only the access token; the packed refresh
   // `refreshToken|projectId|managedProjectId` saved at getApiKey supplies
@@ -561,7 +571,7 @@ export function streamCortexKitAntigravity(
       await deadline.wait(() => assertAdmission?.())
       const accessToken = options?.apiKey ?? ''
       if (!accessToken)
-        throw new Error('Missing Antigravity OAuth access token')
+        throw new HostRefusalError('Missing Antigravity OAuth access token')
       return sendAntigravityRequest({
         model,
         context,
@@ -606,7 +616,7 @@ export function createCortexKitAntigravityVaultStream(
         deadline,
       ) => {
         if (options?.apiKey !== placeholderKey)
-          throw new Error(
+          throw new HostRefusalError(
             'The native Google credential slot is not synchronized for vault mode. No request was sent.',
           )
         const prepared = prepareAntigravityRequest({
@@ -626,11 +636,14 @@ export function createCortexKitAntigravityVaultStream(
                   dispatchAntigravityRequest(prepared, credential, signal),
                 )
               } catch (error) {
-                throw redactCredentialError(
+                const redacted = redactCredentialError(
                   error,
                   [...selectedCredentials],
                   [...selectedProjectIds],
                 )
+                throw isUpstreamFailure(error)
+                  ? markUpstreamFailure(redacted)
+                  : redacted
               }
             },
             signal,
@@ -681,7 +694,11 @@ function runAntigravityStream(
       if (response.ok) deadline.acceptHeaders()
 
       if (!response.ok) {
-        const body = await deadline.wait(() => response!.text())
+        const body = await deadline.wait(() =>
+          response!.text().catch((error: unknown) => {
+            throw markUpstreamFailure(error)
+          }),
+        )
         if (response.status === 429) {
           let error: Record<string, unknown> | undefined
           try {
@@ -704,10 +721,12 @@ function runAntigravityStream(
               response.status,
             ) === 'UNKNOWN'
           )
-            throw new Error(UNCONFIRMED_RATE_LIMIT_MESSAGE)
+            throw new HostRefusalError(UNCONFIRMED_RATE_LIMIT_MESSAGE)
         }
-        throw new Error(
-          `Antigravity request failed: HTTP ${response.status} ${body}`,
+        throw markUpstreamFailure(
+          new Error(
+            `Antigravity request failed: HTTP ${response.status} ${body}`,
+          ),
         )
       }
 
@@ -748,7 +767,6 @@ function runAntigravityStream(
       }
 
       chunkIterator = parseGeminiSse(response)[Symbol.asyncIterator]()
-      let terminalFinishReason: string | undefined
       while (true) {
         const next = terminalSeen
           ? await nextWithTimeout(
@@ -762,7 +780,8 @@ function runAntigravityStream(
 
         const chunk = next.value
         const embeddedFailure = describeEmbeddedStreamFailure(chunk)
-        if (embeddedFailure) throw new Error(embeddedFailure)
+        if (embeddedFailure)
+          throw markUpstreamFailure(new Error(embeddedFailure))
         updateUsage(model, output, chunk.usageMetadata)
 
         if (terminalSeen) {
@@ -884,7 +903,6 @@ function runAntigravityStream(
             output.stopReason = mapFinishReason(candidate.finishReason)
           }
           terminalSeen = true
-          terminalFinishReason = candidate.finishReason
           const needsTrailingUsage =
             model.id.toLowerCase().includes('gpt-oss') && !chunk.usageMetadata
           if (!needsTrailingUsage) break
@@ -900,16 +918,15 @@ function runAntigravityStream(
         await response.body?.cancel().catch(() => {})
       }
 
-      if (options?.signal?.aborted) throw new Error('Request was aborted')
+      if (options?.signal?.aborted)
+        throw new HostRefusalError('Request was aborted')
       if (!terminalSeen) {
-        throw new Error(
+        throw new HostRefusalError(
           'Antigravity stream ended without a terminal candidate response',
         )
       }
       if (content.length === 0) {
-        throw new Error(
-          `Antigravity returned an empty response${terminalFinishReason ? ` (${terminalFinishReason})` : ''}`,
-        )
+        throw new HostRefusalError('Antigravity returned an empty response')
       }
 
       stream.push({
@@ -923,11 +940,19 @@ function runAntigravityStream(
       await chunkIterator?.return?.(undefined).catch(() => {})
       await response?.body?.cancel().catch(() => {})
       output.stopReason = options?.signal?.aborted ? 'aborted' : 'error'
-      output.errorMessage = redactCredentialText(
-        error instanceof Error ? error.message : String(error),
-        [...selectedCredentials],
-        [...selectedProjectIds],
-      )
+      const redact = (text: string) =>
+        redactCredentialText(
+          text,
+          [...selectedCredentials],
+          [...selectedProjectIds],
+        )
+      output.errorMessage =
+        (options?.signal?.aborted && error === options.signal.reason) ||
+        isUpstreamFailure(error)
+          ? redact(error instanceof Error ? error.message : String(error))
+          : hostFailure(error, (diagnostic) =>
+              failureLog.error(redact(diagnostic)),
+            ).message
       stream.push({ type: 'error', reason: output.stopReason, error: output })
       stream.end()
     } finally {

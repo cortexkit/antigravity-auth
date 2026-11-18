@@ -6,6 +6,7 @@ import {
   isGeminiCarbonModel,
   isGeminiHydrogenModel,
   isRetiredAgyModel,
+  markUpstreamFailure,
   maskSensitiveIdentifier,
   redactCredentialError,
   redactCredentialResponse,
@@ -2900,7 +2901,7 @@ async function transformAntigravityResponseIn(
         statusText: scrubbedStatusText,
         headers: plainHeaders,
       })
-      throw freshError
+      throw markUpstreamFailure(freshError)
     }
 
     noteGeminiDumpResponse(dumpContext, response)

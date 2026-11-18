@@ -190,6 +190,7 @@ describe('shared request engine import graph', () => {
       ],
       './vault-routing-purpose': ['isTitleVaultRequest'],
       '@cortexkit/antigravity-auth-core': [
+        'HostRefusalError',
         'MAX_UNCONFIRMED_RATE_LIMIT_RETRIES',
         'PRE_RESPONSE_DEADLINE_MS',
         'PreResponseDeadline',
@@ -206,6 +207,8 @@ describe('shared request engine import graph', () => {
         'isClaudeThinkingModel',
         'isImageGenerationModel',
         'isRetiredAgyModel',
+        'isUpstreamFailure',
+        'markUpstreamFailure',
         'parseRateLimitReason',
         'parseRefreshParts',
         'preResponseTimeoutResponse',

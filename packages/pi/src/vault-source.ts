@@ -17,6 +17,7 @@ import {
   type CommonAuthPiSlotModule,
   createAntigravityVaultAccountSource,
   type EmptyVaultRosterCause,
+  HostRefusalError,
   loadCommonAuthClaustrum,
   type VaultGrantReach,
   type VaultRouteRef,
@@ -64,7 +65,7 @@ export type PiVaultAccountSource = Pick<
 
 type PiVaultRouteRef = VaultRouteRef
 
-export class PiVaultSendError extends Error {
+export class PiVaultSendError extends HostRefusalError {
   constructor(message: string) {
     super(message)
     this.name = 'PiVaultSendError'
@@ -77,11 +78,6 @@ export interface PiVaultRequestPathOptions {
   /** The shared vault account source, created on first use after each shutdown. */
   source: () => Promise<PiVaultAccountSource>
   /**
-   * The enrollment name a no-account error names in its grant command: the
-   * name the operator approved. Without it, the default name.
-   */
-  grantPrincipal?: () => string | Promise<string>
-  /**
    * The per-account model lists (`account_models`). The serving vault
    * account is checked by its route id before anything is sent.
    */
@@ -92,7 +88,7 @@ export interface PiVaultRequestPathOptions {
 function requireCustody(read: PiVaultModeRead): PiVaultModeRecord {
   if (!read.ok)
     throw new PiVaultSendError(
-      `Antigravity vault mode is unclear (${read.reason}). Choose a mode in the Vault section of the Antigravity menu.`,
+      'Antigravity vault mode is unclear. Choose a mode in the Vault section of the Antigravity menu.',
     )
   if (read.record.mode !== 'custody')
     throw new PiVaultSendError(
@@ -105,7 +101,6 @@ function selectRoute(
   routes: readonly PiVaultRouteRef[],
   routeId: string | undefined,
   emptyRosterCause: () => EmptyVaultRosterCause,
-  principal: string | undefined,
 ): PiVaultRouteRef {
   if (routeId !== undefined) {
     const selected = routes.find((route) => route.routeId === routeId)
@@ -118,7 +113,7 @@ function selectRoute(
   const [only, ...rest] = routes
   if (!only)
     throw new PiVaultSendError(
-      piEmptyVaultRosterRefusal(emptyRosterCause(), principal) ??
+      piEmptyVaultRosterRefusal(emptyRosterCause()) ??
         'The vault serves Pi no Antigravity accounts yet.',
     )
   if (rest.length > 0)
@@ -151,18 +146,11 @@ export function createPiVaultSend(
       signal.throwIfAborted()
       routes = source.routes()
     }
-    // Only a request that finds no account names the enrollment; with no
-    // route to bind, this await cannot change which account the send uses.
-    const principal =
-      routes.length === 0 ? await options.grantPrincipal?.() : undefined
     // Capture the route before any further await, so the send is bound to
     // the account the roster named now, not to whatever later sits there.
     // Pi does not ask fleet routing: its stream supplies no reliable request purpose.
-    const ref = selectRoute(
-      routes,
-      record.routeId,
-      () => source.emptyRosterCause(),
-      principal,
+    const ref = selectRoute(routes, record.routeId, () =>
+      source.emptyRosterCause(),
     )
     if (options.accountModels) {
       // The first send waits for the settings file to be opened and applied;
@@ -416,7 +404,6 @@ export function createPiVaultRuntime(
         }
       },
       source,
-      grantPrincipal: async () => (await setup()).grantPrincipal(),
     },
   }
 }

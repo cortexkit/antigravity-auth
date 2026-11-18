@@ -46,6 +46,7 @@ import {
   type FetchAccountQuota,
   fetchWithAgyCliTransport,
   formatRefreshParts,
+  HostRefusalError,
   loadCommonAuthClaustrum,
   loadCommonAuthCommands,
   loadCommonAuthStoreModules,
@@ -1147,12 +1148,17 @@ function storeRefusal(
   status: Exclude<AccountStoreAdmission, { status: 'active' }>,
 ): Error {
   if (status.status === 'busy') return new AccountStoreBusyError()
-  return new Error(
+  if (status.status === 'error') {
+    const error = new Error(
+      `The Antigravity account store cannot be opened: ${status.reason}`,
+    )
+    error.name = 'AccountStoreAdmissionError'
+    return error
+  }
+  return new HostRefusalError(
     status.status === 'initialization-required'
       ? 'The Antigravity account store is not initialized; initialize it with the antigravity-auth CLI.'
-      : status.status === 'error'
-        ? `The Antigravity account store cannot be opened: ${status.reason}`
-        : `The Antigravity account store is ${status.status}; finish its migration or rollback with \`antigravity-auth migrate --offline\` or \`antigravity-auth rollback --offline\`.`,
+      : `The Antigravity account store is ${status.status}; finish its migration or rollback with \`antigravity-auth migrate --offline\` or \`antigravity-auth rollback --offline\`.`,
   )
 }
 
@@ -1221,7 +1227,7 @@ async function assertServingAdmission(
   )
   if (admission.status === 'active') return
   if (admission.status === 'pending' && admission.phase === 'activate')
-    throw new Error(
+    throw new HostRefusalError(
       'An Antigravity account operation is still finishing; reopen the session once it completes.',
     )
   throw storeRefusal(admission)
@@ -2157,6 +2163,16 @@ export function createGaLocationServicesFactory(
     // names its cause and what to do there, with no enrollment advice),
     // else the vault remedy.
     let unavailableReason = VAULT_ACCOUNT_REMEDY
+    const sourceRefusal = (): Error => {
+      if (unavailableReason === VAULT_ACCOUNT_REMEDY)
+        return new HostRefusalError(VAULT_ACCOUNT_REMEDY)
+      const layout = currentVaultFolder(
+        bindings.resolveAccountFile(directory),
+      ).refusal
+      return layout?.message === unavailableReason
+        ? layout
+        : new Error(unavailableReason)
+    }
     const authority = async (): Promise<'local' | 'vault' | 'unreadable'> => {
       if (!custody) return 'local'
       const mode = await custody.readMode()
@@ -2171,7 +2187,7 @@ export function createGaLocationServicesFactory(
       if (closing) throw new Error('The location services are disposed')
       const selected = await authority()
       if (closing) throw new Error('The location services are disposed')
-      if (selected !== 'local') throw new Error(unavailableReason)
+      if (selected !== 'local') throw sourceRefusal()
     }
     let refreshVaultBinding: (() => Promise<void>) | undefined
     const refreshSelectedSource = async (): Promise<void> => {
@@ -2432,7 +2448,7 @@ export function createGaLocationServicesFactory(
         })
         const recovery: Serving = {
           execute: async () => {
-            throw new Error(unavailableReason)
+            throw sourceRefusal()
           },
           state: {
             read: async ({ signal }) => {
@@ -2675,8 +2691,7 @@ export function createGaLocationServicesFactory(
               },
               assertAdmission: async () => {
                 const selected = await authority()
-                if (closing || selected !== 'vault')
-                  throw new Error(unavailableReason)
+                if (closing || selected !== 'vault') throw sourceRefusal()
               },
             })
             try {
@@ -2707,7 +2722,7 @@ export function createGaLocationServicesFactory(
           if (closing) throw new Error('The location services are disposed')
           if (selected === 'local') return local()
           if (selected === 'unreadable') {
-            if (purpose === 'execute') throw new Error(unavailableReason)
+            if (purpose === 'execute') throw sourceRefusal()
             return recovery
           }
           try {

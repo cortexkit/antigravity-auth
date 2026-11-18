@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Ask vault routing on the first model request in each session and model family, including generate and compaction requests. Titles don't set or move the session's account, routing's choice survives roster reordering, and proactive account switching stays off while routing is available.
+- Keep local store paths and internal error details in the plugin log, not in OpenCode or Pi model-call errors.
 
 ## [3.1.8] - 2026-11-18
 

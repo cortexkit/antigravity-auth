@@ -24,10 +24,14 @@ import {
   type FetchAvailableModelsOptions,
   fetchWithAgyCliTransport,
   getPublicModelDefinitions,
+  HostRefusalError,
+  hostFailure,
   isRetiredAgyModel,
+  isUpstreamFailure,
   loadCommonAuthClaustrum,
   loadCommonAuthCommands,
   type loadManagedProject,
+  markUpstreamFailure,
   type OpencodeModelDefinition,
   redactProjectIdText,
   type refreshAntigravityToken,
@@ -66,6 +70,7 @@ import type {
   CommandApplyResult,
   RpcNotificationPayload,
 } from '../../rpc/protocol.ts'
+import { RuntimeLayoutRefusal } from '../../runtime-layout.ts'
 import {
   redactAccountForSidebar,
   type SidebarAccountRedactionInput,
@@ -75,6 +80,7 @@ import { prepareVaultFolder } from '../../vault-folder.ts'
 import {
   assertLoopbackProxyGuard,
   type LoopbackProxyEnv,
+  LoopbackProxyGuardError,
 } from '../proxy-guard.ts'
 import {
   ANTIGRAVITY_MENU_COMMAND_NAME,
@@ -425,7 +431,11 @@ export interface GaLoopbackBridgeOptions {
 }
 
 /** The HTTP error answer for a terminal failure before upstream headers. */
-export function gaPreHeaderFailureResponse(error: unknown): Response {
+export function gaPreHeaderFailureResponse(
+  error: unknown,
+  report: (diagnostic: string) => void = (message) =>
+    stderrLogSink({ service: 'bridge', level: 'warn', message }),
+): Response {
   const err = error as Record<string, unknown> | null
 
   // Validate numeric status code: only accept finite safe integers in valid HTTP ranges
@@ -490,10 +500,13 @@ export function gaPreHeaderFailureResponse(error: unknown): Response {
         ? err.message
         : 'Antigravity request failed before a response arrived'
 
-  const redacted = redactProjectIdText(rawMessage)
-  // Only normalize duration wording if classified as quota; never turn 400 "Session resets in 5m" into quota
-  const isQuota = isQuotaError(status, rawMessage, err?.details)
-  const message = isQuota ? normalizeResetDuration(redacted) : redacted
+  let message = gaHostFailure(error, report).message
+  if (isUpstreamFailure(error)) {
+    const redacted = redactProjectIdText(rawMessage)
+    message = isQuotaError(status, rawMessage, err?.details)
+      ? normalizeResetDuration(redacted)
+      : redacted
+  }
 
   const headers = new Headers({ 'content-type': 'application/json' })
 
@@ -520,6 +533,8 @@ export function gaPreHeaderFailureResponse(error: unknown): Response {
     headers.set('retry-after-ms', pair['retry-after-ms'])
   }
 
+  // Keep the Google RPC code and status as protocol metadata. OpenCode 2
+  // uses the HTTP status and the bridge's x-should-retry veto, not this text.
   return new Response(
     JSON.stringify({
       error: {
@@ -653,14 +668,20 @@ export async function startGaLoopbackBridge(
       try {
         upstream = await options.execute(entry.job, {
           signal: controller.signal,
-          send: options.send,
+          send: async (...args) => {
+            try {
+              return await options.send(...args)
+            } catch (error) {
+              throw markUpstreamFailure(error)
+            }
+          },
           onResponseHandoff: (callback) => {
             acknowledge = callback
           },
         })
       } catch (error) {
         acknowledge = undefined
-        upstream = gaPreHeaderFailureResponse(error)
+        upstream = gaPreHeaderFailureResponse(error, report)
       }
       await pipeResponse(
         upstream,
@@ -1711,10 +1732,10 @@ export async function rewriteGaHttpRequest(
   if (!owned) return
   const original = event.request
   if (!isGaGoogleContentRequest(original)) {
-    throw new Error(GA_NON_CONTENT_REQUEST_MESSAGE)
+    throw new HostRefusalError(GA_NON_CONTENT_REQUEST_MESSAGE)
   }
   if (!isCanonicalGoogleOrigin(original.url)) {
-    throw new Error(GA_CUSTOM_GOOGLE_ORIGIN_MESSAGE)
+    throw new HostRefusalError(GA_CUSTOM_GOOGLE_ORIGIN_MESSAGE)
   }
   // Titles must reach the engine's title router even for retired or foreign IDs.
   if (
@@ -1722,16 +1743,8 @@ export async function rewriteGaHttpRequest(
     !input.isRegisteredModel(event.model.id) &&
     !isRetiredAgyModel(event.model.id)
   ) {
-    const modelID = event.model.id
-    const antigravityModelID = modelID.startsWith('antigravity-')
-      ? null
-      : `antigravity-${modelID}`
-    const suggestion =
-      antigravityModelID !== null && input.isRegisteredModel(antigravityModelID)
-        ? `Use google/${antigravityModelID}.`
-        : 'Choose a google/antigravity- model.'
-    throw new Error(
-      `This request cannot use Antigravity: google/${modelID} is not an Antigravity model. ${suggestion}`,
+    throw new HostRefusalError(
+      'This request cannot use Antigravity. Choose a google/antigravity- model.',
     )
   }
   const job: GaBridgeJob = {
@@ -1886,6 +1899,19 @@ function stderrLogSink(record: {
   }
 }
 
+function gaHostFailure(
+  error: unknown,
+  report: (diagnostic: string) => void,
+): Error {
+  if (
+    error instanceof RuntimeLayoutRefusal ||
+    error instanceof LoopbackProxyGuardError ||
+    error instanceof GaSetupContextError
+  )
+    return error
+  return hostFailure(error, report)
+}
+
 function headerValue(
   request: Request,
   names: readonly string[],
@@ -1918,6 +1944,20 @@ export async function setupGaActivation(
   context: GaHostContext,
   factory: GaLocationServicesFactory,
   overrides: GaPluginOverrides = {},
+): Promise<Plugin.Cleanup | undefined> {
+  return setupGaActivationRuntime(context, factory, overrides).catch(
+    (error: unknown) => {
+      throw gaHostFailure(error, (message) =>
+        stderrLogSink({ service: 'setup', level: 'error', message }),
+      )
+    },
+  )
+}
+
+async function setupGaActivationRuntime(
+  context: GaHostContext,
+  factory: GaLocationServicesFactory,
+  overrides: GaPluginOverrides,
 ): Promise<Plugin.Cleanup | undefined> {
   if (classifyGaSetupContext(context) === 'legacy') return undefined
   const directory = context.location.directory
@@ -2127,6 +2167,15 @@ export async function setupGaActivation(
           isRegisteredModel,
           env: process.env,
           ownership,
+        }).catch((error: unknown) => {
+          if (
+            event.request.signal.aborted &&
+            error === event.request.signal.reason
+          )
+            throw error
+          throw gaHostFailure(error, (message) =>
+            runtime.logger.createLogger('request').warn(message),
+          )
         }),
       { providerID: GA_PROVIDER_ID },
     )

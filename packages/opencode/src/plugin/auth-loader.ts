@@ -1,13 +1,19 @@
 import { createHash } from 'node:crypto'
 import {
+  AccountStoreBusyError,
   type AccountManager as CoreAccountManager,
   createAccountRepositoryFactory,
+  createLogger as createCoreLogger,
   type EnrollmentAuthority,
   getHealthTracker,
+  HOST_STORE_READ_FAILURE,
+  HostRefusalError,
+  hostFailure,
   loadCommonAuthClaustrum,
   loadCommonAuthStoreModules,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import { RuntimeLayoutRefusal } from '../runtime-layout.ts'
 import {
   buildSidebarMachineStateFromAccounts,
   isAccountCurrent,
@@ -58,6 +64,12 @@ import type {
 } from './types'
 
 const log = createLogger('auth-loader')
+const failureLog = createCoreLogger('auth-loader')
+
+function loaderFailure(error: unknown): Error {
+  if (error instanceof RuntimeLayoutRefusal) return error
+  return hostFailure(error, (diagnostic) => failureLog.error(diagnostic))
+}
 
 /**
  * Opaque identity derived from a refresh token. Mirrors the local
@@ -305,7 +317,7 @@ export function createAuthLoader({
   let closed = false
   const isClosed = (): boolean => closed || lifecycle.isClosing()
   const assertOpen = (): void => {
-    if (isClosed()) throw new Error('The account loader is disposed')
+    if (isClosed()) throw new HostRefusalError('The account loader is disposed')
   }
   let fetchRuntime: LocalFetchRuntime | null = null
   let localUnavailable = false
@@ -351,7 +363,7 @@ export function createAuthLoader({
   ): Promise<void> => {
     if (isClosed()) {
       await accountManager.dispose()
-      throw new Error('The account loader is disposed')
+      throw new HostRefusalError('The account loader is disposed')
     }
     currentRequestSource = 'local'
     localUnavailable = false
@@ -387,10 +399,12 @@ export function createAuthLoader({
         const opening = await openStore()
         if (isClosed()) {
           await accountManager.dispose()
-          throw new Error('The account loader is disposed')
+          throw new HostRefusalError('The account loader is disposed')
         }
         if (opening.status !== 'ready') {
-          throw new Error('the account store closed while it was in use')
+          throw new HostRefusalError(
+            'the account store closed while it was in use',
+          )
         }
         const credentials = createLocalAccountCredentials(accountManager, {
           repository: opening.repository,
@@ -412,7 +426,7 @@ export function createAuthLoader({
     if (isClosed() || (opening !== undefined && opening.status !== 'ready')) {
       await refreshQueue?.dispose()
       await accountManager.dispose()
-      throw new Error(
+      throw new HostRefusalError(
         isClosed()
           ? 'The account loader is disposed'
           : 'the account store closed while it was in use',
@@ -457,7 +471,7 @@ export function createAuthLoader({
       await accountManager.dispose()
       throw error
     }
-    if (!published) throw new Error('The account loader is disposed')
+    if (!published) throw new HostRefusalError('The account loader is disposed')
     assertOpen()
     refreshQueue?.start()
 
@@ -503,11 +517,11 @@ export function createAuthLoader({
     // Refuse before opening or repairing the pool; a real sign-in is required.
     const claustrum = await loadCommonAuthClaustrum()
     assertOpen()
-    claustrum.assertHostSlotMatchesMode({
-      mode: 'local',
-      auth,
-      provider: providerId,
-    })
+    if (claustrum.classifyHostSlot(auth, providerId) === 'placeholder') {
+      throw new HostRefusalError(
+        'The host holds the vault placeholder; sign in to use local accounts.',
+      )
+    }
     return auth
   }
 
@@ -547,19 +561,29 @@ export function createAuthLoader({
       return finishLoad(provider)
     }
     if (!usesPoolFile(opening)) {
-      const message =
-        opening.status === 'refused' || opening.status === 'recovery-required'
-          ? opening.message
-          : 'The Antigravity account store cannot be opened'
-      log.error('Refusing to start: the account store cannot serve', {
-        message,
-      })
+      const refusal =
+        opening.status === 'refused' && opening.admission.status === 'busy'
+          ? new AccountStoreBusyError()
+          : opening.status === 'recovery-required'
+            ? new HostRefusalError(
+                'An account clear or pool replacement was interrupted; finish the interrupted operation before using the accounts.',
+              )
+            : new HostRefusalError(HOST_STORE_READ_FAILURE)
+      if (opening.status === 'refused' && opening.admission.status !== 'busy') {
+        failureLog.error('Refusing to start: the account store cannot serve', {
+          message: opening.message,
+        })
+      }
       try {
         await client.tui.showToast({
-          body: { message, variant: 'error', duration: 30_000 },
+          body: {
+            message: refusal.message,
+            variant: 'error',
+            duration: 30_000,
+          },
         })
       } catch {}
-      throw new Error(message)
+      throw refusal
     }
 
     if (!isOAuthAuth(auth)) {
@@ -567,28 +591,20 @@ export function createAuthLoader({
       try {
         storedAccounts = await deps.loadAccounts()
       } catch (error) {
-        // Fail closed: do NOT proceed with `clearAccounts()` (which
-        // would destroy a recoverable corrupt file) and do NOT
-        // fabricate an empty pool. Surface the unreadable error so
-        // the caller can prompt the user to repair or remove the
-        // file. Backup path + reason are carried in `error.details`.
+        // Do not clear a recoverable file or fabricate an empty pool.
+        const refusal = loaderFailure(error)
         if (error instanceof AccountStorageUnreadableError) {
-          log.error('Refusing to start: account storage is unreadable', {
-            path: error.details.path,
-            reason: error.details.reason,
-            backupPath: error.details.backupPath,
-          })
           try {
             await client.tui.showToast({
               body: {
-                message: `Account storage at ${error.details.path} is unreadable (${error.details.reason}). The plugin will not start until the file is repaired or removed.${error.details.backupPath ? ` A backup was written to ${error.details.backupPath}.` : ''}`,
+                message: refusal.message,
                 variant: 'error',
                 duration: 30_000,
               },
             })
           } catch {}
         }
-        throw error
+        throw refusal
       }
       assertOpen()
       const drift = detectAuthStorageDrift(auth, storedAccounts)
@@ -663,55 +679,67 @@ export function createAuthLoader({
       // (no `this` binding) so behavior is preserved.
       fetch: (input, init) =>
         publishResponse(async (onResponseHandoff) => {
-          assertOpen()
-          const authority = (await readAuthority?.()) ?? 'local'
-          // Shutdown may have begun while the authority was read; nothing is
-          // built or sent after admission closes, even while disposal drains.
-          assertOpen()
-          if (authority === 'unreadable') throw new Error(unavailableMessage)
-          if (authority === 'vault' || authority === 'host') {
-            currentRequestSource = 'vault'
-            if (!createVaultFetch) throw new Error(unavailableMessage)
-            vaultFetchRuntime ??= createVaultFetch().catch((error) => {
-              vaultFetchRuntime = null
-              throw error
-            })
-            const vaultRuntime = await vaultFetchRuntime
+          try {
             assertOpen()
-            return vaultRuntime.fetch(input, init, onResponseHandoff)
-          }
-          // Check authority first: an approved vault remains usable even when
-          // this location's local pool is waiting for offline migration.
-          if (localUnavailable) {
-            return fetchWithoutLocalAccounts(input, init, fetchImpl)
-          }
-          if (
-            readAuthority &&
-            (localRequestReload ||
-              currentRequestSource !== 'local' ||
-              !fetchRuntime)
-          ) {
-            if (!latestGetAuth)
-              throw new Error('The host sign-in reader is unavailable')
-            // Requests arriving together share one reload, so a later one
-            // never replaces the runtime an earlier one is already sending on.
-            if (!localRequestReload) {
-              const started = reload(latestGetAuth).finally(() => {
-                if (localRequestReload === started) localRequestReload = null
+            const authority = (await readAuthority?.()) ?? 'local'
+            // Shutdown may have begun while the authority was read; nothing is
+            // built or sent after admission closes, even while disposal drains.
+            assertOpen()
+            if (authority === 'unreadable')
+              throw new HostRefusalError(unavailableMessage)
+            if (authority === 'vault' || authority === 'host') {
+              currentRequestSource = 'vault'
+              if (!createVaultFetch)
+                throw new HostRefusalError(unavailableMessage)
+              vaultFetchRuntime ??= createVaultFetch().catch((error) => {
+                vaultFetchRuntime = null
+                throw error
               })
-              localRequestReload = started
+              const vaultRuntime = await vaultFetchRuntime
+              assertOpen()
+              return vaultRuntime.fetch(input, init, onResponseHandoff)
             }
-            await localRequestReload
-            assertOpen()
-            if ((await readAuthority()) !== 'local')
-              throw new Error(unavailableMessage)
-            assertOpen()
+            // Check authority first: an approved vault remains usable even when
+            // this location's local pool is waiting for offline migration.
+            if (localUnavailable) {
+              return fetchWithoutLocalAccounts(input, init, fetchImpl)
+            }
+            if (
+              readAuthority &&
+              (localRequestReload ||
+                currentRequestSource !== 'local' ||
+                !fetchRuntime)
+            ) {
+              if (!latestGetAuth)
+                throw new HostRefusalError(
+                  'The host sign-in reader could not be read.',
+                )
+              // Requests arriving together share one reload, so a later one
+              // never replaces the runtime an earlier one is already sending on.
+              if (!localRequestReload) {
+                const started = reload(latestGetAuth).finally(() => {
+                  if (localRequestReload === started) localRequestReload = null
+                })
+                localRequestReload = started
+              }
+              await localRequestReload
+              assertOpen()
+              if ((await readAuthority()) !== 'local')
+                throw new HostRefusalError(unavailableMessage)
+              assertOpen()
+            }
+            if (localUnavailable)
+              return fetchWithoutLocalAccounts(input, init, fetchImpl)
+            if (currentRequestSource !== 'local' || !fetchRuntime)
+              throw new HostRefusalError(
+                'The local account runtime is not ready.',
+              )
+            return fetchRuntime.fetch(input, init, onResponseHandoff)
+          } catch (error) {
+            // Delegates own their async failures; this catch covers only
+            // authority checks and runtime creation/reload before delegation.
+            throw loaderFailure(error)
           }
-          if (localUnavailable)
-            return fetchWithoutLocalAccounts(input, init, fetchImpl)
-          if (currentRequestSource !== 'local' || !fetchRuntime)
-            throw new Error('The local account runtime is unavailable')
-          return fetchRuntime.fetch(input, init, onResponseHandoff)
         }),
     }
   }
@@ -752,7 +780,9 @@ export function createAuthLoader({
     getAuth: GetAuth,
     provider: Provider,
   ): Promise<LoaderResult | Record<string, unknown>> {
-    return runLoader(getAuth, provider)
+    return runLoader(getAuth, provider).catch((error: unknown) => {
+      throw loaderFailure(error)
+    })
   }
   async function reload(getAuth: GetAuth): Promise<void> {
     assertOpen()

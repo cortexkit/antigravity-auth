@@ -13,6 +13,7 @@ import {
   ANTIGRAVITY_PROVIDER_ID,
   type EmptyVaultRosterCause,
   emptyVaultRosterCause,
+  HostRefusalError,
   sharedVaultTokenFolder,
   sharedVaultTokenFolderOutcome,
   sharedVaultTokenFolderText,
@@ -190,7 +191,7 @@ export interface PiVaultSetupOptions {
 }
 
 /** A setup action refused before anything changed, with a message for the user. */
-export class PiVaultSetupError extends Error {
+export class PiVaultSetupError extends HostRefusalError {
   constructor(message: string) {
     super(message)
     this.name = 'PiVaultSetupError'
@@ -536,17 +537,16 @@ function piEmptyRosterGuidance(
 
 /**
  * The send error when the vault serves Pi no account: the menu's lines for
- * the same cause, one per line, for the enrollment name `principal` (the
- * default name without one). An unknown cause returns undefined, so the send
- * keeps its general error.
+ * the same cause, without disclosing the enrollment name. An unknown cause
+ * returns undefined, so the send keeps its general error.
  */
 export function piEmptyVaultRosterRefusal(
   cause: EmptyVaultRosterCause,
-  principal: string = PI_ANTIGRAVITY_ENROLLMENT_NAME,
 ): string | undefined {
-  return cause === 'unknown'
-    ? undefined
-    : piEmptyRosterGuidance(cause, principal).join('\n')
+  if (cause === 'unknown') return undefined
+  if (cause === 'no-grant')
+    return 'The vault operator approved Pi. The vault has not granted Pi read access. Open the Vault section of the Antigravity menu for grant instructions.'
+  return piEmptyRosterGuidance(cause, PI_ANTIGRAVITY_ENROLLMENT_NAME).join('\n')
 }
 
 /** The next steps for an enrollment state that needs the user or the operator to act. */

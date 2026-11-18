@@ -1198,7 +1198,7 @@ describe('hook bodies', () => {
         }),
       ).rejects.toEqual(
         new Error(
-          'This request cannot use Antigravity: google/gemini-off-catalog is not an Antigravity model. Choose a google/antigravity- model.',
+          'This request cannot use Antigravity. Choose a google/antigravity- model.',
         ),
       )
       expect(original.bodyUsed).toBe(false)
@@ -1210,19 +1210,19 @@ describe('hook bodies', () => {
 
   for (const [name, modelID, message] of [
     [
-      'names an unknown model and its registered Antigravity twin',
+      'refuses a model with a registered Antigravity twin without echoing either model ID',
       'gemini-3.8-flash',
-      'This request cannot use Antigravity: google/gemini-3.8-flash is not an Antigravity model. Use google/antigravity-gemini-3.8-flash.',
+      'This request cannot use Antigravity. Choose a google/antigravity- model.',
     ],
     [
-      'names an unknown model without a twin and suggests the Antigravity prefix',
+      'refuses an unknown model without echoing its ID',
       'gemini-off-catalog',
-      'This request cannot use Antigravity: google/gemini-off-catalog is not an Antigravity model. Choose a google/antigravity- model.',
+      'This request cannot use Antigravity. Choose a google/antigravity- model.',
     ],
     [
-      'names an unknown Antigravity-prefixed model without doubling the prefix',
-      'antigravity-off-catalog',
-      'This request cannot use Antigravity: google/antigravity-off-catalog is not an Antigravity model. Choose a google/antigravity- model.',
+      'refuses an unknown Antigravity-prefixed model whose ID contains retry hints',
+      'antigravity-unavailable-500',
+      'This request cannot use Antigravity. Choose a google/antigravity- model.',
     ],
   ] as const) {
     it(name, async () => {
@@ -1898,7 +1898,9 @@ describe('setup against a host context', () => {
         fakeHost(locationDirectory('a'), log, { hook: 'http.request' }),
         fakeServices(log),
       ),
-    ).rejects.toThrow('no hook http.request')
+    ).rejects.toThrow(
+      'antigravity-auth could not complete the operation. Check the plugin log for details.',
+    )
     expect(log).toEqual([
       'register antigravity-auth',
       'transform provider',

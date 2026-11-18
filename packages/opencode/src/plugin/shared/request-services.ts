@@ -28,11 +28,14 @@ import {
   getQuotaKey,
   getResolverAliasMap,
   type HealthScoreTracker,
+  HostRefusalError,
   isClaudeThinkingModel,
   isImageGenerationModel,
   isRetiredAgyModel,
+  isUpstreamFailure,
   MAX_UNCONFIRMED_RATE_LIMIT_RETRIES,
   type ManagedAccount,
+  markUpstreamFailure,
   type OAuthAuthDetails,
   PRE_RESPONSE_DEADLINE_MS,
   type PreResponseClock,
@@ -1245,8 +1248,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           ...sendOptions,
           signal: deadline.signal,
         }
-        if (!onSenderRejection) return sender(url, sendInit, optionsWithSignal)
-
         let pending: Promise<Response>
         try {
           // Keep this observer at the raw sender boundary. Errors from the
@@ -1254,12 +1255,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           // physical transport failures.
           pending = sender(url, sendInit, optionsWithSignal)
         } catch (error) {
-          onSenderRejection(error)
-          throw error
+          onSenderRejection?.(error)
+          throw markUpstreamFailure(error)
         }
         return pending.catch((error: unknown) => {
-          onSenderRejection(error)
-          throw error
+          onSenderRejection?.(error)
+          throw markUpstreamFailure(error)
         })
       })
     const requestSessionIdentity =
@@ -3668,7 +3669,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
   function dispose(): Promise<void> {
     disposePromise ??= (async () => {
       retired = true
-      shutdown.abort(new Error('The Antigravity request executor is disposed'))
+      shutdown.abort(
+        new HostRefusalError('The Antigravity request executor is disposed'),
+      )
       await drain()
     })()
     return disposePromise
@@ -3678,11 +3681,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     execute(input, init, requestOptions) {
       if (shutdown.signal.aborted)
         return Promise.reject(
-          new Error('The Antigravity request executor is disposed'),
+          new HostRefusalError('The Antigravity request executor is disposed'),
         )
       if (retired)
         return Promise.reject(
-          new Error('The Antigravity request executor is retired'),
+          new HostRefusalError('The Antigravity request executor is retired'),
         )
       const requestedSignal =
         init?.signal ?? (input instanceof Request ? input.signal : undefined)
@@ -3709,6 +3712,16 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       } = {}
       const selectedCredentials = new Set<string>()
       const selectedProjectIds = new Set<string>()
+      const redactFailure = (error: unknown) => {
+        const redacted = redactCredentialError(
+          error,
+          [...selectedCredentials],
+          [...selectedProjectIds],
+        )
+        return isUpstreamFailure(error)
+          ? markUpstreamFailure(redacted)
+          : redacted
+      }
       const pending = withRoutingWaitReports(cancellation.signal, (waits) =>
         deadline.wait(() =>
           execute(
@@ -3778,22 +3791,14 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             handoff.cancel()
             deadline.dispose()
             cancellation.release()
-            throw redactCredentialError(
-              error,
-              [...selectedCredentials],
-              [...selectedProjectIds],
-            )
+            throw redactFailure(error)
           },
         )
         .catch((error: unknown) => {
           handoff.cancel()
           deadline.dispose()
           cancellation.release()
-          throw redactCredentialError(
-            error,
-            [...selectedCredentials],
-            [...selectedProjectIds],
-          )
+          throw redactFailure(error)
         })
       inFlight.add(pending)
       void pending.then(

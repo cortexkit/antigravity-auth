@@ -17,15 +17,21 @@ import {
   initializeFreshAccountStore,
   loadCommonAuthClaustrum,
   loadCommonAuthStoreModules,
+  setLogSink,
   vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import { createOpencodeClient } from '@opencode-ai/sdk'
+import {
+  hostFileError,
+  hostFileErrorKinds,
+  retryHintPath,
+} from '../../../../test/support/host-file-errors.test.ts'
 import {
   createVaultHostRelay,
   emptyVaultHostClient,
   withVaultHost,
 } from '../../../../test/support/vault-host.ts'
-
+import { expectNoOpenCodeRetryHints } from './__fixtures__/opencode-retry-hints.test'
 import { AccountManager } from './accounts'
 import { createAuthLoader } from './auth-loader'
 import { DEFAULT_CONFIG } from './config'
@@ -109,6 +115,52 @@ const poolFileOnly = async () =>
   ({ status: 'initialization-required' }) as const
 
 describe('createAuthLoader', () => {
+  it.each(
+    hostFileErrorKinds,
+  )('keeps a startup %s error out of the host refusal', async (kind) => {
+    const error = await hostFileError(kind)
+    const { lifecycle } = createLifecycle()
+    const logs: unknown[] = []
+    const loader = createAuthLoader({
+      client: { tui: { showToast: mock(async () => {}) } } as never,
+      providerId: 'google',
+      config: DEFAULT_CONFIG,
+      lifecycle,
+      createFetch: () => {
+        throw new Error('not used')
+      },
+      dependencies: {
+        openAccountStore: async () => {
+          throw error
+        },
+      },
+    })
+    setLogSink((record) => logs.push(record))
+    try {
+      const refusal = await loader(
+        async () => ({
+          type: 'oauth',
+          refresh: 'test-refresh',
+          access: '',
+          expires: 0,
+        }),
+        { models: {} } as Provider,
+      ).then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+      expect(refusal).toBeInstanceOf(Error)
+      expectNoOpenCodeRetryHints(String(refusal))
+      expect(String(refusal)).not.toContain('x.json')
+      expect(
+        logs.filter((record) => JSON.stringify(record).includes(retryHintPath)),
+      ).toHaveLength(1)
+    } finally {
+      setLogSink(null)
+      await lifecycle.dispose()
+    }
+  })
+
   it('keeps an unmigrated local target unavailable with default producers, preserves passthrough and cancellation, and delegates fresh vault authority', async () => {
     const { lifecycle, replacements } = createOwnedLifecycle()
     const loadAccounts = mock(async () => storedAccounts())
