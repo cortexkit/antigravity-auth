@@ -3,11 +3,19 @@
 // and the resolver that follows it. Real files in temporary folders
 // throughout; the real-process tests run `__fixtures__/runtime-layout-process.ts`.
 import { dlopen, FFIType, ptr } from 'bun:ffi'
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  it as bunIt,
+  describe,
+  expect,
+  type Test,
+} from 'bun:test'
 import { createHash } from 'node:crypto'
 import {
   chmodSync,
   existsSync,
+  writeFileSync as fsWriteFileSync,
   linkSync,
   mkdirSync,
   readdirSync,
@@ -16,7 +24,6 @@ import {
   rmSync,
   statSync,
   symlinkSync,
-  writeFileSync,
 } from 'node:fs'
 import { unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
@@ -33,7 +40,7 @@ import { OPENCODE_VAULT_ENROLLMENT_NAME } from './plugin/vault-custody'
 import {
   __resetProcessHeartbeatForTest,
   processHeartbeatPath,
-  startProcessHeartbeat,
+  startProcessHeartbeat as startHeartbeat,
 } from './process-heartbeat'
 import {
   __resetRuntimeLayoutRunsForTest,
@@ -41,7 +48,7 @@ import {
   RUNTIME_LAYOUT_DEFERRED_MESSAGE,
   type RuntimeLayoutOptions,
   RuntimeLayoutRefusal,
-  removeMovedVaultStateLeftover,
+  removeMovedVaultStateLeftover as removeLeftover,
   VAULT_FILE_NAMES,
 } from './runtime-layout'
 import {
@@ -55,6 +62,9 @@ const VERSION = '3.0.14'
 const ENV_NAMES = ['OPENCODE_CONFIG_DIR', 'XDG_STATE_HOME'] as const
 const POSIX = process.platform !== 'win32'
 const NAME = OPENCODE_VAULT_ENROLLMENT_NAME
+const it = Object.assign(layoutTests(bunIt), {
+  skipIf: (condition: boolean) => layoutTests(bunIt.skipIf(condition)),
+})
 
 describe('RuntimeLayoutRefusal', () => {
   const stateDir =
@@ -108,17 +118,73 @@ let saved: Record<string, string | undefined>
 let logged: { level: string; message: string; meta?: unknown }[]
 let count = 0
 let layoutTrace: RuntimeLayoutLockTrace | undefined
+type CaseResult = { failed: false } | { failed: true; error: unknown }
+type LayoutCase = {
+  trace?: RuntimeLayoutLockTrace
+  setupFailed?: boolean
+  body?: Promise<CaseResult>
+  result?: CaseResult
+}
+let activeCase: LayoutCase | undefined
+let teardownInFlight: Promise<void> | undefined
 
-async function traceLayout(
-  name: string,
-  work: (trace: RuntimeLayoutLockTrace) => Promise<void>,
-) {
-  const trace = new RuntimeLayoutLockTrace(name)
-  layoutTrace = trace
-  await trace.run(async () => {
-    await trace.phase('trace:install', () => trace.install())
-    await work(trace)
+function tracePhase<T>(phase: string, work: () => Promise<T>): Promise<T> {
+  return layoutTrace ? layoutTrace.phase(phase, work) : work()
+}
+
+function traceSync<T>(phase: string, work: () => T, path?: string): T {
+  return layoutTrace ? layoutTrace.syncPhase(phase, work, path) : work()
+}
+
+const writeFileSync: typeof fsWriteFileSync = (...args) =>
+  traceSync('fixture:write', () => fsWriteFileSync(...args), String(args[0]))
+
+const removeMovedVaultStateLeftover: typeof removeLeftover = (...args) =>
+  tracePhase('disconnect:remove-leftover', () => removeLeftover(...args))
+
+const startProcessHeartbeat: typeof startHeartbeat = (options) =>
+  tracePhase('start:heartbeat', () => startHeartbeat(options))
+
+function layoutTests(register: typeof bunIt) {
+  return Object.assign(traceCase(register), {
+    each: <T>(cases: readonly T[]) =>
+      traceCase(
+        register.each([...cases]) as Test<
+          T extends readonly unknown[] ? T : [T]
+        >,
+      ),
   })
+}
+
+function traceCase<Args extends readonly unknown[]>(register: Test<Args>) {
+  return (name: string, work: Parameters<Test<Args>>[1], timeout?: number) => {
+    register(
+      name,
+      (...args) => {
+        const current = activeCase
+        if (!current) throw new Error('layout test setup did not run')
+        let index = 0
+        const label = name.replaceAll('%s', () => String(args[index++]))
+        // Use Bun's default only for the trace timer; leave the registered timeout unchanged.
+        current.trace?.arm(label, timeout ?? 5_000)
+        const body = async () => work(...args)
+        current.body = tracePhase('body', body)
+          .then<CaseResult, CaseResult>(
+            () => ({ failed: false }),
+            (error: unknown) => ({ failed: true, error }),
+          )
+          .then((result) => {
+            current.result = result
+            current.trace?.bodySettled()
+            return result
+          })
+        return current.body.then((result) => {
+          if (result.failed) throw result.error
+        })
+      },
+      timeout,
+    )
+  }
 }
 
 function testRoot(): string {
@@ -127,31 +193,76 @@ function testRoot(): string {
   return value
 }
 
-beforeEach(() => {
-  count++
-  const dir = join(testRoot(), 'runtime-layout', String(count))
-  mkdirSync(dir, { recursive: true, mode: 0o700 })
-  root = realpathSync.native(dir)
-  saved = Object.fromEntries(ENV_NAMES.map((name) => [name, process.env[name]]))
-  process.env.OPENCODE_CONFIG_DIR = join(root, 'config', 'opencode')
-  process.env.XDG_STATE_HOME = join(root, 'state')
-  resetProcess()
-  logged = []
+beforeEach(async () => {
+  // If Bun times out the hook as well, the next case still cannot change shared state.
+  if (teardownInFlight) await teardownInFlight
+  const trace =
+    process.env.AGY_TRACE_RUNTIME_LAYOUT === '1'
+      ? new RuntimeLayoutLockTrace()
+      : undefined
+  layoutTrace = trace
+  const current: LayoutCase = { trace }
+  activeCase = current
+  try {
+    traceSync('setup:temp-dir-and-environment', () => {
+      saved = Object.fromEntries(
+        ENV_NAMES.map((name) => [name, process.env[name]]),
+      )
+      root = ''
+      root = join(testRoot(), 'runtime-layout', String(++count))
+      mkdirSync(root, { recursive: true, mode: 0o700 })
+      root = realpathSync.native(root)
+      process.env.OPENCODE_CONFIG_DIR = join(root, 'config', 'opencode')
+      process.env.XDG_STATE_HOME = join(root, 'state')
+      resetProcess()
+      logged = []
+    })
+    if (trace) await trace.phase('trace:install', () => trace.install())
+  } catch (error) {
+    current.setupFailed = true
+    throw error
+  }
 })
 
 afterEach(() => {
-  layoutTrace?.stop()
-  layoutTrace = undefined
+  const current = activeCase
+  if (!current) return
+  activeCase = undefined
+  const cleanup = finishCase(current)
+  teardownInFlight = cleanup.catch(() => {})
+  return cleanup
+})
+
+async function finishCase(current: LayoutCase) {
+  // Normal bodies settle before Bun calls afterEach. A timeout can leave one
+  // running; don't restore its environment or spies until it actually stops.
+  const timedOut = current.body !== undefined && current.result === undefined
+  const result = await current.body
+  let failed = current.setupFailed || result?.failed
+  try {
+    traceSync('teardown:restore-environment-and-process', restoreLayoutTest)
+  } catch (error) {
+    failed = true
+    throw error
+  } finally {
+    layoutTrace = undefined
+    current.trace?.finish(timedOut ? 'timeout' : failed ? 'failure' : 'passed')
+  }
+}
+
+function restoreLayoutTest() {
   for (const name of ENV_NAMES) {
     const value = saved[name]
     if (value === undefined) delete process.env[name]
     else process.env[name] = value
   }
   resetProcess()
-  try {
-    chmodSync(join(root, 'state'), 0o700)
-  } catch {}
-})
+  if (root) {
+    try {
+      chmodSync(join(root, 'state'), 0o700)
+    } catch {}
+  }
+}
 
 /** Stands in for a new process: nothing decided, nothing logged. */
 function resetProcess() {
@@ -166,15 +277,45 @@ function resetProcess() {
  * exists here, and a move would create one in the state folder.
  */
 function prepare(options: Partial<RuntimeLayoutOptions> = {}) {
-  return prepareRuntimeLayout({
-    version: VERSION,
-    log: {
-      info: (message, meta) => logged.push({ level: 'info', message, meta }),
-      warn: (message, meta) => logged.push({ level: 'warn', message, meta }),
-    },
-    relocate: async () => ({ status: 'cancelled' }),
-    ...options,
-  })
+  return tracePhase('prepare', () =>
+    prepareRuntimeLayout({
+      version: VERSION,
+      log: {
+        info: (message, meta) => logged.push({ level: 'info', message, meta }),
+        warn: (message, meta) => logged.push({ level: 'warn', message, meta }),
+      },
+      relocate: async () => ({ status: 'cancelled' }),
+      ...options,
+      ...(layoutTrace && { steps: traceMoveSteps(layoutTrace, options.steps) }),
+    }),
+  )
+}
+
+function traceMoveSteps(
+  trace: RuntimeLayoutLockTrace,
+  steps: RuntimeLayoutOptions['steps'],
+): RuntimeLayoutOptions['steps'] {
+  const io = steps?.oldFileIO
+  return {
+    ...steps,
+    afterManifest: () =>
+      trace.step('move:manifest-written', () => steps?.afterManifest?.()),
+    afterCopy: () =>
+      trace.step('move:copies-verified', () => steps?.afterCopy?.()),
+    afterMarker: () =>
+      trace.step('move:marker-written', () => steps?.afterMarker?.()),
+    beforeRemove: (path) =>
+      trace.step('move:before-remove', () => steps?.beforeRemove?.(path), path),
+    ...(io && {
+      oldFileIO: {
+        ...io,
+        readFile: (path) =>
+          trace.step('move:cleanup-read', () => io.readFile(path), path),
+        unlink: (path) =>
+          trace.step('move:cleanup-unlink', () => io.unlink(path), path),
+      },
+    }),
+  }
 }
 
 /** OpenCode's config folder in these tests. */
@@ -185,9 +326,15 @@ const oldVault = () => join(configDir(), 'antigravity-auth-vault')
 const newVault = () => join(runtimeDir(), 'antigravity-auth-vault')
 
 function writePrivate(path: string, text: string) {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
-  writeFileSync(path, text, { mode: 0o600 })
-  chmodSync(path, 0o600)
+  traceSync(
+    'fixture:write-private',
+    () => {
+      mkdirSync(dirname(path), { recursive: true, mode: 0o700 })
+      writeFileSync(path, text, { mode: 0o600 })
+      chmodSync(path, 0o600)
+    },
+    path,
+  )
 }
 
 /** Real-file snapshots let comparisons run without Windows sharing races. */
@@ -329,8 +476,14 @@ function pendingLayout(): Record<string, string> {
 }
 
 function seed(dir: string, files: Record<string, string>) {
-  for (const [relative, text] of Object.entries(files))
-    writePrivate(join(dir, relative), text)
+  traceSync(
+    'fixture:seed-vault',
+    () => {
+      for (const [relative, text] of Object.entries(files))
+        writePrivate(join(dir, relative), text)
+    },
+    dir,
+  )
 }
 
 function present(dir: string, files: Record<string, string>) {
@@ -365,12 +518,14 @@ function marker(dir = runtimeDir()) {
   return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : undefined
 }
 
-async function authorityAt(vaultDir: string) {
-  const claustrum = await loadCommonAuthClaustrum()
-  return vaultAuthority(
-    claustrum.hostEnrollmentPaths({ stateDir: vaultDir, host: 'opencode' }),
-    NAME,
-  )
+function authorityAt(vaultDir: string) {
+  return tracePhase('vault:authority', async () => {
+    const claustrum = await loadCommonAuthClaustrum()
+    return vaultAuthority(
+      claustrum.hostEnrollmentPaths({ stateDir: vaultDir, host: 'opencode' }),
+      NAME,
+    )
+  })
 }
 
 /** The vault mode an older version reads from OpenCode's config folder. */
@@ -378,10 +533,19 @@ const oldFolderAuthority = () => authorityAt(oldVault())
 
 function heartbeat(pid: number, body: Record<string, unknown>) {
   const dir = processHeartbeatDir(join(root, 'state'))
-  mkdirSync(dir, { recursive: true })
   const path = join(dir, `${pid}.json`)
-  writeFileSync(path, JSON.stringify({ pid, startedAt: Date.now(), ...body }))
-  return path
+  return traceSync(
+    'fixture:fake-heartbeat',
+    () => {
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(
+        path,
+        JSON.stringify({ pid, startedAt: Date.now(), ...body }),
+      )
+      return path
+    },
+    path,
+  )
 }
 
 const layoutLockPath = () =>
@@ -1191,109 +1355,64 @@ describe('an approved vault enrollment and older versions', () => {
   })
 
   it('disconnect removes a leftover an older version rewrote, and an older version then reads local', async () => {
-    await traceLayout(
-      'disconnect removes a leftover an older version rewrote, and an older version then reads local',
-      async (trace) => {
-        trace.syncPhase('seed:private-writes', () =>
-          seed(configDir(), oldLayout()),
-        )
-        await trace.phase('prepare:move', () => prepare())
-        expect(
-          await trace.phase('reconcile:older-version', () =>
-            reconcileAt(oldVault(), fakeVaultClient().client),
-          ),
-        ).toMatchObject({
-          state: 'blocked',
-          code: 'missing_token',
-        })
-        // Disconnect removes the new token and state, then the leftover.
-        trace.syncPhase('disconnect:remove-token-and-state', () => {
-          rmSync(join(newVault(), 'opencode-enrollment.json'))
-          rmSync(join(newVault(), 'opencode-enrollment-state.json'))
-        })
-        await trace.phase('removeMovedVaultStateLeftover:current-vault', () =>
-          removeMovedVaultStateLeftover(getVaultDir()),
-        )
-        expect(existsSync(join(configDir(), VAULT_STATE))).toBe(false)
-        expect(existsSync(oldVault())).toBe(false)
-        expect(
-          await trace.phase('authority:older-version', oldFolderAuthority),
-        ).toBe('local')
-        expect(
-          await trace.phase('authority:current-vault', () =>
-            authorityAt(getVaultDir()),
-          ),
-        ).toBe('local')
-        // A later start finds nothing left over.
-        resetProcess()
-        expect(await trace.phase('prepare:later-start', () => prepare())).toBe(
-          'state-home',
-        )
-      },
-    )
+    seed(configDir(), oldLayout())
+    await prepare()
+    expect(
+      await tracePhase('reconcile:older-version', () =>
+        reconcileAt(oldVault(), fakeVaultClient().client),
+      ),
+    ).toMatchObject({ state: 'blocked', code: 'missing_token' })
+    // Disconnect removes the new token and state, then the leftover.
+    traceSync('disconnect:remove-token-and-state', () => {
+      rmSync(join(newVault(), 'opencode-enrollment.json'))
+      rmSync(join(newVault(), 'opencode-enrollment-state.json'))
+    })
+    await removeMovedVaultStateLeftover(getVaultDir())
+    expect(existsSync(join(configDir(), VAULT_STATE))).toBe(false)
+    expect(existsSync(oldVault())).toBe(false)
+    expect(await oldFolderAuthority()).toBe('local')
+    expect(await authorityAt(getVaultDir())).toBe('local')
+    // A later start finds nothing left over.
+    resetProcess()
+    expect(await prepare()).toBe('state-home')
   })
 
   it("disconnect keeps a leftover that is not this plugin's vault state", async () => {
-    await traceLayout(
-      "disconnect keeps a leftover that is not this plugin's vault state",
-      async (trace) => {
-        trace.syncPhase('seed:private-writes', () =>
-          seed(configDir(), oldLayout()),
-        )
-        await trace.phase('prepare:move', () => prepare())
-        const foreign = `${JSON.stringify({
-          version: 1,
-          phase: 'approved',
-          proposedName: 'antigravity-auth-pi',
-          tokenGeneration: 1,
-          updatedAt: 2,
-        })}\n`
-        trace.syncPhase('writePrivate:foreign-state', () =>
-          writePrivate(join(configDir(), VAULT_STATE), foreign),
-        )
-        await trace.phase('removeMovedVaultStateLeftover:current-vault', () =>
-          removeMovedVaultStateLeftover(getVaultDir()),
-        )
-        expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(
-          foreign,
-        )
-        // Called for another vault folder, it does nothing.
-        trace.syncPhase('writePrivate:approved-state', () =>
-          writePrivate(join(configDir(), VAULT_STATE), approvedState()),
-        )
-        await trace.phase('removeMovedVaultStateLeftover:other-vault', () =>
-          removeMovedVaultStateLeftover(join(root, 'some', 'other', 'vault')),
-        )
-        expect(existsSync(join(configDir(), VAULT_STATE))).toBe(true)
-      },
-    )
+    seed(configDir(), oldLayout())
+    await prepare()
+    const foreign = `${JSON.stringify({
+      version: 1,
+      phase: 'approved',
+      proposedName: 'antigravity-auth-pi',
+      tokenGeneration: 1,
+      updatedAt: 2,
+    })}\n`
+    writePrivate(join(configDir(), VAULT_STATE), foreign)
+    await removeMovedVaultStateLeftover(getVaultDir())
+    expect(readFileSync(join(configDir(), VAULT_STATE), 'utf8')).toBe(foreign)
+    // Called for another vault folder, it does nothing.
+    writePrivate(join(configDir(), VAULT_STATE), approvedState())
+    await removeMovedVaultStateLeftover(join(root, 'some', 'other', 'vault'))
+    expect(existsSync(join(configDir(), VAULT_STATE))).toBe(true)
   })
 })
 
 describe('the layout lease before every removal', () => {
   it('a lease lost right before an old file is unlinked removes nothing', async () => {
-    await traceLayout(
-      'a lease lost right before an old file is unlinked removes nothing',
-      async (trace) => {
-        const files = oldLayout()
-        trace.syncPhase('seed:private-writes', () => seed(configDir(), files))
-        const removing: string[] = []
-        await trace.phase('prepare:lease-lost-before-remove', () =>
-          prepare({
-            steps: {
-              beforeRemove: (path) => {
-                removing.push(path)
-                if (removing.length === 1)
-                  trace.syncPhase('write:steal-layout-lease', stealLayoutLease)
-              },
-            },
-          }),
-        )
-        expect(removing[0]).toBe(join(configDir(), TOKEN))
-        expect(present(configDir(), files)).toEqual(files)
-        expect(marker()?.oldFilesRemoved).not.toBe(true)
+    const files = oldLayout()
+    seed(configDir(), files)
+    const removing: string[] = []
+    await prepare({
+      steps: {
+        beforeRemove: (path) => {
+          removing.push(path)
+          if (removing.length === 1) stealLayoutLease()
+        },
       },
-    )
+    })
+    expect(removing[0]).toBe(join(configDir(), TOKEN))
+    expect(present(configDir(), files)).toEqual(files)
+    expect(marker()?.oldFilesRemoved).not.toBe(true)
   })
 
   it('a lease lost between two unlinks stops the clean-up and keeps the remaining old files', async () => {
@@ -1867,7 +1986,14 @@ async function expectServedWithoutProposal(vaultDir: string) {
  * Runs the layout decision in its own process with this test's environment
  * plus `extra` (an undefined value removes a variable).
  */
-async function spawnLayoutProcess(
+function spawnLayoutProcess(
+  mode: 'once' | 'hold' | 'heartbeat',
+  extra?: Record<string, string | undefined>,
+) {
+  return tracePhase(`start:child:${mode}`, () => spawnLayoutChild(mode, extra))
+}
+
+async function spawnLayoutChild(
   mode: 'once' | 'hold' | 'heartbeat',
   extra: Record<string, string | undefined> = {},
 ) {

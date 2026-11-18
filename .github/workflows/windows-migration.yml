@@ -83,6 +83,8 @@ jobs:
           exit $LASTEXITCODE
       - name: Run the vault layout move tests
         shell: pwsh
+        env:
+          AGY_TRACE_RUNTIME_LAYOUT: '1'
         run: |
           bun test packages/opencode/src/runtime-layout.test.ts
           exit $LASTEXITCODE
