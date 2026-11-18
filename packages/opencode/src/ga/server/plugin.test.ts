@@ -373,7 +373,7 @@ describe('loopback bridge', () => {
     expect(await response.text()).toBe('data: {"a":1}\n\ndata: {"b":2}\n\n')
   })
 
-  it('masks project IDs in pre-header bridge errors', async () => {
+  it('keeps project-resolution diagnostics out of pre-header bridge errors', async () => {
     const active = await start(async () => {
       throw new Error('Project: my-real-project-123456 could not be resolved')
     })
@@ -384,7 +384,8 @@ describe('loopback bridge', () => {
     expect(await response.json()).toEqual({
       error: {
         code: 502,
-        message: 'Project: my-r****3456 could not be resolved',
+        message:
+          'antigravity-auth could not complete the operation. Check the plugin log for details.',
         status: 'UNAVAILABLE',
       },
     })
@@ -392,7 +393,9 @@ describe('loopback bridge', () => {
 
   it('answers 502 with the original message for a failure before upstream headers', async () => {
     const active = await start(async () => {
-      throw new Error('connect ECONNREFUSED fake-endpoint')
+      throw realCore.markUpstreamFailure(
+        new Error('connect ECONNREFUSED fake-endpoint'),
+      )
     })
     const response = await fetch(
       active.rewrite(hostRequest(), JOB, NO_PROXY_ENV),
@@ -1886,7 +1889,9 @@ describe('setup against a host context', () => {
         fakeHost(locationDirectory('a'), log, { register: failure }),
         fakeServices(log),
       ),
-    ).rejects.toBe(failure)
+    ).rejects.toThrow(
+      'antigravity-auth could not complete the operation. Check the plugin log for details.',
+    )
     expect(log).toEqual(['dispose services'])
   })
 

@@ -201,9 +201,6 @@ export class PiVaultSetupError extends HostRefusalError {
 export class PiVaultSetup {
   readonly #options: PiVaultSetupOptions
   readonly paths: ClaustrumEnrollmentPaths
-  // The enrollment name from the last approved status read here, for the
-  // request path's no-account error (see `grantPrincipal`).
-  #approvedPrincipal: string | undefined
 
   constructor(options: PiVaultSetupOptions) {
     this.#options = options
@@ -245,7 +242,6 @@ export class PiVaultSetup {
           code: 'unreadable-state',
         }),
       )
-    this.#remember(enrollment)
     const authority = await vaultAuthority(
       this.paths,
       PI_ANTIGRAVITY_ENROLLMENT_NAME,
@@ -273,19 +269,6 @@ export class PiVaultSetup {
           : { mode: 'unreadable' as const, modeProblem: mode.reason }),
       enrollment,
     }
-  }
-
-  #remember(status: ClaustrumEnrollmentStatus): void {
-    if (status.state === 'approved')
-      this.#approvedPrincipal = piGrantPrincipal(status)
-  }
-
-  /**
-   * The enrollment name the vault grants read access to: the name in the
-   * last approved status read here, else the default name.
-   */
-  grantPrincipal(): string {
-    return this.#approvedPrincipal ?? PI_ANTIGRAVITY_ENROLLMENT_NAME
   }
 
   /** Inspect the native login only when local accounts are selected. */
@@ -321,7 +304,6 @@ export class PiVaultSetup {
       if (current.state === 'denied' || current.state === 'blocked')
         await manager.resetTerminal()
       const reconciled = await manager.reconcile()
-      this.#remember(reconciled)
       if (reconciled.state === 'approved') {
         const saved = readPiVaultMode(this.#options.modeFile)
         await this.useVault(

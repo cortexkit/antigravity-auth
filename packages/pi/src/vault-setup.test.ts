@@ -807,7 +807,7 @@ describe('Pi vault enrollment guidance', () => {
     ])
   })
 
-  it('names the enrollment the operator approved under another name in the menu, request access and a send', async () => {
+  it('names the approved enrollment in the menu and request access but not in a model refusal', async () => {
     const OTHER_GRANT =
       'ck auth grant --principal enrolled:antigravity-auth-pi-2 --selector-kind category --selector antigravity-native --operation read'
     const NO_GRANT = [
@@ -868,7 +868,9 @@ describe('Pi vault enrollment guidance', () => {
     )
     expect(dispatched).toBe(0)
     expect(refusal).toBeInstanceOf(PiVaultSendError)
-    expect((refusal as Error).message).toBe(NO_GRANT.join('\n'))
+    expect((refusal as Error).message).toBe(
+      'The vault operator approved Pi. The vault has not granted Pi read access. Open the Vault section of the Antigravity menu for grant instructions.',
+    )
   })
 
   it('points an approved host with vault accounts but local mode at Serve Pi from the vault', async () => {

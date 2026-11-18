@@ -335,7 +335,7 @@ describe('Pi vault request path', () => {
     h.mode = { ok: false, reason: 'the vault mode file is not valid JSON' }
     await expect(
       send(async () => ok(), new AbortController().signal),
-    ).rejects.toThrow(/not valid JSON/)
+    ).rejects.toThrow('Antigravity vault mode is unclear.')
     expect(h.events).not.toContain('source')
   })
 
@@ -531,8 +531,6 @@ describe('Pi vault request path', () => {
 })
 
 describe('Pi vault send when the approved vault serves no accounts', () => {
-  const GRANT =
-    'ck auth grant --principal enrolled:antigravity-auth-pi --selector-kind category --selector antigravity-native --operation read'
   const CATEGORY_GRANT = [
     {
       selectorKind: 'category',
@@ -614,13 +612,11 @@ describe('Pi vault send when the approved vault serves no accounts', () => {
     }
   }
 
-  it('says no grant exists and gives the grant command when the vault reports zero grants', async () => {
+  it('says no grant exists and points to the Vault menu without naming the enrollment', async () => {
     expect(await sendOnEmptyVault(0, [])).toEqual({
       name: 'PiVaultSendError',
-      message: [
-        'The vault operator approved Pi. The vault has not granted Pi read access.',
-        `The vault operator grants it with: ${GRANT}`,
-      ].join('\n'),
+      message:
+        'The vault operator approved Pi. The vault has not granted Pi read access. Open the Vault section of the Antigravity menu for grant instructions.',
     })
   })
 
