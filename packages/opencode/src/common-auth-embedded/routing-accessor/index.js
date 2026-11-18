@@ -184,8 +184,6 @@ function candidateView(candidates) {
             accounts.push({ account_id: accountId, credential_id: credentialId });
         }
     }
-    if (accounts.length === 0)
-        return undefined;
     const lines = accounts
         .map(({ account_id, credential_id }) => Buffer.from(`${account_id}\t${credential_id}\n`, 'utf8'))
         .sort(Buffer.compare);
@@ -290,7 +288,11 @@ export async function askRouting(input) {
             request.warm_credential = warmCredentialId;
         }
         const candidates = candidateView(input.candidates);
-        if (candidates)
+        // A first ask with nothing usable sends no view, so routing is unrestricted
+        // as before. A continue ask always sends one: an empty view after the only
+        // account was refused tells routing nothing is left to offer, where a
+        // missing view would let it hand back the refused account.
+        if (candidates.accounts.length > 0 || request.mode === 'continue')
             request.candidates = candidates;
         const pending = accountFor.call(handle, request, { deadlineMs });
         if (!isObject(pending) || typeof pending.then !== 'function')
