@@ -70,6 +70,10 @@ function loadBackend() {
     });
     return backend;
 }
+function isSharingIoError(detail) {
+    return (detail?.reason === 'io-error' &&
+        (detail.win32Code === 32 || detail.win32Code === 303));
+}
 export class PrivateFileError extends Error {
     path;
     stage;
@@ -88,7 +92,9 @@ export class PrivateFileError extends Error {
             ? // The reason stays on `.reason`: its word "unavailable" would make
                 // OpenCode 1 retry a plain error carrying this message.
                 `Private file refused at ${stage}: ${path}. The Windows native addon of @cortexkit/private-files could not be loaded, so owner-only access cannot be enforced and nothing was read or written. Reinstall the plugin so the private-files Windows prebuild for this architecture is present; Windows has no safe fallback to permission bits.`
-            : `Private file refused at ${stage}: ${path} (${detail?.reason ?? detail?.code ?? 'io-error'}). Keep this file in a folder that only you, the system or administrators can change, such as a folder in your home directory. If other users could read the file before, sign in again to replace the credentials it held. On Windows the file must also be on a local drive that keeps Windows file permissions, such as NTFS.`, { cause });
+            : isSharingIoError(detail)
+                ? `Private file busy at ${stage}: ${path}. Another process was replacing or deleting this file at the same moment (Windows error ${detail.win32Code}).`
+                : `Private file refused at ${stage}: ${path} (${detail?.reason ?? detail?.code ?? 'io-error'}). Keep this file in a folder that only you, the system or administrators can change, such as a folder in your home directory. If other users could read the file before, sign in again to replace the credentials it held. On Windows the file must also be on a local drive that keeps Windows file permissions, such as NTFS.`, { cause });
         this.path = path;
         this.stage = stage;
         this.name = 'PrivateFileError';
@@ -101,8 +107,7 @@ export class PrivateFileError extends Error {
 export function isWindowsSharingViolation(error) {
     return (windowsPrivateFiles &&
         error instanceof PrivateFileError &&
-        error.reason === 'io-error' &&
-        (error.win32Code === 32 || error.win32Code === 303));
+        isSharingIoError(error));
 }
 export async function privateOperation(path, stage, operation) {
     try {

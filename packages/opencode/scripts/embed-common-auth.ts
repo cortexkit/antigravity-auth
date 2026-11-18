@@ -12,15 +12,15 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.53.0.tgz'
-export const producerVersion = '0.53.0'
-export const artifactStatus = 'published'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.55.0.tgz'
+export const producerVersion = '0.55.0'
+export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  archiveBytes: 500371,
-  shasum: '0198ecd60e908146221ea5ab1436ea47077fc212',
-  sha256: 'f9ffedd0b1fdfbb689c6eb1cae27561228b6e80a52d26ec5e6fa4dd1fe47e7ab',
-  sri: 'sha512-WwIae25lpa6W07Rw0JTS45eZohHj9ZSa9Yyc62Z9098lP+ztzEt4zJjDsz5KgbX8Ew/SEfRT4s4buXAnoUrA5Q==',
+  archiveBytes: 502711,
+  shasum: 'be23f6b0c27f8a7dbd48fe034ef7dae659080e14',
+  sha256: 'd2133166e3aebdce4094016879ff77f03e0989956865ba3d2ccfb43a220c32fd',
+  sri: 'sha512-L0N6j5lS3sp4DSm0Jv4EdYEcOTKSjPgsOXEDmmwAb9ivi9tnm4Y1lbrVXKzZBASGvlUv9eOU456ccSFVv1ukAw==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -483,8 +483,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'fs/private-files.js',
-    15235,
-    '4fd7ca5b40dbdcc27044be3d73eaf6910dd75572cf199aea049fd658bcadf64c',
+    15526,
+    '8456644c921d76d1946c9c04a6784308dfbc4c22be19d88d5b15bf629d5f4226',
   ],
   [
     'fs/refresh-file-lock.d.ts',
@@ -618,23 +618,23 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'opencode2/index.d.ts',
-    1303,
-    '50f4352606062af68347bc73ae0765ba44537928cb49db3b739d6e76daeebd53',
+    1325,
+    '03baf6a3ea7b26545ec20a03588ac7f30830c84e15f4bbde51d268218ff3e284',
   ],
   [
     'opencode2/index.js',
-    463,
-    'a626e6a4f3511e07f1e52a0969b855884bd521f0f1382ad28ed35ca83b46fc1e',
+    485,
+    '0a68a5e9af890954e96172fd475ea20e6e137ad20feb0c5ad014d4ea33dfd198',
   ],
   [
     'opencode2/install.d.ts',
-    3995,
-    '484ac235de953920bc30164f2b4e814d565b1fe0beca6847c0f65e1d1d42ec08',
+    4212,
+    'edb14a4f60ef24c85b5e4f41f94b66b5594f38628c65145841fa4bcf1bf319f6',
   ],
   [
     'opencode2/install.js',
-    65057,
-    '823040b7d0fc4b0199fdbaa68583180338b040ea1200d611c645ba9a3b22538d',
+    65592,
+    'fc98e6bd26a6835d118666b1f27fc0598dbe9f929d793b2fe619d3be7375b988',
   ],
   [
     'opencode2/integration.d.ts',
@@ -658,8 +658,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'opencode2/types.d.ts',
-    32757,
-    'd9e94ff62857ad062770ad64e30456c39fafbea57c488099cf06dade301120e1',
+    32971,
+    '955be769b8aacbc13f51d16a94639658424b3e02e29c2a252b4b872bfde9096f',
   ],
   [
     'pi-slot/index.d.ts',
@@ -1218,8 +1218,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/mutate.js',
-    20171,
-    'd61d08f2caed6d7a803ca4c67511e5133d28f21a90a7417f76e23b49ed00591d',
+    21075,
+    'e2b69c850dface416ff3ebc54e2f57fd5c36b5346055b90195493cada75b6901',
   ],
   [
     'store/pool.d.ts',
@@ -1417,15 +1417,15 @@ const routingAccessorCanonical: readonly CanonicalEntry[] = [
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.d.ts',
     output: 'routing-accessor/index.d.ts',
-    bytes: 8159,
-    hash: 'be4ee94f1f7ebcc587388df1c4c7744d2f15d6f1cabe08734fdec91012b0946f',
+    bytes: 10161,
+    hash: '9a53d387aea7a3423225372bd8a61000838e1c7bb5818c93a32455f2037c315f',
   },
   {
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.js',
     output: 'routing-accessor/index.js',
-    bytes: 18496,
-    hash: 'e4b90716dfc490aa2abca9062b46f2da30b49d8478d101888efbb6b93de63662',
+    bytes: 22848,
+    hash: '13f13701391958c2e1f52d614a78da8d276594a90ee54b4f6af33bf81b4ca669',
   },
 ]
 
@@ -1564,7 +1564,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    'aa163230a8a9c26fe1af7e72e1aeb45406e59befdc4009e7a8212eb4c5b50c53'
+    'f9c431976a1e55042d827cf0defcfe8582eb7b3e2d07ee792480af9b102ac610'
   )
     throw new Error('publication: manifest bytes')
 }

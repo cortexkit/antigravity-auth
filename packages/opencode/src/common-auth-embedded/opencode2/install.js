@@ -2,8 +2,13 @@ import { OpenCode2AuthError } from './errors.js';
 import { placeholderSecret } from './integration.js';
 import { watchServerSentEvents } from './sse.js';
 export const DEFAULT_MAX_RECORDS = 512;
-/** Allow a one-hour cache lifetime plus the maximum session jitter. */
+/** Cache-bound holds allow a one-hour cache lifetime plus maximum session jitter. */
 export const MAX_RETRY_HOLD_MS = 3_621_000;
+/**
+ * Terminal quota waits allow a seven-day reset plus margin while staying below
+ * the signed 32-bit millisecond timer limit (2^31 - 1 ms).
+ */
+export const MAX_TERMINAL_HOLD_MS = 691_200_000;
 /**
  * The request header `model.request` sets to the attempt it started. The
  * host builds the HTTP request and the WebSocket handshake from the headers
@@ -136,6 +141,8 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
     const logger = options.logger;
     const maxRecords = Math.max(1, options.maxRecords ?? DEFAULT_MAX_RECORDS);
     const hostRetryLimit = options.hostRetryLimit ?? 10;
+    // Retry labels start at 2; count the retry being decided as still available.
+    const remainingHostRetries = (attempt) => hostRetryLimit + 2 - attempt;
     const forbidden = [
         ...(options.hostCredentials ?? [placeholderSecret(providerID)]),
         // An owned request must replace its placeholder even if a caller customizes
@@ -1002,7 +1009,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
             const canContinue = () => rec.readFailed === true &&
                 draft.error.type === 'provider.transport' &&
                 hostDecision.retry &&
-                hostRetryLimit - draft.attempt >= 1 &&
+                remainingHostRetries(draft.attempt) >= 1 &&
                 !rec.limit &&
                 !(rec.status !== undefined && rec.status >= 400) &&
                 !(draft.error.status !== undefined && draft.error.status >= 400) &&
@@ -1266,7 +1273,7 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                             decision = { retry: false };
                             reason = 'adapter-veto';
                         }
-                        else if (!(hostRetryLimit - draft.attempt >= 1)) {
+                        else if (!(remainingHostRetries(draft.attempt) >= 1)) {
                             if (next)
                                 await releaseChoice(next);
                             next = undefined;
@@ -1284,7 +1291,10 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
                         else if (hold &&
                             Number.isFinite(hold.delayMs) &&
                             hold.delayMs >= 0 &&
-                            hold.delayMs <= MAX_RETRY_HOLD_MS) {
+                            hold.delayMs <=
+                                (hold.kind === 'terminal'
+                                    ? MAX_TERMINAL_HOLD_MS
+                                    : MAX_RETRY_HOLD_MS)) {
                             // A recognised account limit can be recoverable even when
                             // the host treats its provider error as final.
                             decision = {

@@ -58,7 +58,7 @@ export type HeaderEdits = Readonly<Record<string, string | null>>;
 export interface ChooseAccountInput extends RequestScope {
     /** The retry hook's advance choice (which may hold), or a request's own choice. */
     readonly phase: 'retry' | 'request';
-    /** Retry hook draft's attempt count; also carried by a consumed hold's wake. */
+    /** Next-attempt label (first retry is 2); also carried by a consumed hold's wake. */
     readonly hostAttempt?: number;
     /** Revalidate the held account before dispatch, even if the target is not due. */
     readonly wake?: RetryWake;
@@ -101,14 +101,15 @@ export interface RetryHold {
         /**
          * Adapter-computed wait in milliseconds, including per-session jitter.
          * Finite, non-negative values up to MAX_RETRY_HOLD_MS (3_621_000) are
-         * accepted. Larger or invalid values keep the host's decision and release
-         * the choice rather than dispatching before the requested wait has elapsed.
+         * accepted, or up to MAX_TERMINAL_HOLD_MS (691_200_000) for kind 'terminal'.
+         * Larger or invalid values keep the host's decision and release the choice
+         * rather than dispatching before the requested wait has elapsed.
          */
         readonly delayMs: number;
         /** An absolute wake target; its presence forces a request-phase re-check. */
         readonly target?: number;
         readonly checkpoint?: WaitCheckpoint;
-        /** Forwarded to wake.kind so terminal quota waits omit the cache bound. */
+        /** Terminal quota waits use the longer delay bound and omit the cache bound at wake. */
         readonly kind?: RetryWake['kind'];
     };
 }
@@ -119,7 +120,7 @@ export interface RetryDisposition {
 /** Wait through one host retry, then choose afresh without reserving an account. */
 export interface RetryWaitThenReselect {
     readonly waitThenReselect: {
-        /** Same finite, non-negative delay bound as RetryHold.hold.delayMs. */
+        /** Finite, non-negative delay up to MAX_RETRY_HOLD_MS (3_621_000). */
         readonly delayMs: number;
     };
 }
@@ -518,8 +519,10 @@ export interface InstallOpenCode2AuthOptions {
     /** Most attempts kept before the oldest is abandoned and dropped. */
     readonly maxRecords?: number;
     /**
-     * Host retry budget, default 10. When hostAttempt leaves no retry available,
-     * limit holds and reroutes keep the host's decision and release their choice.
+     * Number of host retries, default 10 (next-attempt labels 2 through 11).
+     * Remaining retries, including the one being decided, are
+     * hostRetryLimit + 2 - hostAttempt. With none available, limit holds and
+     * reroutes keep the host's decision and release their choice.
      */
     readonly hostRetryLimit?: number;
     /**

@@ -13,11 +13,31 @@ export interface RoutingCandidate {
     accountId: string;
     credentialId: string;
 }
-export interface AskRoutingInput<Candidate extends RoutingCandidate = RoutingCandidate, Refusals extends boolean = false> {
+type ContinueExhaustion = {
+    /** Vault account id, not the plugin's route id. */
+    accountId: string;
+    credentialId: string;
+    /** When the limit or sign-in signal was observed, in Unix milliseconds. */
+    observedAtMs: number;
+} & ({
+    limitWindow: 'five_hour' | 'seven_day';
+    /** Scoped quota group matching `^[a-z0-9._-]{1,64}$`. */
+    pool?: string;
+    /** Reset time in Unix milliseconds. */
+    resetsAtMs?: number;
+    /** Non-negative seconds until retry, rounded down. */
+    retryAfterS?: number;
+} | {
+    limitWindow: 'signed_out';
+    pool?: never;
+    resetsAtMs?: never;
+    retryAfterS?: never;
+});
+export type AskRoutingInput<Candidate extends RoutingCandidate = RoutingCandidate, Refusals extends boolean = false> = {
     sessionId: string;
     provider: string;
     modelId: string;
-    /** Only routes already eligible under the plugin's vault and killswitch rules. */
+    /** Only routes eligible under the vault and the user's configured rules. */
     candidates: readonly Candidate[];
     /** Defaults to 1500 ms, above routing's normal tail; clamped to 1–2000 ms. */
     deadlineMs?: number;
@@ -33,7 +53,24 @@ export interface AskRoutingInput<Candidate extends RoutingCandidate = RoutingCan
     holdWaitMaxS?: number;
     /** Plugin sticky choice's vault credential id; an eligible-account hint, not a pin. */
     warmCredentialId?: string;
-}
+} & ({
+    mode?: never;
+    requestId?: never;
+    exhausted?: never;
+} | {
+    /**
+     * Ask routing whether a run should move off its pinned account. Send to
+     * the selected account, or wait on it if the answer includes a hold.
+     * With `refusals: true`, a `{refused}` answer means keep the run paused
+     * on its account until the reset or, for `signed_out`, until the user
+     * signs in. Do not ask again while paused.
+     */
+    mode: 'continue';
+    /** One id per question (e.g. a fresh UUID); reuse it only to retry that same question. */
+    requestId: string;
+    /** Required on a continue: a proved usage limit or a definite sign-in signal. */
+    exhausted: ContinueExhaustion;
+});
 export interface RoutingHold {
     /** Uncapped advice from routing. The plugin must apply its own hold cap. */
     retry_after_ms: number;
@@ -47,6 +84,7 @@ export type RoutingRefusal = {
     refused: {
         code: 'account_limit_exhausted' | 'account_selection_refused' | 'account_selection_final';
         routingCode?: string;
+        reason?: string;
         retryAfterSecs?: number;
         resetsAtMs?: number;
     };
@@ -110,7 +148,21 @@ export type ReportRoutingInput = (RoutingReportIdentity & ({
      * as 403 or 429. Must match `^[a-z0-9._-]{1,64}$`.
      */
     providerCode: string;
-})) | {
+})) | (RoutingReportIdentity & {
+    /**
+     * Report a 429 or similar response that isn't a proved quota limit. With
+     * no provider retry time, use the final attempt's receipt time + 5,000 ms.
+     * Routing blocks only new admissions on the account until `retryAtMs`.
+     * The session's pin stays: wait until `retryAtMs` and retry the run on
+     * the same account. For a proved quota limit, report `exhausted` and ask
+     * routing to continue with the exhausted window. Use `credential_refused`
+     * for an API key refused for any use.
+     */
+    kind: 'transient_backoff';
+    /** Absolute retry time in Unix milliseconds. */
+    retryAtMs: number;
+    providerCode?: string;
+}) | {
     sessionId: string;
     kind: 'turn_notes_supported';
     model: string;
@@ -175,20 +227,18 @@ export declare function turnNotes(sessionId: string): readonly {
  * Ask routing for an eligible vault route. Any failure or unfamiliar answer
  * yields undefined so the plugin can keep its own choice. Opted-in routing
  * refusals instead stop the request. This does not admit routes. Callers never
- * pass an account the vault refused. A plugin may also leave out accounts its
- * user's own eligibility rules exclude, such as a per-model account list. Each
- * plugin decides whether its quota floors (a minimum share of a quota window
- * an account must keep) also filter candidates; routing keeps its own reserve
- * of each window.
- * Routing's pick among the candidates is final. Don't reject it under a local
- * floor, and don't add floors of the plugin's own that duplicate routing's
- * reserves.
+ * pass an account the vault refused. Beyond that, a plugin may leave accounts
+ * out only under a user-configured eligibility rule, such as a killswitch floor
+ * the user turned on (the minimum share of a quota window an account must keep
+ * to be offered) or a per-model account list. Plugins ship no floors of
+ * their own by default. Routing's pick is final: never reject it under a local
+ * floor or choose another account afterwards.
  */
 export declare function askRouting<Candidate extends RoutingCandidate, Refusals extends boolean = false>(input: AskRoutingInput<Candidate, Refusals>): Promise<RoutingSelection<Candidate> | (Refusals extends true ? RoutingRefusal : never) | undefined>;
 /**
- * Report a vault request, billing result, plugin wait or turn-note event without
- * waiting for routing. Only contract fields are sent, and all accessor failures
- * are ignored. Headers must already be limited to rate-limit headers by the
- * caller; values are not filtered or redacted here.
+ * Report a vault request, account backoff, billing result, plugin wait or
+ * turn-note event without waiting for routing. Only contract fields are sent,
+ * and all accessor failures are ignored. Headers must already be limited to
+ * rate-limit headers by the caller; values are not filtered or redacted here.
  */
 export declare function reportRouting(input: ReportRoutingInput): void;

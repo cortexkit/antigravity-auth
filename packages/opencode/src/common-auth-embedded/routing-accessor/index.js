@@ -4,6 +4,7 @@
  * rows. Nothing is persisted here; plugins on routes the runner does not serve
  * get no turn notes.
  */
+import { createHash } from 'node:crypto';
 import { isCacheWarmStopReason, } from './cache-policy.js';
 import { routingHandle } from './handle.js';
 export { CACHE_WARM_STOP_REASONS, isCacheWarmStopReason, reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
@@ -21,6 +22,58 @@ function isObject(value) {
 }
 function isNonEmptyString(value) {
     return typeof value === 'string' && value.length > 0;
+}
+function isBoundedControlFreeString(value, maxLength) {
+    return (isNonEmptyString(value) &&
+        value.length <= maxLength &&
+        !/\p{Cc}/u.test(value));
+}
+function isRoutingCode(value) {
+    return typeof value === 'string' && /^[a-z0-9._-]{1,64}$/.test(value);
+}
+function continueExhaustion(value) {
+    if (!isObject(value) || Array.isArray(value))
+        return undefined;
+    const { accountId, credentialId, limitWindow, observedAtMs } = value;
+    if (!isBoundedControlFreeString(accountId, 256) ||
+        !isBoundedControlFreeString(credentialId, 256) ||
+        typeof observedAtMs !== 'number' ||
+        !Number.isSafeInteger(observedAtMs) ||
+        observedAtMs <= 0 ||
+        (limitWindow !== 'five_hour' &&
+            limitWindow !== 'seven_day' &&
+            limitWindow !== 'signed_out'))
+        return undefined;
+    const exhausted = {
+        account: accountId,
+        credential_id: credentialId,
+        limit_window: limitWindow,
+        observed_at_ms: observedAtMs,
+    };
+    if (limitWindow === 'signed_out') {
+        if ('pool' in value || 'resetsAtMs' in value || 'retryAfterS' in value)
+            return undefined;
+        return exhausted;
+    }
+    const { pool, resetsAtMs, retryAfterS } = value;
+    if ((pool !== undefined && !isRoutingCode(pool)) ||
+        (resetsAtMs !== undefined &&
+            (typeof resetsAtMs !== 'number' ||
+                !Number.isSafeInteger(resetsAtMs) ||
+                resetsAtMs <= 0)) ||
+        (retryAfterS !== undefined &&
+            (typeof retryAfterS !== 'number' ||
+                !Number.isFinite(retryAfterS) ||
+                retryAfterS < 0)))
+        return undefined;
+    return {
+        ...exhausted,
+        ...(pool !== undefined ? { pool } : {}),
+        ...(resetsAtMs !== undefined ? { resets_at_ms: resetsAtMs } : {}),
+        ...(retryAfterS !== undefined
+            ? { retry_after_s: Math.floor(retryAfterS) }
+            : {}),
+    };
 }
 function billingCache(value) {
     if (!isObject(value) || Array.isArray(value))
@@ -123,6 +176,24 @@ export function turnNotes(sessionId) {
         return [];
     }
 }
+function candidateView(candidates) {
+    const accounts = [];
+    for (const { accountId, credentialId } of candidates) {
+        if (isNonEmptyString(accountId) &&
+            isBoundedControlFreeString(credentialId, 256)) {
+            accounts.push({ account_id: accountId, credential_id: credentialId });
+        }
+    }
+    if (accounts.length === 0)
+        return undefined;
+    const lines = accounts
+        .map(({ account_id, credential_id }) => Buffer.from(`${account_id}\t${credential_id}\n`, 'utf8'))
+        .sort(Buffer.compare);
+    const hash = createHash('sha256');
+    for (const line of lines)
+        hash.update(line);
+    return { view_digest: hash.digest('hex'), accounts };
+}
 function selectionFor(answer, candidates) {
     if (!isObject(answer))
         return undefined;
@@ -156,11 +227,11 @@ function refusalFor(value) {
         return undefined;
     }
     const refused = { code };
-    const routingCode = value.routing_code;
-    if (typeof routingCode === 'string' &&
-        /^[a-z0-9._-]{1,64}$/.test(routingCode)) {
+    const { routing_code: routingCode, reason } = value;
+    if (isRoutingCode(routingCode))
         refused.routingCode = routingCode;
-    }
+    if (isRoutingCode(reason))
+        refused.reason = reason;
     const retryAfterSecs = value.retry_after_secs;
     if (typeof retryAfterSecs === 'number' &&
         Number.isFinite(retryAfterSecs) &&
@@ -178,6 +249,21 @@ function refusalFor(value) {
 export async function askRouting(input) {
     let timer;
     try {
+        const request = {
+            provider: input.provider,
+            modelId: input.modelId,
+        };
+        if (input.mode === 'continue') {
+            const { requestId } = input;
+            if (!isBoundedControlFreeString(requestId, 128))
+                return undefined;
+            const exhausted = continueExhaustion(input.exhausted);
+            if (!exhausted)
+                return undefined;
+            request.mode = 'continue';
+            request.request_id = requestId;
+            request.exhausted = exhausted;
+        }
         const handle = routingHandle(input.sessionId);
         if (!handle)
             return undefined;
@@ -192,10 +278,6 @@ export async function askRouting(input) {
             timer = setTimeout(() => resolve(undefined), deadlineMs);
             timer.unref();
         });
-        const request = {
-            provider: input.provider,
-            modelId: input.modelId,
-        };
         const cap = input.holdWaitMaxS;
         if (typeof cap === 'number' && Number.isFinite(cap)) {
             request.hold_wait_max_s = Math.max(0, Math.floor(cap));
@@ -203,12 +285,13 @@ export async function askRouting(input) {
         if (input.refusals === true)
             request.refusals = true;
         const warmCredentialId = input.warmCredentialId;
-        if (isNonEmptyString(warmCredentialId) &&
-            warmCredentialId.length <= 256 &&
-            !/\p{Cc}/u.test(warmCredentialId) &&
+        if (isBoundedControlFreeString(warmCredentialId, 256) &&
             input.candidates.some((candidate) => candidate.credentialId === warmCredentialId)) {
             request.warm_credential = warmCredentialId;
         }
+        const candidates = candidateView(input.candidates);
+        if (candidates)
+            request.candidates = candidates;
         const pending = accountFor.call(handle, request, { deadlineMs });
         if (!isObject(pending) || typeof pending.then !== 'function')
             return undefined;
@@ -227,10 +310,10 @@ export async function askRouting(input) {
     }
 }
 /**
- * Report a vault request, billing result, plugin wait or turn-note event without
- * waiting for routing. Only contract fields are sent, and all accessor failures
- * are ignored. Headers must already be limited to rate-limit headers by the
- * caller; values are not filtered or redacted here.
+ * Report a vault request, account backoff, billing result, plugin wait or
+ * turn-note event without waiting for routing. Only contract fields are sent,
+ * and all accessor failures are ignored. Headers must already be limited to
+ * rate-limit headers by the caller; values are not filtered or redacted here.
  */
 export function reportRouting(input) {
     try {
@@ -244,6 +327,30 @@ export function reportRouting(input) {
         let payload;
         if ('kind' in input) {
             switch (input.kind) {
+                case 'transient_backoff': {
+                    const { accountId, credentialId, retryAtMs, providerCode } = input;
+                    if (!isNonEmptyString(sessionId) ||
+                        !isNonEmptyString(accountId) ||
+                        !Number.isSafeInteger(retryAtMs) ||
+                        retryAtMs <= 0 ||
+                        (credentialId !== undefined &&
+                            !isBoundedControlFreeString(credentialId, 256)) ||
+                        (providerCode !== undefined &&
+                            !isBoundedControlFreeString(providerCode, 128)))
+                        return;
+                    payload = {
+                        kind: 'transient_backoff',
+                        account_id: accountId,
+                        ...(credentialId !== undefined
+                            ? { credential_id: credentialId }
+                            : {}),
+                        retry_at_ms: retryAtMs,
+                        ...(providerCode !== undefined
+                            ? { provider_code: providerCode }
+                            : {}),
+                    };
+                    break;
+                }
                 case 'wait': {
                     const { phase, waitId, reason, nextMs, attempt, message, outcome } = input;
                     if (!isNonEmptyString(sessionId) ||
@@ -406,8 +513,7 @@ export function reportRouting(input) {
                     if (window !== '5h' && window !== '7d')
                         return;
                     // An undefined pool means the whole account, as an omitted one does.
-                    if (pool !== undefined &&
-                        (typeof pool !== 'string' || !/^[a-z0-9._-]{1,64}$/.test(pool)))
+                    if (pool !== undefined && !isRoutingCode(pool))
                         return;
                     payload = {
                         ...identity,
