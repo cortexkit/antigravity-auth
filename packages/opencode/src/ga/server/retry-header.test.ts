@@ -104,8 +104,9 @@ describe('owned GA bridge retry header', () => {
     await response.text()
   })
 
-  it('vetoes host retries for the default pre-header network failure', async () => {
+  it('vetoes host retries for an unmarked pre-header executor failure', async () => {
     const bridge = await start(async () => {
+      // This comes from the executor, not the upstream sender.
       throw new Error('connect ECONNREFUSED fake-endpoint')
     })
     const response = await ownedResponse(bridge)
@@ -115,7 +116,8 @@ describe('owned GA bridge retry header', () => {
       error: {
         code: 502,
         status: 'UNAVAILABLE',
-        message: 'connect ECONNREFUSED fake-endpoint',
+        message:
+          'antigravity-auth could not complete the operation. Check the plugin log for details.',
       },
     })
   })

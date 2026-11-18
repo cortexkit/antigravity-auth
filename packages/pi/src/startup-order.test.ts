@@ -406,7 +406,8 @@ const LOCKOUTS: Array<{
       await writeFile(home.authPath, NATIVE_AUTH, { mode: 0o600 })
       await mkdir(home.stashPath, { mode: 0o700 })
     },
-    reason: 'unsafe-path',
+    reason:
+      'antigravity-auth could not update the host credential slot. Check the plugin log for details.',
     refusal: 'Provider is not configured: google',
   },
 ]
@@ -561,6 +562,7 @@ export default async function(pi) {
           reported: error.error.includes(lockout.reason),
         })),
       ).toEqual([{ event: 'session_start', reported: true }])
+      expect(hostErrors[0]?.error).not.toContain('unsafe-path')
       expect(session.extensionRunner.getCommand('antigravity')).toBeDefined()
       expect(session.modelRuntime.getModels('google').length).toBeGreaterThan(0)
       const model = session.modelRuntime.getModel(

@@ -1507,6 +1507,7 @@ for (const source of ['cold local', 'unavailable vault'] as const) {
           ]) {
             const retired = await dispatch(kind, modelID)
             expect(retired.status).toBe(412)
+            expect(retired.headers.get('x-should-retry')).toBe('false')
             expect(await retired.json()).toEqual({
               error: {
                 code: 412,
@@ -1531,9 +1532,17 @@ for (const source of ['cold local', 'unavailable vault'] as const) {
         ] as const) {
           const control = await dispatch(kind, modelID)
           expect(control.status).toBe(502)
-          expect(await control.text()).toContain(
-            source === 'cold local' ? 'not initialized' : 'ENOENT',
-          )
+          expect(control.headers.get('x-should-retry')).toBe('false')
+          expect(await control.json()).toEqual({
+            error: {
+              code: 502,
+              status: 'UNAVAILABLE',
+              message:
+                source === 'cold local'
+                  ? 'The Antigravity account store is not initialized; initialize it with the antigravity-auth CLI.'
+                  : 'antigravity-auth could not complete the operation. Check the plugin log for details.',
+            },
+          })
         }
         if (source === 'cold local') expect(storeLoads).toBeGreaterThan(0)
         else {
