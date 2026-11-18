@@ -886,7 +886,16 @@ async function realSource(vault: LocalVault, hosted = false) {
   await src.refresh()
   const [ref] = src.routes()
   if (!ref) throw new Error('the real roster produced no route')
-  return { src, ref, claustrum, rosterPath, hostAccessor, relay }
+  return {
+    src,
+    ref,
+    claustrum,
+    rosterPath,
+    tokenPath,
+    client,
+    hostAccessor,
+    relay,
+  }
 }
 
 describe('real public consumer with a local vault transport', () => {
@@ -938,6 +947,39 @@ describe('real public consumer with a local vault transport', () => {
     expect(vault.listTokens).toEqual([ENROLLMENT_TOKEN])
     src.close()
     expect(vault.closed).toBe(1)
+  })
+
+  it('lists a matching gateway row for the category family but refuses it for a classifying family', async () => {
+    const vault = localVault([vaultRow({ authMethod: 'gateway' })])
+    const { src, claustrum, tokenPath, client } = await realSource(vault)
+    try {
+      expect(src.routes()).toEqual([
+        expect.objectContaining({
+          credentialId: CREDENTIAL,
+          accountIdentity: ACCOUNT,
+        }),
+      ])
+
+      const classify = mock(() => ({ kind: 'mine' as const, member: 'google' }))
+      const custody = new claustrum.ClaustrumScopedCustody({
+        tokenPath,
+        client: { ...client },
+        family: { category: 'antigravity-native', refusalCodes: [], classify },
+        logger: SILENT,
+      })
+      try {
+        const inventory = await custody.discover()
+        expect(inventory.credentials).toEqual([])
+        expect(inventory.refused).toEqual([
+          { credentialId: CREDENTIAL, code: 'unknown-auth-method' },
+        ])
+        expect(classify).not.toHaveBeenCalled()
+      } finally {
+        await custody.dispose()
+      }
+    } finally {
+      await src.dispose()
+    }
   })
 
   it('ignores an installed vault host accessor without the marker for discovery and send', async () => {
