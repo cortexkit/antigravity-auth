@@ -183,7 +183,7 @@ async function verify(stage) {
       .digest('hex')
   }
   const expectedArchive =
-    '80a78298cecc98c5b3b7eb3534e2eb77353d582d997962efe9df27a79ef12589'
+    'f8878f24beb3e8b061ade30ac8a4888e947b9bf6c6ad8e8d45c85396610a2a5e'
   for (const receiptPath of [
     'packages/core/dist/common-auth-embedded/source-output.json',
     'packages/opencode/dist/src/common-auth-embedded/source-output.json',

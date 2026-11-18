@@ -260,8 +260,8 @@ test('embed.attribution', async () => {
     await readFile(join(root, outputPath, 'source-output.json'), 'utf8'),
   )
   expect(manifest.package).toBe('@cortexkit/common-auth')
-  expect(manifest.version).toBe('0.55.1')
-  expect(manifest.artifactStatus).toBe('published')
+  expect(manifest.version).toBe('0.55.2')
+  expect(manifest.artifactStatus).toBe('candidate')
   expect(manifest.archiveBytes).toBe(publication.archiveBytes)
   expect(manifest.tarballSha256).toBe(publication.sha256)
   expect(manifest.shasum).toBe(publication.shasum)
@@ -272,7 +272,7 @@ test('embed.attribution', async () => {
     './routing-accessor': publication.routingAccessorRoot,
   })
   expect(manifest.canonicalFiles).toBe(257)
-  expect(manifest.canonicalBytes).toBe(1524660)
+  expect(manifest.canonicalBytes).toBe(1524970)
   expect(manifest.generator.version).toBe(4)
   expect(manifest.files).toEqual([
     ...publication.files.map(([path, bytes, digest]) => ({
@@ -301,7 +301,7 @@ test('embed.attribution', async () => {
   const coreManifest = JSON.parse(
     await readFile(join(root, coreOutputPath, 'source-output.json'), 'utf8'),
   )
-  expect(coreManifest.artifactStatus).toBe('published')
+  expect(coreManifest.artifactStatus).toBe('candidate')
   expect(coreManifest.archiveBytes).toBe(publication.archiveBytes)
   expect(coreManifest.tarballSha256).toBe(publication.sha256)
   expect(coreManifest.shasum).toBe(publication.shasum)
@@ -420,7 +420,7 @@ test.skipIf(!dockerExecutable && !requireDocker)(
     const dockerignore = await readFile(join(target, '.dockerignore'), 'utf8')
     expect(
       dockerignore.indexOf(
-        '!tools/common-auth-build/inputs/cortexkit-common-auth-0.55.1.tgz',
+        '!tools/common-auth-build/inputs/cortexkit-common-auth-0.55.2.tgz',
       ),
     ).toBeGreaterThan(dockerignore.indexOf('**/*.tgz'))
     expect(dockerignore).not.toMatch(/^!.*\*.*tgz/m)
@@ -456,9 +456,9 @@ test.skipIf(!dockerExecutable && !requireDocker)(
       if (container) await command(target, 'docker', ['rm', container])
       if (built) await command(target, 'docker', ['image', 'rm', tag])
     }
-    expect(await names(exported)).toEqual(['cortexkit-common-auth-0.55.1.tgz'])
+    expect(await names(exported)).toEqual(['cortexkit-common-auth-0.55.2.tgz'])
     expect(
-      hash(await readFile(join(exported, 'cortexkit-common-auth-0.55.1.tgz'))),
+      hash(await readFile(join(exported, 'cortexkit-common-auth-0.55.2.tgz'))),
     ).toBe(publication.sha256)
   },
   120000,
