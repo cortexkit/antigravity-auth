@@ -17,10 +17,10 @@ export const producerVersion = '0.55.1'
 export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  archiveBytes: 503089,
-  shasum: 'd531aeb6334d7236baf69e57741dbc50bc7efb85',
-  sha256: '2bfbc618f14adfb6bcd1370d61b0b8ed9591ac0cdec2e05f93739662230870f9',
-  sri: 'sha512-fcRWMzoxg4LP8zkZLjPTC4wDcJJktBVWQOj1+/VFvULSaktbipfvhUa3d3ZSF+A7PvEZ4vZXSZh/oXKnTvMmZA==',
+  archiveBytes: 503296,
+  shasum: '89b988c235f63ce5eedcf5ad31cea2023e0e9609',
+  sha256: '7e2122783c81f09cd1b2ec3c6e2c2922e5fae9da4f38ad777680a476eb64f185',
+  sri: 'sha512-3ld1m6l6jSLC3gB04YMkgvew+vF8KZQQKhf3afUBSFutzkpIC1XD0Gk+ER6sKt6iEGjgFTJtPVRov6dXGd8a+A==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -233,13 +233,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/custody.d.ts',
-    18449,
-    '92b672837f804b3b2925de5f11391413b247906dcc1d5ad538bb64da5057e48d',
+    18601,
+    '9c34f311ef87563256138b5aa070216d9dd027c6ddf4110aba630ba14157bc16',
   ],
   [
     'claustrum/custody.js',
-    43686,
-    '174adfdaa909149453a34666fdf656aff90c7357e0000338c5a0a2a29d7c1e90',
+    44266,
+    '72d08a16f7fb27c26813501b0e89cddfdf640b9aeac8b89e9c7f9c92663db59c',
   ],
   [
     'claustrum/enrollment.d.ts',

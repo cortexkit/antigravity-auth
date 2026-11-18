@@ -23,7 +23,8 @@ export type VaultCredentialType = 'oauth' | 'api_key';
  * Which vault rows belong to this plugin. `refreshAdapter` classifies an OAuth
  * row by the protocol it speaks; `category` is the grant that authorizes this
  * consumer to read it. Static API keys carry no refresh adapter, so they are
- * admitted only when `apiKeys` is set and only by category.
+ * admitted only when `apiKeys` is set. If a row declares an auth method, it
+ * must agree with the credential type.
  */
 export interface ClaustrumFamily {
     refreshAdapter: string;
@@ -118,8 +119,10 @@ export interface VaultInventory {
     readonly credentials: readonly VaultCredential[];
     readonly skipped: readonly SkippedVaultRecord[];
     /**
-     * Classifying families only: declared policy codes or the fixed library codes
-     * `unknown-auth-method`, `unmapped` and `unclassified`, never classifier errors.
+     * Refused rows and their codes, never classifier errors. Category families
+     * omit this field if no rows were refused and use only `unknown-auth-method`.
+     * Classifying families can also use declared policy codes, `unmapped` and
+     * `unclassified`.
      */
     readonly refused?: readonly {
         credentialId?: string;
