@@ -18,7 +18,7 @@ import { fileURLToPath } from 'node:url'
 import { parse } from 'jsonc-parser'
 import ts from 'typescript'
 
-import { embedCommonAuth, sha256 } from './embed-common-auth'
+import { embedCommonAuth, producerVersion, sha256 } from './embed-common-auth'
 import { esbuildBinary, esbuildBundleArgs } from './esbuild-cli'
 import { type CommandResult, runCommand } from './run-command'
 
@@ -904,6 +904,8 @@ async function admitExistingMap(mapFile: string) {
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.52.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.52.1' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.53.0' &&
+        metadata.compiler !==
+          `@cortexkit/common-auth/tui-build@${producerVersion}` &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')
     )
       throw new Error('build: existing TUI map is not owned generated metadata')
