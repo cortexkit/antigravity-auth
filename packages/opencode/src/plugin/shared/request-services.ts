@@ -3328,7 +3328,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
               if (response.status === 400) {
                 const cloned = response.clone()
-                const bodyText = await deadline.wait(() => cloned.text())
+                const bodyText = await deadline.wait(() =>
+                  cloned.text().catch((error: unknown) => {
+                    throw markUpstreamFailure(error)
+                  }),
+                )
                 if (
                   bodyText.includes('Prompt is too long') ||
                   bodyText.includes('prompt_too_long')
@@ -3350,7 +3354,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               const retryDelayMs = config.empty_response_retry_delay_ms ?? 2000
 
               const clonedForCheck = response.clone()
-              const bodyText = await deadline.wait(() => clonedForCheck.text())
+              const bodyText = await deadline.wait(() =>
+                clonedForCheck.text().catch((error: unknown) => {
+                  throw markUpstreamFailure(error)
+                }),
+              )
 
               if (isEmptyResponseBody(bodyText)) {
                 const emptyAttemptKey = `${prepared.sessionId ?? 'none'}:${prepared.effectiveModel ?? 'unknown'}`

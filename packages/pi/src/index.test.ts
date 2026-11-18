@@ -800,7 +800,7 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
     }
   })
 
-  it('still refuses a different PiSlotError when leaving vault mode', async () => {
+  it('still refuses a different PiSlotError when leaving vault mode without exposing its message', async () => {
     const fixture = await recoveryFixture()
     const slotModule = await loadCommonAuthPiSlot()
     const failure = new slotModule.PiSlotError('unsafe-path')
@@ -808,6 +808,8 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
       string,
       (event: unknown, context: unknown) => Promise<void>
     >()
+    const logged: string[] = []
+    setLogSink((record) => logged.push(record.message))
     try {
       await writeFile(fixture.authPath, NATIVE_AUTH, { mode: 0o600 })
       const registerProvider = mock()
@@ -835,16 +837,20 @@ describe('Pi startup when the credential slot cannot be synchronized', () => {
           {},
           { modelRegistry: { refresh: mock() } },
         ),
-      ).rejects.toBe(failure)
+      ).rejects.toThrow('Check the plugin log for details.')
       const config = (
         registerProvider.mock.calls.at(-1) as [string, ProviderConfig]
       )[1]
       expect(config.oauth).toBeUndefined()
       expect(
         (await refusal(config, CUSTODY_PROVIDER_KEY_MARKER)).errorMessage,
-      ).toContain(failure.message)
+      ).toContain('Check the plugin log for details.')
+      expect(
+        logged.filter((message) => message.includes(failure.message)),
+      ).toHaveLength(2)
       expect(await readFile(fixture.authPath, 'utf8')).toBe(NATIVE_AUTH)
     } finally {
+      setLogSink(null)
       await handlers.get('session_shutdown')?.({}, {})
       await rm(fixture.directory, { recursive: true, force: true })
     }

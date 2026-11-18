@@ -8,6 +8,8 @@ export const HOST_STORE_READ_FAILURE =
   'antigravity-auth could not read its account store. Check the plugin log for details.'
 const HOST_STORE_LOCK_FAILURE =
   'antigravity-auth could not secure its account store. Check the plugin log for details.'
+const HOST_CREDENTIAL_SLOT_FAILURE =
+  'antigravity-auth could not update the host credential slot. Check the plugin log for details.'
 const HOST_VAULT_FOLDER_FAILURE =
   'antigravity-auth could not use its vault folder. Check the plugin log for details.'
 const HOST_REQUEST_FAILURE =
@@ -45,6 +47,8 @@ function failureMessage(chain: readonly Error[]): string {
   // OpenCode bundles its own copy of common-auth, and repository failures
   // can wrap either copy. Their error names and the repository kind survive
   // that boundary without importing either embedded runtime into the mapper.
+  if (chain.some((error) => error.name === 'PiSlotError'))
+    return HOST_CREDENTIAL_SLOT_FAILURE
   if (
     chain.some(
       (error) =>
