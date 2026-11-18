@@ -133,7 +133,7 @@ import {
   observeVaultUpstream,
   reportVaultExhaustion,
 } from './vault-routing'
-import { isPrimaryVaultRequest } from './vault-routing-purpose'
+import { isTitleVaultRequest } from './vault-routing-purpose'
 
 /**
  * Wait before retrying the same selection after its first 429.
@@ -1453,6 +1453,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     // cross-request memory during this request. Neither skip is a penalty.
     const modelUnavailableIndexes = new Set<number>()
     let routingPlacementConsidered = false
+    let routedCandidate: RoutingCandidate | undefined
+    let routingTitle = false
 
     while (true) {
       await assertAdmission()
@@ -1640,8 +1642,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               ...(allowlistExcluded ?? []),
             ])
 
+      const vaultCredentials =
+        credentials.domain === 'vault' ? credentials : undefined
       const routingPresent =
-        credentials.domain === 'vault' && hasVaultRoutingAccessor()
+        vaultCredentials !== undefined && hasVaultRoutingAccessor()
+      routingTitle ||=
+        routingPresent && isTitleVaultRequest(kind, init?.headers)
       const firstPlacement =
         routingPresent &&
         !routingPlacementConsidered &&
@@ -1650,50 +1656,66 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           family,
           accountSessionIdentity,
         )
-      // Select before awaiting routing so concurrent sessions see the updated account choice and selection order.
-      let account = accountManager.getCurrentOrNextForFamily(
-        family,
-        model,
-        config.account_selection_strategy,
-        config.pid_offset_enabled,
-        config.soft_quota_threshold_percent,
-        softQuotaCacheTtlMs,
-        accountSessionIdentity,
-        excludedIndexes,
-      )
+      const selectAccount = (exclusions = excludedIndexes) =>
+        accountManager.getCurrentOrNextForFamily(
+          family,
+          model,
+          config.account_selection_strategy,
+          config.pid_offset_enabled,
+          config.soft_quota_threshold_percent,
+          softQuotaCacheTtlMs,
+          accountSessionIdentity,
+          exclusions,
+          !routingTitle,
+        )
+      const isRoutingCandidate = (row: A) =>
+        row.enabled !== false &&
+        !row.accountIneligible &&
+        !row.verificationRequired &&
+        !excludedIndexes?.has(row.index) &&
+        !accountManager.isRateLimited(row, family, model) &&
+        !accountManager.isAccountCoolingDown(row) &&
+        !accountManager.isAccountOverSoftQuota(
+          row,
+          family,
+          config.soft_quota_threshold_percent,
+          softQuotaCacheTtlMs,
+          model,
+          excludedIndexes,
+        )
+
+      let account: A | null = null
+      if (routedCandidate && vaultCredentials?.routingCandidate) {
+        const choice = routedCandidate
+        routedCandidate = undefined
+        const roster = accountManager.getAccounts()
+        const selected = roster.find((row) => {
+          const candidate = vaultCredentials.routingCandidate!(row)
+          return (
+            candidate.credentialId === choice.credentialId &&
+            candidate.accountId === choice.accountId &&
+            isRoutingCandidate(row)
+          )
+        })
+        if (selected)
+          account = selectAccount(
+            new Set(
+              roster.filter((row) => row !== selected).map((row) => row.index),
+            ),
+          )
+      }
+
+      // Reserve the local choice before asking so concurrent sessions keep their
+      // selection order. A title can use that choice without writing a pin.
+      account ??= selectAccount()
 
       if (account) {
         routingPlacementConsidered = true
-        if (
-          firstPlacement &&
-          credentials.domain === 'vault' &&
-          credentials.routingCandidate &&
-          model &&
-          isPrimaryVaultRequest(kind, init?.headers)
-        ) {
-          const candidates = accountManager
-            .getAccounts()
-            .filter(
-              (row) =>
-                row.enabled !== false &&
-                !row.accountIneligible &&
-                !row.verificationRequired &&
-                !excludedIndexes?.has(row.index) &&
-                !accountManager.isRateLimited(row, family, model) &&
-                !accountManager.isAccountCoolingDown(row) &&
-                !accountManager.isAccountOverSoftQuota(
-                  row,
-                  family,
-                  config.soft_quota_threshold_percent,
-                  softQuotaCacheTtlMs,
-                  model,
-                  excludedIndexes,
-                ),
-            )
-            .map((row) => ({
-              ...credentials.routingCandidate!(row),
-              index: row.index,
-            }))
+        if (firstPlacement && vaultCredentials?.routingCandidate && model) {
+          const roster = accountManager.getAccounts()
+          const candidates = roster
+            .filter(isRoutingCandidate)
+            .map((row) => ({ ...vaultCredentials.routingCandidate!(row) }))
           if (candidates.length > 0) {
             const answer = await deadline.wait(() =>
               askRouting({
@@ -1730,29 +1752,16 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   : { retryAfterSeconds }),
               })
             }
+            const currentRoster = accountManager.getAccounts()
             if (
-              answer &&
-              answer.candidate.index !== account.index &&
-              !excludedIndexes?.has(answer.candidate.index)
+              answer ||
+              currentRoster.length !== roster.length ||
+              currentRoster.some((row, index) => row !== roster[index])
             ) {
-              // Re-run the selector to validate routing's choice and update the session's selected account.
-              account =
-                accountManager.getCurrentOrNextForFamily(
-                  family,
-                  model,
-                  config.account_selection_strategy,
-                  config.pid_offset_enabled,
-                  config.soft_quota_threshold_percent,
-                  softQuotaCacheTtlMs,
-                  accountSessionIdentity,
-                  new Set([
-                    ...(excludedIndexes ?? []),
-                    ...accountManager
-                      .getAccounts()
-                      .filter((row) => row.index !== answer.candidate.index)
-                      .map((row) => row.index),
-                  ]),
-                ) ?? account
+              // Rebuild the index-based policy masks against the current roster.
+              // An unusable answer falls through to local selection, not another ask.
+              routedCandidate = answer?.candidate
+              continue
             }
           }
         }
@@ -1990,7 +1999,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         )
       }
       previousAccountIndex = account.index
-      accountManager.recordSessionUsage(account.index, accountSessionIdentity)
+      if (!routingTitle)
+        accountManager.recordSessionUsage(account.index, accountSessionIdentity)
       if (debug.isDebugEnabled()) {
         debug.logAccountContext('Selected', {
           index: account.index,
@@ -3269,6 +3279,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 config.proactive_rotation_threshold_percent ?? 20
               if (
                 !advisoryClosing &&
+                !routingPresent &&
                 proactiveThreshold > 0 &&
                 accountManager.shouldProactivelyRotate(
                   family,

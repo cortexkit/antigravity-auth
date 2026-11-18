@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Ask vault routing on the first model request in each session and model family, including generate and compaction requests. Titles don't set or move the session's account, routing's choice survives roster reordering, and proactive account switching stays off while routing is available.
+
 ## [3.1.8] - 2026-11-18
 
 - Embed published common-auth 0.53.0: while Pi uses the vault, it no longer keeps a copy of its own Google login, and any old saved copy is deleted. Leaving vault mode removes the vault marker and asks you to sign in again with `/login google`, and a leftover vault marker is never sent to Google as a login.

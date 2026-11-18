@@ -137,7 +137,7 @@ Pollers coordinate across processes with a freshness check and an advisory lock.
 
 **Remembered refusals.** A structured `NOT_FOUND` for a model marks that account as unable to serve that model for an hour, or until a new quota reading. This is per request engine.
 
-**Routing.** In vault mode on OpenCode, when Claustrum's routing service is present (`cortexkit.routing` accessor), the engine asks it which account a session's first primary request should use. It falls back to its own choice when routing is late or names an unusable account. It reports `served` after a clean finish, and `exhausted` (with `pool` and window) only for a `QUOTA_EXHAUSTED` 429 backed by a dated 0% reading (`packages/opencode/src/plugin/shared/vault-routing.ts`).
+**Routing.** In vault mode on OpenCode, when Claustrum's routing service is present (`cortexkit.routing` accessor), the engine asks it which account the first model request for each session and model family should use, regardless of request kind. Titles reuse an eligible pin without changing it, or ask without setting one. Internal warmups and cache probes reuse the current request's account without asking. The engine matches routing's choice by vault account and credential ID against the current roster, falls back to local selection if the answer is late or unusable, and does not proactively switch accounts on success. It reports `served` after a clean finish, and `exhausted` (with `pool` and window) only for a `QUOTA_EXHAUSTED` 429 backed by a dated 0% reading (`packages/opencode/src/plugin/shared/vault-routing.ts`).
 
 ## Renderers
 

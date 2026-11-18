@@ -188,7 +188,7 @@ describe('shared request engine import graph', () => {
         'observeVaultUpstream',
         'reportVaultExhaustion',
       ],
-      './vault-routing-purpose': ['isPrimaryVaultRequest'],
+      './vault-routing-purpose': ['isTitleVaultRequest'],
       '@cortexkit/antigravity-auth-core': [
         'MAX_UNCONFIRMED_RATE_LIMIT_RETRIES',
         'PRE_RESPONSE_DEADLINE_MS',

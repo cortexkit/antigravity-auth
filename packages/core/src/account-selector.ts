@@ -1134,6 +1134,8 @@ export class AccountSelector<A extends SelectableAccount> {
      * wait path.
      */
     excludeIndexes?: Set<number>,
+    /** Titles can use the current pin or select an account without writing a pin. */
+    pinSelection = true,
   ): A | null {
     const quotaKey = getQuotaKey(family, model)
     const effectiveSoftQuotaThreshold = this.getEffectiveSoftQuotaThreshold(
@@ -1177,7 +1179,7 @@ export class AccountSelector<A extends SelectableAccount> {
       )
       if (next) {
         this.markTouchedForQuota(next, quotaKey)
-        this.setActiveIndex(family, next.index, identity)
+        if (pinSelection) this.setActiveIndex(family, next.index, identity)
       }
       return next
     }
@@ -1243,7 +1245,8 @@ export class AccountSelector<A extends SelectableAccount> {
         if (selected) {
           this.touchLastUsed(selected)
           this.markTouchedForQuota(selected, quotaKey)
-          this.setActiveIndex(family, selected.index, identity)
+          if (pinSelection)
+            this.setActiveIndex(family, selected.index, identity)
           return selected
         }
       }
@@ -1255,6 +1258,7 @@ export class AccountSelector<A extends SelectableAccount> {
     const offsetApplied = identity
       ? this.getRequestSessionState(identity).offsetAppliedByFamily
       : this.sessionOffsetApplied
+    let temporaryIndex: number | undefined
     if (
       pidOffsetEnabled &&
       !offsetApplied[family] &&
@@ -1274,11 +1278,19 @@ export class AccountSelector<A extends SelectableAccount> {
         toIndex: newIndex,
       })
 
-      this.setActiveIndex(family, newIndex, identity)
-      offsetApplied[family] = true
+      if (pinSelection) {
+        this.setActiveIndex(family, newIndex, identity)
+        offsetApplied[family] = true
+      } else {
+        // The temporary starting point must not replace the session's pin.
+        temporaryIndex = newIndex
+      }
     }
 
-    const current = this.getCurrentAccountForFamily(family, identity)
+    const current =
+      temporaryIndex === undefined
+        ? this.getCurrentAccountForFamily(family, identity)
+        : (this.accounts[temporaryIndex] ?? null)
     const preferred = preferArgonAccounts(
       this.accounts.filter(
         (row) =>
@@ -1335,7 +1347,7 @@ export class AccountSelector<A extends SelectableAccount> {
     )
     if (next) {
       this.markTouchedForQuota(next, quotaKey)
-      this.setActiveIndex(family, next.index, identity)
+      if (pinSelection) this.setActiveIndex(family, next.index, identity)
     }
     return next
   }

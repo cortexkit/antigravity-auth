@@ -8381,9 +8381,12 @@ describe('single Antigravity request path', () => {
 
 describe('createRequestExecutor optional vault routing', () => {
   const symbol = Symbol.for('cortexkit.routing')
-  const session = (id: string) => ({
+  const session = (
+    id: string,
+    kind: 'primary' | 'generate' | 'compaction' | 'title' = 'primary',
+  ) => ({
     session: { sessionId: id, parentSessionId: null },
-    kind: 'primary' as const,
+    kind,
   })
   const admission = (account: ManagedAccount): RequestSendAdmission => ({
     accountIdentity: `identity-${account.index}`,
@@ -8396,23 +8399,26 @@ describe('createRequestExecutor optional vault routing', () => {
   async function routing(
     run: (state: { asks: unknown[][]; reports: unknown[] }) => Promise<void>,
     answer: () => Promise<unknown> = async () => undefined,
+    present = true,
   ) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, symbol)
     const state = { asks: [] as unknown[][], reports: [] as unknown[] }
-    Object.defineProperty(globalThis, symbol, {
-      configurable: true,
-      value: () => ({
-        accountFor: (...args: unknown[]) => {
-          state.asks.push(args)
-          return answer()
-        },
-        report: (input: unknown) => {
-          // These assertions cover routing observations, not the separate billing records.
-          if ((input as { kind?: string }).kind !== 'billing')
-            state.reports.push(input)
-        },
-      }),
-    })
+    if (present)
+      Object.defineProperty(globalThis, symbol, {
+        configurable: true,
+        value: () => ({
+          accountFor: (...args: unknown[]) => {
+            state.asks.push(args)
+            return answer()
+          },
+          report: (input: unknown) => {
+            // These assertions cover routing observations, not the separate billing records.
+            if ((input as { kind?: string }).kind !== 'billing')
+              state.reports.push(input)
+          },
+        }),
+      })
+    else Reflect.deleteProperty(globalThis, symbol)
     try {
       await run(state)
     } finally {
@@ -8421,8 +8427,301 @@ describe('createRequestExecutor optional vault routing', () => {
     }
   }
 
-  it('vault primary first placement asks once with eligible roster identities and uses the named candidate', async () =>
-    routing(
+  const wireBearers = (h: Harness) =>
+    h.calls.map((call) => new Headers(call.init?.headers).get('authorization'))
+
+  const secondAccountAnswer = async () => ({
+    account_id: 'identity-1',
+    credential_id: 'credential-1',
+  })
+
+  const placementHarness = (options: Parameters<typeof harness>[0] = {}) =>
+    harness({
+      pool: options.pool ?? makePool(2),
+      refresh: async (auth) => ({
+        ...auth,
+        access: `access-${auth.refresh.split('|')[0]}`,
+        expires: Date.now() + 3.6e6,
+      }),
+      respond: async () => okJson(),
+      ...options,
+    })
+
+  for (const mode of ['routed vault', 'unrouted vault', 'local'] as const) {
+    const routed = mode === 'routed vault'
+    const depsFor = (h: Harness) =>
+      mode === 'local'
+        ? h.deps
+        : vaultDeps(h, async (account) => admission(account))
+    const bearer = (index: number) =>
+      `Bearer ${mode === 'local' ? 'access-refresh' : 'vault-token'}-${index}`
+
+    it(`routing placement: ${mode} generate then primary, and first compaction`, async () =>
+      routing(
+        async ({ asks }) => {
+          for (const kind of ['generate', 'compaction'] as const) {
+            const h = placementHarness()
+            const executor = createRequestExecutor(depsFor(h))
+            const id = `welcome-${kind}`
+            const initialAskCount = asks.length
+            const expected = routed ? 1 : 0
+            try {
+              await (
+                await executor.execute(
+                  NON_STREAM_URL,
+                  CHAT_INIT(),
+                  session(id, kind),
+                )
+              ).text()
+              expect(asks).toHaveLength(initialAskCount + Number(routed))
+              expect(wireBearers(h)).toEqual([bearer(expected)])
+              expect(
+                h.pool.getCurrentAccountForFamily('gemini', { id })?.index,
+              ).toBe(expected)
+              await (
+                await executor.execute(NON_STREAM_URL, CHAT_INIT(), session(id))
+              ).text()
+              expect(asks).toHaveLength(initialAskCount + Number(routed))
+              expect(wireBearers(h)).toEqual([
+                bearer(expected),
+                bearer(expected),
+              ])
+            } finally {
+              await executor.dispose()
+            }
+          }
+        },
+        secondAccountAnswer,
+        mode !== 'unrouted vault',
+      ))
+
+    it(`routing placement: ${mode} title with and without a pin`, async () =>
+      routing(
+        async ({ asks }) => {
+          const h = placementHarness()
+          const executor = createRequestExecutor(depsFor(h))
+          const id = 'title-then-turn'
+          const pin = () => h.pool.getCurrentAccountForFamily('gemini', { id })
+          const send = async (kind: 'title' | 'primary') =>
+            (
+              await executor.execute(
+                NON_STREAM_URL,
+                CHAT_INIT(),
+                session(id, kind),
+              )
+            ).text()
+          try {
+            await send('title')
+            expect(asks).toHaveLength(Number(routed))
+            expect(wireBearers(h)).toEqual([bearer(routed ? 1 : 0)])
+            expect(pin()).toBe(routed ? null : h.pool.getAccounts()[0]!)
+            await send('primary')
+            expect(asks).toHaveLength(routed ? 2 : 0)
+            const pinned = h.pool.getAccounts()[routed ? 1 : 0]!
+            expect(pin()).toBe(pinned)
+            await send('title')
+            expect(asks).toHaveLength(routed ? 2 : 0)
+            expect(wireBearers(h)).toEqual(Array(3).fill(bearer(pinned.index)))
+            expect(pin()).toBe(pinned)
+
+            h.pool.markAccountCoolingDown(pinned, 60_000, 'network-error')
+            await send('title')
+            const alternate = h.pool.getAccounts()[1 - pinned.index]!
+            expect(wireBearers(h).at(-1)).toBe(bearer(alternate.index))
+            expect(pin()).toBe(routed ? pinned : alternate)
+            expect(asks).toHaveLength(routed ? 2 : 0)
+          } finally {
+            await executor.dispose()
+          }
+        },
+        secondAccountAnswer,
+        mode !== 'unrouted vault',
+      ))
+
+    it(`routing placement: ${mode} success with a low quota pin`, async () =>
+      routing(
+        async ({ asks }) => {
+          const pool = makePool(2)
+          const first = routed ? 1 : 0
+          pool.getAccounts()[first]!.cachedQuota = {
+            gemini: { modelCount: 1, remainingFraction: 0.1 },
+          }
+          pool.getAccounts()[first]!.cachedQuotaUpdatedAt = Date.now()
+          const h = placementHarness({
+            pool,
+            config: { proactive_rotation_threshold_percent: 20 },
+          })
+          const executor = createRequestExecutor(depsFor(h))
+          const id = 'low-quota-pin'
+          const send = async () =>
+            (
+              await executor.execute(NON_STREAM_URL, CHAT_INIT(), session(id))
+            ).text()
+          try {
+            await send()
+            const next = routed ? first : 1
+            expect(wireBearers(h)).toEqual([bearer(first)])
+            expect(
+              pool.getCurrentAccountForFamily('gemini', { id })?.index,
+            ).toBe(next)
+            await send()
+            expect(wireBearers(h)).toEqual([bearer(first), bearer(next)])
+            expect(asks).toHaveLength(Number(routed))
+          } finally {
+            await executor.dispose()
+          }
+        },
+        secondAccountAnswer,
+        mode !== 'unrouted vault',
+      ))
+
+    it(`routing placement: ${mode} thinking warmup uses the main account without another ask`, async () =>
+      routing(
+        async ({ asks }) => {
+          const h = placementHarness({
+            config: { thinking_warmup: true },
+          })
+          const executor = createRequestExecutor({
+            ...depsFor(h),
+            wire: {
+              ...WIRE,
+              prepare: (...args: Parameters<RequestWire['prepare']>) => ({
+                ...WIRE.prepare(...args),
+                needsSignedThinkingWarmup: true,
+                sessionId: 'placement-warmup',
+              }),
+              buildThinkingWarmupBody: () => 'warmup',
+            },
+          })
+          try {
+            await (
+              await executor.execute(
+                NON_STREAM_URL,
+                CHAT_INIT(),
+                session('placement-warmup', 'generate'),
+              )
+            ).text()
+            expect(h.calls[0]?.init?.body).toBe('warmup')
+            const expected = bearer(routed ? 1 : 0)
+            expect(wireBearers(h)).toEqual([expected, expected])
+            expect(asks).toHaveLength(Number(routed))
+          } finally {
+            await executor.dispose()
+          }
+        },
+        secondAccountAnswer,
+        mode !== 'unrouted vault',
+      ))
+
+    it(`routing placement: ${mode} cache probe uses the post-switch account without asking`, async () =>
+      routing(
+        async ({ asks }) => {
+          const h = placementHarness({
+            config: { cache_warmup_on_switch: true },
+            respond: async (_call, index) =>
+              index === 0 ? new Response('fixture', { status: 403 }) : okJson(),
+          })
+          const executor = createRequestExecutor({
+            ...depsFor(h),
+            classifyAccessError: () => ({
+              accountIneligible: true,
+              validationRequired: false,
+            }),
+          })
+          const first = routed ? 1 : 0
+          try {
+            await (
+              await executor.execute(
+                NON_STREAM_URL,
+                CHAT_INIT(),
+                session('cache-probe'),
+              )
+            ).text()
+            expect(wireBearers(h)).toEqual([
+              bearer(first),
+              bearer(1 - first),
+              bearer(1 - first),
+            ])
+            expect(asks).toHaveLength(Number(routed))
+          } finally {
+            await executor.dispose()
+          }
+        },
+        secondAccountAnswer,
+        mode !== 'unrouted vault',
+      ))
+  }
+
+  for (const scenario of [
+    'moves',
+    'leaves',
+    'changes account ID',
+    'cools down',
+  ] as const) {
+    it(`routing placement: the answered credential ${scenario} during the ask`, async () => {
+      const pool = makePool(3)
+      const rows = pool.getAccounts()
+      const first = rows[0]!
+      const target = rows[1]!
+      const identities = new Map(rows.map((row) => [row, admission(row)]))
+      await routing(
+        async ({ asks, reports }) => {
+          const h = harness({ pool, respond: async () => okJson() })
+          const deps = vaultDeps(h, async (row) => identities.get(row)!)
+          if (deps.credentials.domain !== 'vault')
+            throw new Error('expected vault')
+          deps.credentials.routingCandidate = (row) => {
+            const { accountIdentity, credentialId } = identities.get(row)!
+            return { accountId: accountIdentity, credentialId }
+          }
+          const executor = createRequestExecutor(deps)
+          const id = `roster-${scenario}`
+          try {
+            await (
+              await executor.execute(NON_STREAM_URL, CHAT_INIT(), session(id))
+            ).text()
+            const expected =
+              scenario === 'moves' || scenario === 'cools down' ? target : first
+            const receipt = identities.get(expected)!
+            expect(asks).toHaveLength(1)
+            expect(wireBearers(h)).toEqual([`Bearer ${receipt.accessToken}`])
+            expect(pool.getCurrentAccountForFamily('gemini', { id })).toBe(
+              expected,
+            )
+            expect(reports).toEqual([
+              expect.objectContaining({
+                outcome: 'served',
+                account_id: receipt.accountIdentity,
+                credential_id: receipt.credentialId,
+              }),
+            ])
+          } finally {
+            await executor.dispose()
+          }
+        },
+        async () => {
+          if (scenario === 'cools down') {
+            pool.markAccountCoolingDown(first, 60_000, 'network-error')
+            return { account_id: 'identity-0', credential_id: 'credential-0' }
+          }
+          if (scenario === 'changes account ID') {
+            identities.set(target, {
+              ...identities.get(target)!,
+              accountIdentity: 'changed-account',
+            })
+          } else {
+            pool.removeAccount(scenario === 'moves' ? first : target)
+          }
+          return secondAccountAnswer()
+        },
+      )
+    })
+  }
+
+  it('vault primary first placement asks once with eligible roster identities and uses the named candidate', async () => {
+    const candidates: unknown[] = []
+    let offered: unknown[] = []
+    await routing(
       async (state) => {
         const pool = makePool(6)
         pool.markRateLimited(
@@ -8447,7 +8746,6 @@ describe('createRequestExecutor optional vault routing', () => {
           respond: async () => okJson(),
         })
         const deps = vaultDeps(h, async (account) => admission(account))
-        const candidates: unknown[] = []
         if (deps.credentials.domain !== 'vault')
           throw new Error('expected vault')
         const candidate = deps.credentials.routingCandidate!
@@ -8465,7 +8763,7 @@ describe('createRequestExecutor optional vault routing', () => {
               session('first'),
             )
           ).text()
-          expect(candidates).toEqual([
+          expect(offered).toEqual([
             { accountId: 'identity-0', credentialId: 'credential-0' },
             { accountId: 'identity-5', credentialId: 'credential-5' },
           ])
@@ -8503,8 +8801,12 @@ describe('createRequestExecutor optional vault routing', () => {
           await executor.dispose()
         }
       },
-      async () => ({ account_id: 'identity-5', credential_id: 'credential-5' }),
-    ))
+      async () => {
+        offered = [...candidates]
+        return { account_id: 'identity-5', credential_id: 'credential-5' }
+      },
+    )
+  })
 
   it('routing candidates exclude the operator killswitch mask', async () =>
     routing(
@@ -8667,66 +8969,30 @@ describe('createRequestExecutor optional vault routing', () => {
       ))
   }
 
-  it('does not ask for local mode, unclassified legacy requests or any OpenCode 2 non-primary kind', async () =>
-    routing(async (state) => {
-      const h = harness({ respond: async () => okJson() })
-      const local = createRequestExecutor(h.deps)
-      const vault = createRequestExecutor(
-        vaultDeps(h, async (account) => admission(account)),
-      )
-      try {
-        await (
-          await local.execute(NON_STREAM_URL, CHAT_INIT(), session('local'))
-        ).text()
-        for (const kind of [
-          undefined,
-          'title',
-          'compaction',
-          'generate',
-        ] as const) {
-          await (
-            await vault.execute(NON_STREAM_URL, CHAT_INIT(), {
-              session: { sessionId: `kind-${kind}`, parentSessionId: null },
-              ...(kind ? { kind } : {}),
-            })
-          ).text()
-        }
-        expect(state.asks).toEqual([])
-      } finally {
-        await local.dispose()
-        await vault.dispose()
-      }
-    }))
-
-  it('legacy positive primary header asks, is stripped from wire, and auxiliary or unknown agents do not ask', async () =>
-    routing(async (state) => {
+  it('routing placement: legacy title does not pin, and every first send asks even without a purpose header', async () =>
+    routing(async ({ asks }) => {
       const { createVaultRoutingHeaders, VAULT_ROUTING_PURPOSE_HEADER } =
         await import('./vault-routing-purpose')
       const hook = createVaultRoutingHeaders('google')
-      const h = harness({ pool: makePool(2), respond: async () => okJson() })
+      const h = placementHarness()
       const executor = createRequestExecutor(
         vaultDeps(h, async (account) => admission(account)),
       )
       try {
-        for (const agent of [
-          'build',
+        for (const [index, agent] of [
           'title',
+          'build',
           'compaction',
           'summary',
           'custom-unknown',
-        ]) {
+          undefined,
+        ].entries()) {
+          const id = index < 2 ? 'legacy-title-then-build' : `legacy-${agent}`
           const output = {
-            headers: { 'x-session-affinity': `legacy-${agent}` } as Record<
-              string,
-              string
-            >,
+            headers: { 'x-session-affinity': id } as Record<string, string>,
           }
-          await hook(
-            { agent, model: { providerID: 'google' } } as Parameters<
-              typeof hook
-            >[0],
-            output,
-          )
+          if (agent !== undefined)
+            await hook({ agent, model: { providerID: 'google' } }, output)
           await (
             await executor.execute(NON_STREAM_URL, {
               ...CHAT_INIT(),
@@ -8738,12 +9004,16 @@ describe('createRequestExecutor optional vault routing', () => {
               VAULT_ROUTING_PURPOSE_HEADER,
             ),
           ).toBe(false)
+          expect(asks).toHaveLength(index + 1)
+          expect(wireBearers(h).at(-1)).toBe('Bearer vault-token-1')
+          expect(h.pool.getCurrentAccountForFamily('gemini', { id })).toBe(
+            agent === 'title' ? null : h.pool.getAccounts()[1]!,
+          )
         }
-        expect(state.asks).toHaveLength(1)
       } finally {
         await executor.dispose()
       }
-    }))
+    }, secondAccountAnswer))
 
   for (const strategy of ['sticky', 'round-robin', 'hybrid'] as const) {
     it(`concurrent cold ${strategy} sessions reserve the selector placement before slow advice`, async () => {

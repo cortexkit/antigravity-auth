@@ -2,11 +2,11 @@ import { expect, test } from 'bun:test'
 import { prepareAntigravityRequest } from '../request'
 import {
   createVaultRoutingHeaders,
-  isPrimaryVaultRequest,
+  isTitleVaultRequest,
   VAULT_ROUTING_PURPOSE_HEADER,
 } from './vault-routing-purpose'
 
-test('legacy hook positively identifies only known primary agents and keeps other providers unchanged', async () => {
+test('legacy hook identifies only the title agent as a title and keeps other providers unchanged', async () => {
   const hook = createVaultRoutingHeaders('google')
   for (const agent of [
     'build',
@@ -22,8 +22,8 @@ test('legacy hook positively identifies only known primary agents and keeps othe
       { agent, model: { providerID: 'google' } } as Parameters<typeof hook>[0],
       output,
     )
-    expect(isPrimaryVaultRequest(undefined, output.headers)).toBe(
-      agent === 'build' || agent === 'plan',
+    expect(isTitleVaultRequest(undefined, output.headers)).toBe(
+      agent === 'title',
     )
   }
   const other = { headers: { untouched: 'yes' } }
@@ -34,12 +34,12 @@ test('legacy hook positively identifies only known primary agents and keeps othe
     other,
   )
   expect(other.headers).toEqual({ untouched: 'yes' })
-  expect(isPrimaryVaultRequest(undefined)).toBe(false)
-  expect(isPrimaryVaultRequest('primary')).toBe(true)
-  for (const kind of ['title', 'compaction', 'generate'])
+  expect(isTitleVaultRequest(undefined)).toBe(false)
+  expect(isTitleVaultRequest('title')).toBe(true)
+  for (const kind of ['primary', 'compaction', 'generate'])
     expect(
-      isPrimaryVaultRequest(kind, {
-        [VAULT_ROUTING_PURPOSE_HEADER]: 'primary',
+      isTitleVaultRequest(kind, {
+        [VAULT_ROUTING_PURPOSE_HEADER]: 'title',
       }),
     ).toBe(false)
 })
@@ -50,7 +50,7 @@ test('legacy wire preparation strips the internal purpose header alongside sessi
     {
       method: 'POST',
       headers: {
-        [VAULT_ROUTING_PURPOSE_HEADER]: 'primary',
+        [VAULT_ROUTING_PURPOSE_HEADER]: 'title',
         'x-session-affinity': 'session',
       },
       body: JSON.stringify({

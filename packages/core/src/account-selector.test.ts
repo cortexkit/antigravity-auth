@@ -1228,6 +1228,35 @@ describe('AccountSelector membership', () => {
     return { selector, stale, reported, a, b, c }
   }
 
+  for (const strategy of ['sticky', 'round-robin', 'hybrid'] as const) {
+    it(`${strategy} selection without pinning cannot create or replace a pin`, () => {
+      const { selector, a, b, c } = vaultPool()
+      const initialGlobal = selector.getCurrentAccountForFamily('gemini')
+      const selectWithoutPin = (excludeIndexes?: Set<number>) =>
+        selector.getCurrentOrNextForFamily(
+          'gemini',
+          undefined,
+          strategy,
+          true,
+          undefined,
+          undefined,
+          session,
+          excludeIndexes,
+          false,
+        )
+
+      const onlyB = new Set([a.index, c.index])
+      expect(selectWithoutPin(onlyB)).toBe(b)
+      expect(selector.getCurrentAccountForFamily('gemini', session)).toBeNull()
+      expect(selector.getCurrentAccountForFamily('gemini')).toBe(initialGlobal)
+      selector.markSwitched(a, 'rotation', 'gemini', session)
+      expect(selectWithoutPin()).toBe(a)
+      expect(selectWithoutPin(onlyB)).toBe(b)
+      expect(selector.getCurrentAccountForFamily('gemini', session)).toBe(a)
+      expect(selector.getCurrentAccountForFamily('gemini')).toBe(a)
+    })
+  }
+
   it('keeps a vault row, its pins and trackers while route, credential and account match', () => {
     const { selector, b } = vaultPool()
     selector.markSwitched(b, 'rotation', 'gemini', session)

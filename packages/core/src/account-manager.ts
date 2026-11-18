@@ -1427,6 +1427,7 @@ export class AccountManager {
      * wait path.
      */
     excludeIndexes?: Set<number>,
+    pinSelection = true,
   ): ManagedAccount | null {
     return this.selection.getCurrentOrNextForFamily(
       family,
@@ -1437,6 +1438,7 @@ export class AccountManager {
       softQuotaCacheTtlMs,
       identity,
       excludeIndexes,
+      pinSelection,
     )
   }
 
