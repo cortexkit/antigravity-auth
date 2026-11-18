@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.55.0",
-  "artifactStatus": "published",
-  "archiveBytes": 502568,
+  "version": "0.55.1",
+  "artifactStatus": "candidate",
+  "archiveBytes": 503089,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -74,16 +74,16 @@
       "import": "./src/quota-sidebar/index.tsx"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.55.0.tgz",
-  "tarballSha256": "b629e10e9a39c5b1e6dc7576c2d5814a23a5bbb2dad8d6c1ccddb759c14d200c",
-  "sri": "sha512-EScwmEDdxSdW/z+6n1v630bsTdAUSQYBuG4l16yziRqptG4MhjCAoH6aNelSy/I3hIJ2j6bV3IcqteoGWBLpSg==",
-  "shasum": "8a5d3a07ec72662120305388d051c0bdcee416f4",
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.55.1.tgz",
+  "tarballSha256": "2bfbc618f14adfb6bcd1370d61b0b8ed9591ac0cdec2e05f93739662230870f9",
+  "sri": "sha512-fcRWMzoxg4LP8zkZLjPTC4wDcJJktBVWQOj1+/VFvULSaktbipfvhUa3d3ZSF+A7PvEZ4vZXSZh/oXKnTvMmZA==",
+  "shasum": "d531aeb6334d7236baf69e57741dbc50bc7efb85",
   "canonicalFiles": 257,
-  "canonicalBytes": 1522655,
+  "canonicalBytes": 1523928,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "d4f9c099ec2dd6a53cd0b7a35e5571be94e24176c7e01347e4ea20b92eed13fd"
+    "sha256": "535e70f84ec16458afd1938c743cfea1169508acba74e69157b087a00a9b00f4"
   },
   "files": [
     {
@@ -281,9 +281,9 @@
     {
       "source": "package/dist/claustrum/custody.d.ts",
       "output": "claustrum/custody.d.ts",
-      "bytes": 18127,
-      "sourceSha256": "8c4cb2f52551ae36a32c4e68201767df0d19ba396302ed6c2d723d0e066166f6",
-      "outputSha256": "8c4cb2f52551ae36a32c4e68201767df0d19ba396302ed6c2d723d0e066166f6",
+      "bytes": 18449,
+      "sourceSha256": "92b672837f804b3b2925de5f11391413b247906dcc1d5ad538bb64da5057e48d",
+      "outputSha256": "92b672837f804b3b2925de5f11391413b247906dcc1d5ad538bb64da5057e48d",
       "transform": "verbatim"
     },
     {
@@ -1697,9 +1697,9 @@
     {
       "source": "package/dist/setup/process-fence.js",
       "output": "setup/process-fence.js",
-      "bytes": 15880,
-      "sourceSha256": "1d7ee431c9b63aec37e1868df53f0f9c776ccd45d7935282493d1f1d3d6c6127",
-      "outputSha256": "1d7ee431c9b63aec37e1868df53f0f9c776ccd45d7935282493d1f1d3d6c6127",
+      "bytes": 16615,
+      "sourceSha256": "008c119bd1cbac550370933093c89c0c8020010239b71d9407dacbb8d6125cd7",
+      "outputSha256": "008c119bd1cbac550370933093c89c0c8020010239b71d9407dacbb8d6125cd7",
       "transform": "verbatim"
     },
     {
@@ -2129,9 +2129,9 @@
     {
       "source": "package/dist/routing-accessor/index.d.ts",
       "output": "routing-accessor/index.d.ts",
-      "bytes": 10161,
-      "sourceSha256": "9a53d387aea7a3423225372bd8a61000838e1c7bb5818c93a32455f2037c315f",
-      "outputSha256": "9a53d387aea7a3423225372bd8a61000838e1c7bb5818c93a32455f2037c315f",
+      "bytes": 10377,
+      "sourceSha256": "9273612fe071bfdf502d38cc07f5eeca8ecc60d082fa5f578788c7e856a1b15e",
+      "outputSha256": "9273612fe071bfdf502d38cc07f5eeca8ecc60d082fa5f578788c7e856a1b15e",
       "transform": "verbatim"
     },
     {

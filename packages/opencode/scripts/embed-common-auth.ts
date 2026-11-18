@@ -12,15 +12,15 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.55.0.tgz'
-export const producerVersion = '0.55.0'
-export const artifactStatus = 'published'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.55.1.tgz'
+export const producerVersion = '0.55.1'
+export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  archiveBytes: 502568,
-  shasum: '8a5d3a07ec72662120305388d051c0bdcee416f4',
-  sha256: 'b629e10e9a39c5b1e6dc7576c2d5814a23a5bbb2dad8d6c1ccddb759c14d200c',
-  sri: 'sha512-EScwmEDdxSdW/z+6n1v630bsTdAUSQYBuG4l16yziRqptG4MhjCAoH6aNelSy/I3hIJ2j6bV3IcqteoGWBLpSg==',
+  archiveBytes: 503089,
+  shasum: 'd531aeb6334d7236baf69e57741dbc50bc7efb85',
+  sha256: '2bfbc618f14adfb6bcd1370d61b0b8ed9591ac0cdec2e05f93739662230870f9',
+  sri: 'sha512-fcRWMzoxg4LP8zkZLjPTC4wDcJJktBVWQOj1+/VFvULSaktbipfvhUa3d3ZSF+A7PvEZ4vZXSZh/oXKnTvMmZA==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -233,8 +233,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/custody.d.ts',
-    18127,
-    '8c4cb2f52551ae36a32c4e68201767df0d19ba396302ed6c2d723d0e066166f6',
+    18449,
+    '92b672837f804b3b2925de5f11391413b247906dcc1d5ad538bb64da5057e48d',
   ],
   [
     'claustrum/custody.js',
@@ -1118,8 +1118,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'setup/process-fence.js',
-    15880,
-    '1d7ee431c9b63aec37e1868df53f0f9c776ccd45d7935282493d1f1d3d6c6127',
+    16615,
+    '008c119bd1cbac550370933093c89c0c8020010239b71d9407dacbb8d6125cd7',
   ],
   [
     'setup/process-guard.d.ts',
@@ -1417,8 +1417,8 @@ const routingAccessorCanonical: readonly CanonicalEntry[] = [
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.d.ts',
     output: 'routing-accessor/index.d.ts',
-    bytes: 10161,
-    hash: '9a53d387aea7a3423225372bd8a61000838e1c7bb5818c93a32455f2037c315f',
+    bytes: 10377,
+    hash: '9273612fe071bfdf502d38cc07f5eeca8ecc60d082fa5f578788c7e856a1b15e',
   },
   {
     kind: 'dist',
@@ -1564,7 +1564,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    'f9c431976a1e55042d827cf0defcfe8582eb7b3e2d07ee792480af9b102ac610'
+    '541e17afac898f8305712c4d15c491ba0c7ad82f9b0b4e124d783dc7610befae'
   )
     throw new Error('publication: manifest bytes')
 }

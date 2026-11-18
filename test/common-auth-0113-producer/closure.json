@@ -688,7 +688,12 @@
     ],
     "setup/paths.js": ["node:os", "node:path", "node:url"],
     "setup/process-fence.d.ts": ["./types.js"],
-    "setup/process-fence.js": ["./command-runner.js", "node:fs", "node:path"],
+    "setup/process-fence.js": [
+      "../logger/index.js",
+      "./command-runner.js",
+      "node:fs",
+      "node:path"
+    ],
     "setup/prompts.js": ["../auth-menu/select.js"],
     "setup/register.d.ts": ["./process-guard.js", "./types.js"],
     "setup/register.js": [

@@ -1,13 +1,20 @@
-import { type ClaustrumClient, type ClaustrumReporterSource, type EnrollmentTokenFile } from '@cortexkit/claustrum-client';
+import { type ClaustrumClient, type ClaustrumReporterSource, type EnrollmentTokenFile, type ScopedInventoryRow } from '@cortexkit/claustrum-client';
 import { type ClaustrumLogger } from './errors.js';
 import type { InsulaUsageTransport } from './insula.js';
 import { type ClaustrumUsageReading, type ClaustrumUsageReportState, type ScopedUsageSource } from './usage.js';
 import { type ScopedWatchSource, type WatchMode } from './watch.js';
+type ScopedRow = Omit<ScopedInventoryRow, 'authMethod'> & {
+    readonly authMethod?: string;
+};
+type ScopedInventory = Omit<Awaited<ReturnType<ClaustrumClient['listScoped']>>, 'rows'> & {
+    readonly rows: readonly ScopedRow[];
+};
 /**
  * claustrum-client adds watchScoped in 0.12.0 and reportUsageScoped in 0.14.0.
  * Older clients keep polling and simply do not send reply quota readings.
  */
-export type ClaustrumScopedClient = Pick<ClaustrumClient, 'listScoped' | 'getScoped' | 'reportAuthFailureScoped' | 'close'> & {
+export type ClaustrumScopedClient = Pick<ClaustrumClient, 'getScoped' | 'reportAuthFailureScoped' | 'close'> & {
+    listScoped(enrollmentToken?: string): Promise<ScopedInventory>;
     insula?: InsulaUsageTransport;
 } & ScopedWatchSource & ScopedUsageSource;
 /** The two credential types a plugin's family can hold; routing differs by type. */
@@ -364,3 +371,4 @@ export declare class ClaustrumScopedCustody {
     /** Stop accepting work; give token reads and reply reports one shared 2 s drain. */
     dispose(onTimeout?: (pendingOperations: number) => void): Promise<void>;
 }
+export {};
