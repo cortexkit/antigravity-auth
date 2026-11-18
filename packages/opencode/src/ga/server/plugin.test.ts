@@ -1207,7 +1207,7 @@ describe('hook bodies', () => {
         }),
       ).rejects.toEqual(
         new Error(
-          'This request cannot use Antigravity. Choose a google/antigravity- model.',
+          'This request cannot use Antigravity: google/gemini-off-catalog is not an Antigravity model. Choose a google/antigravity- model.',
         ),
       )
       expect(original.bodyUsed).toBe(false)
@@ -1219,19 +1219,19 @@ describe('hook bodies', () => {
 
   for (const [name, modelID, message] of [
     [
-      'refuses a model with a registered Antigravity twin without echoing either model ID',
+      'names an unknown model and its registered Antigravity twin',
       'gemini-3.8-flash',
-      'This request cannot use Antigravity. Choose a google/antigravity- model.',
+      'This request cannot use Antigravity: google/gemini-3.8-flash is not an Antigravity model. Use google/antigravity-gemini-3.8-flash.',
     ],
     [
-      'refuses an unknown model without echoing its ID',
+      'names an unknown model without a twin and suggests the Antigravity prefix',
       'gemini-off-catalog',
-      'This request cannot use Antigravity. Choose a google/antigravity- model.',
+      'This request cannot use Antigravity: google/gemini-off-catalog is not an Antigravity model. Choose a google/antigravity- model.',
     ],
     [
-      'refuses an unknown Antigravity-prefixed model whose ID contains retry hints',
-      'antigravity-unavailable-500',
-      'This request cannot use Antigravity. Choose a google/antigravity- model.',
+      'names an unknown Antigravity-prefixed model without doubling the prefix',
+      'antigravity-off-catalog',
+      'This request cannot use Antigravity: google/antigravity-off-catalog is not an Antigravity model. Choose a google/antigravity- model.',
     ],
   ] as const) {
     it(name, async () => {
@@ -1247,6 +1247,53 @@ describe('hook bodies', () => {
       ).rejects.toEqual(new Error(message))
     })
   }
+
+  it('names an off-catalog model at the ID length limit without suggesting an overlong twin', async () => {
+    const modelID = `team/model_v1.${'A'.repeat(113)}-`
+    expect(modelID).toHaveLength(128)
+    const active = await startBridge()
+    const event = requestEvent('primary', modelID)
+    await expect(
+      server.rewriteGaHttpRequest(event, {
+        bridge: active,
+        ownership,
+        isRegisteredModel: (id) => id === `antigravity-${modelID}`,
+        env: NO_PROXY_ENV,
+      }),
+    ).rejects.toThrow(
+      `This request cannot use Antigravity: google/${modelID} is not an Antigravity model. Choose a google/antigravity- model.`,
+    )
+  })
+
+  it.each([
+    ['retry digits', 'custom-500'],
+    ['a retry word', 'antigravity-UnAvAiLaBlE'],
+    ['a whole-ID retry hint', 'timeout'],
+    ['punctuation outside the model ID alphabet', 'custom:model'],
+    ['a trailing newline', 'custom\n'],
+    ['an ID longer than 128 characters', 'a'.repeat(129)],
+  ] as const)('omits an off-catalog model ID with %s', async (_label, modelID) => {
+    const active = await startBridge()
+    const event = requestEvent('primary', modelID)
+    const original = event.request
+    const refusal = await server
+      .rewriteGaHttpRequest(event, {
+        bridge: active,
+        ownership,
+        isRegisteredModel: registered,
+        env: NO_PROXY_ENV,
+      })
+      .catch((error: unknown) => error)
+    expect(refusal).toBeInstanceOf(Error)
+    const message = (refusal as Error).message
+    expect(message).toBe(
+      'This request cannot use Antigravity. Choose a google/antigravity- model.',
+    )
+    expectNoOpenCodeRetryHints(message)
+    expect(event.request).toBe(original)
+    expect(active.pendingJobs()).toBe(0)
+    expect(retryFor(event.sessionID).decision).toEqual({ retry: false })
+  })
 
   it('keeps ordinary-model and non-content refusal text free of host retry digit runs', async () => {
     const active = await startBridge()

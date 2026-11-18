@@ -58,6 +58,7 @@ import {
   normalizeResetDuration,
   resolveRetryMetadata,
 } from '../../plugin/request-helpers.ts'
+import { openCodeRetryHint } from '../../plugin/shared/opencode-retry-hints.ts'
 import {
   createLocationRuntime,
   type LocationRuntime,
@@ -1744,7 +1745,7 @@ export async function rewriteGaHttpRequest(
     !isRetiredAgyModel(event.model.id)
   ) {
     throw new HostRefusalError(
-      'This request cannot use Antigravity. Choose a google/antigravity- model.',
+      offCatalogModelRefusal(event.model.id, input.isRegisteredModel),
     )
   }
   const job: GaBridgeJob = {
@@ -1760,6 +1761,27 @@ export async function rewriteGaHttpRequest(
     body: await original.clone().text(),
   }
   event.request = input.bridge.rewrite(original, job, input.env)
+}
+
+function offCatalogModelRefusal(
+  modelID: string,
+  isRegisteredModel: (modelID: string) => boolean,
+): string {
+  // The host catalog can contain custom IDs. Keep retry hints and non-ID
+  // characters out of the refusal even though the name came from the host.
+  const safeID = (id: string) =>
+    /^[A-Za-z0-9._/-]{1,128}$/.test(id) && !openCodeRetryHint(id)
+  if (!safeID(modelID)) {
+    return 'This request cannot use Antigravity. Choose a google/antigravity- model.'
+  }
+  const twin = modelID.startsWith('antigravity-')
+    ? null
+    : `antigravity-${modelID}`
+  const suggestion =
+    twin && safeID(twin) && isRegisteredModel(twin)
+      ? `Use google/${twin}.`
+      : 'Choose a google/antigravity- model.'
+  return `This request cannot use Antigravity: google/${modelID} is not an Antigravity model. ${suggestion}`
 }
 
 /** Adapt only responses whose request belongs to a recognized bridge job. */
