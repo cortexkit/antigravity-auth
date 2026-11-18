@@ -36,6 +36,7 @@ import {
   type VaultScopedReceipt,
   type VaultSendAdmission,
 } from './vault-account-source.ts'
+import { ANTIGRAVITY_VAULT_FAMILY } from './vault-family.ts'
 import type { AntigravityVaultStateFs } from './vault-provider-state.ts'
 
 type Reporter = VaultReporterSource
@@ -949,16 +950,38 @@ describe('real public consumer with a local vault transport', () => {
     expect(vault.closed).toBe(1)
   })
 
-  it('lists a matching gateway row for the category family but refuses it for a classifying family', async () => {
-    const vault = localVault([vaultRow({ authMethod: 'gateway' })])
+  it('refuses a matching gateway row for the category family and classifying family', async () => {
+    const vault = localVault([
+      vaultRow({ authMethod: 'gateway' }),
+      vaultRow({
+        id: 'legacy',
+        accountId: 'legacy-account',
+        authMethod: 'antigravity',
+      }),
+    ])
     const { src, claustrum, tokenPath, client } = await realSource(vault)
     try {
       expect(src.routes()).toEqual([
         expect.objectContaining({
-          credentialId: CREDENTIAL,
-          accountIdentity: ACCOUNT,
+          credentialId: 'legacy',
+          accountIdentity: 'legacy-account',
         }),
       ])
+
+      const category = new claustrum.ClaustrumScopedCustody({
+        tokenPath,
+        client: { ...client },
+        family: ANTIGRAVITY_VAULT_FAMILY,
+        logger: SILENT,
+      })
+      try {
+        const inventory = await category.discover()
+        expect(inventory.refused).toEqual([
+          { credentialId: CREDENTIAL, code: 'unknown-auth-method' },
+        ])
+      } finally {
+        await category.dispose()
+      }
 
       const classify = mock(() => ({ kind: 'mine' as const, member: 'google' }))
       const custody = new claustrum.ClaustrumScopedCustody({
@@ -969,14 +992,58 @@ describe('real public consumer with a local vault transport', () => {
       })
       try {
         const inventory = await custody.discover()
-        expect(inventory.credentials).toEqual([])
+        expect(
+          inventory.credentials.map((entry) => entry.credentialId),
+        ).toEqual(['legacy'])
         expect(inventory.refused).toEqual([
           { credentialId: CREDENTIAL, code: 'unknown-auth-method' },
         ])
-        expect(classify).not.toHaveBeenCalled()
+        expect(classify).toHaveBeenCalledTimes(1)
       } finally {
         await custody.dispose()
       }
+    } finally {
+      await src.dispose()
+    }
+  })
+
+  it('serves OAuth rows with no auth method or the antigravity method', async () => {
+    const vault = localVault([
+      vaultRow(),
+      vaultRow({
+        id: 'native',
+        accountId: 'native-account',
+        authMethod: 'antigravity',
+      }),
+    ])
+    const { src } = await realSource(vault)
+    try {
+      const routes = src.routes()
+      expect(routes.map((route) => route.credentialId).sort()).toEqual([
+        CREDENTIAL,
+        'native',
+      ])
+      for (const ref of routes) {
+        vault.served.push(
+          servedCredential(1, {
+            credentialId: ref.credentialId,
+            accountId: ref.accountIdentity,
+          }),
+        )
+        const sent = await src.send(
+          ref,
+          async (admission) => {
+            expect(admission.accessToken).toBe('test-access-v1')
+            return response(200)
+          },
+          { site: 'model' },
+        )
+        expect(sent.status).toBe(200)
+      }
+      expect(vault.gets.map((entry) => entry.credentialId).sort()).toEqual([
+        CREDENTIAL,
+        'native',
+      ])
     } finally {
       await src.dispose()
     }
