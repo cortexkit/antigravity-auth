@@ -67,7 +67,7 @@ export const PACKAGE_ROOT = resolve(
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..')
 const TOOL_ROOT = join(REPO_ROOT, 'tools/common-auth-build')
 const LOCK_HASH =
-  'cfd8b7e9a0128b87f76e4481151add6a6570453804ad18dc9409c7b4b9bbe803'
+  'e2ccd63046dec8e22ab9c698d40bdc40b706b76da8b7f1339f16825a2c66f19f'
 export const BUNDLE_EXTERNALS = [
   'zod',
   'jsonc-parser',
@@ -514,7 +514,7 @@ export async function verifyPrerequisites(): Promise<void> {
     )
     const expected =
       name === '@cortexkit/common-auth'
-        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.53.0.tgz'
+        ? '@cortexkit/common-auth@inputs/cortexkit-common-auth-0.54.1.tgz'
         : `${pkg.name}@${pkg.version}`
     if (entry[0] !== expected)
       throw new Error(

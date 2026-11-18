@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.53.0",
-  "artifactStatus": "published",
-  "archiveBytes": 500371,
+  "version": "0.54.1",
+  "artifactStatus": "candidate",
+  "archiveBytes": 501155,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -74,16 +74,16 @@
       "import": "./src/quota-sidebar/index.tsx"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.53.0.tgz",
-  "tarballSha256": "f9ffedd0b1fdfbb689c6eb1cae27561228b6e80a52d26ec5e6fa4dd1fe47e7ab",
-  "sri": "sha512-WwIae25lpa6W07Rw0JTS45eZohHj9ZSa9Yyc62Z9098lP+ztzEt4zJjDsz5KgbX8Ew/SEfRT4s4buXAnoUrA5Q==",
-  "shasum": "0198ecd60e908146221ea5ab1436ea47077fc212",
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.54.1.tgz",
+  "tarballSha256": "4c1e0bf7b4e364c2d52ffdc2b6ae34db0c668d08c539b5a4010ec7194ad8e90d",
+  "sri": "sha512-kHWTlVavZlGtfnRmfllFT9QZG0gpseEVajjmhc/j6OFcMiQSu1NQKTBXW8B8HPCn+fbkqOMtyhKzC9DcZrXlLA==",
+  "shasum": "5d941899847c6ba83ad31c5c0846059cbc1c3bc0",
   "canonicalFiles": 257,
-  "canonicalBytes": 1514096,
+  "canonicalBytes": 1516089,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "f54aa9e14e1cac3ba0f2158002f58f50ef592638e507fbc4d6302ad4322757da"
+    "sha256": "1029390256d0c254eecc78f91358cc914ea949cf7b8946954557ceb74a200441"
   },
   "files": [
     {
@@ -681,9 +681,9 @@
     {
       "source": "package/dist/fs/private-files.js",
       "output": "fs/private-files.js",
-      "bytes": 15235,
-      "sourceSha256": "4fd7ca5b40dbdcc27044be3d73eaf6910dd75572cf199aea049fd658bcadf64c",
-      "outputSha256": "4fd7ca5b40dbdcc27044be3d73eaf6910dd75572cf199aea049fd658bcadf64c",
+      "bytes": 15526,
+      "sourceSha256": "8456644c921d76d1946c9c04a6784308dfbc4c22be19d88d5b15bf629d5f4226",
+      "outputSha256": "8456644c921d76d1946c9c04a6784308dfbc4c22be19d88d5b15bf629d5f4226",
       "transform": "verbatim"
     },
     {
@@ -897,33 +897,33 @@
     {
       "source": "package/dist/opencode2/index.d.ts",
       "output": "opencode2/index.d.ts",
-      "bytes": 1303,
-      "sourceSha256": "50f4352606062af68347bc73ae0765ba44537928cb49db3b739d6e76daeebd53",
-      "outputSha256": "50f4352606062af68347bc73ae0765ba44537928cb49db3b739d6e76daeebd53",
+      "bytes": 1325,
+      "sourceSha256": "03baf6a3ea7b26545ec20a03588ac7f30830c84e15f4bbde51d268218ff3e284",
+      "outputSha256": "03baf6a3ea7b26545ec20a03588ac7f30830c84e15f4bbde51d268218ff3e284",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/opencode2/index.js",
       "output": "opencode2/index.js",
-      "bytes": 463,
-      "sourceSha256": "a626e6a4f3511e07f1e52a0969b855884bd521f0f1382ad28ed35ca83b46fc1e",
-      "outputSha256": "a626e6a4f3511e07f1e52a0969b855884bd521f0f1382ad28ed35ca83b46fc1e",
+      "bytes": 485,
+      "sourceSha256": "0a68a5e9af890954e96172fd475ea20e6e137ad20feb0c5ad014d4ea33dfd198",
+      "outputSha256": "0a68a5e9af890954e96172fd475ea20e6e137ad20feb0c5ad014d4ea33dfd198",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/opencode2/install.d.ts",
       "output": "opencode2/install.d.ts",
-      "bytes": 3995,
-      "sourceSha256": "484ac235de953920bc30164f2b4e814d565b1fe0beca6847c0f65e1d1d42ec08",
-      "outputSha256": "484ac235de953920bc30164f2b4e814d565b1fe0beca6847c0f65e1d1d42ec08",
+      "bytes": 4212,
+      "sourceSha256": "edb14a4f60ef24c85b5e4f41f94b66b5594f38628c65145841fa4bcf1bf319f6",
+      "outputSha256": "edb14a4f60ef24c85b5e4f41f94b66b5594f38628c65145841fa4bcf1bf319f6",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/opencode2/install.js",
       "output": "opencode2/install.js",
-      "bytes": 65057,
-      "sourceSha256": "823040b7d0fc4b0199fdbaa68583180338b040ea1200d611c645ba9a3b22538d",
-      "outputSha256": "823040b7d0fc4b0199fdbaa68583180338b040ea1200d611c645ba9a3b22538d",
+      "bytes": 65592,
+      "sourceSha256": "fc98e6bd26a6835d118666b1f27fc0598dbe9f929d793b2fe619d3be7375b988",
+      "outputSha256": "fc98e6bd26a6835d118666b1f27fc0598dbe9f929d793b2fe619d3be7375b988",
       "transform": "verbatim"
     },
     {
@@ -961,9 +961,9 @@
     {
       "source": "package/dist/opencode2/types.d.ts",
       "output": "opencode2/types.d.ts",
-      "bytes": 32757,
-      "sourceSha256": "d9e94ff62857ad062770ad64e30456c39fafbea57c488099cf06dade301120e1",
-      "outputSha256": "d9e94ff62857ad062770ad64e30456c39fafbea57c488099cf06dade301120e1",
+      "bytes": 32971,
+      "sourceSha256": "955be769b8aacbc13f51d16a94639658424b3e02e29c2a252b4b872bfde9096f",
+      "outputSha256": "955be769b8aacbc13f51d16a94639658424b3e02e29c2a252b4b872bfde9096f",
       "transform": "verbatim"
     },
     {
@@ -1857,9 +1857,9 @@
     {
       "source": "package/dist/store/mutate.js",
       "output": "store/mutate.js",
-      "bytes": 20171,
-      "sourceSha256": "d61d08f2caed6d7a803ca4c67511e5133d28f21a90a7417f76e23b49ed00591d",
-      "outputSha256": "d61d08f2caed6d7a803ca4c67511e5133d28f21a90a7417f76e23b49ed00591d",
+      "bytes": 20863,
+      "sourceSha256": "26bdedefed4c897aaccc5b2df679442b6a76367845d436edfaee0f934a463eb1",
+      "outputSha256": "26bdedefed4c897aaccc5b2df679442b6a76367845d436edfaee0f934a463eb1",
       "transform": "verbatim"
     },
     {

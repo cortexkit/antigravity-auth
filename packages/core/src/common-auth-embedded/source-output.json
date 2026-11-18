@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.53.0",
-  "artifactStatus": "published",
-  "archiveBytes": 500371,
+  "version": "0.54.1",
+  "artifactStatus": "candidate",
+  "archiveBytes": 501155,
   "publicRoots": {
     "./store": {
       "types": "./dist/store/index.d.ts",
@@ -42,16 +42,16 @@
       "import": "./dist/pi-slot/index.js"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.53.0.tgz",
-  "tarballSha256": "f9ffedd0b1fdfbb689c6eb1cae27561228b6e80a52d26ec5e6fa4dd1fe47e7ab",
-  "sri": "sha512-WwIae25lpa6W07Rw0JTS45eZohHj9ZSa9Yyc62Z9098lP+ztzEt4zJjDsz5KgbX8Ew/SEfRT4s4buXAnoUrA5Q==",
-  "shasum": "0198ecd60e908146221ea5ab1436ea47077fc212",
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.54.1.tgz",
+  "tarballSha256": "4c1e0bf7b4e364c2d52ffdc2b6ae34db0c668d08c539b5a4010ec7194ad8e90d",
+  "sri": "sha512-kHWTlVavZlGtfnRmfllFT9QZG0gpseEVajjmhc/j6OFcMiQSu1NQKTBXW8B8HPCn+fbkqOMtyhKzC9DcZrXlLA==",
+  "shasum": "5d941899847c6ba83ad31c5c0846059cbc1c3bc0",
   "canonicalFiles": 186,
-  "canonicalBytes": 1167566,
+  "canonicalBytes": 1168549,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "f54aa9e14e1cac3ba0f2158002f58f50ef592638e507fbc4d6302ad4322757da"
+    "sha256": "1029390256d0c254eecc78f91358cc914ea949cf7b8946954557ceb74a200441"
   },
   "files": [
     {
@@ -649,9 +649,9 @@
     {
       "source": "package/dist/fs/private-files.js",
       "output": "fs/private-files.js",
-      "bytes": 15235,
-      "sourceSha256": "4fd7ca5b40dbdcc27044be3d73eaf6910dd75572cf199aea049fd658bcadf64c",
-      "outputSha256": "4fd7ca5b40dbdcc27044be3d73eaf6910dd75572cf199aea049fd658bcadf64c",
+      "bytes": 15526,
+      "sourceSha256": "8456644c921d76d1946c9c04a6784308dfbc4c22be19d88d5b15bf629d5f4226",
+      "outputSha256": "8456644c921d76d1946c9c04a6784308dfbc4c22be19d88d5b15bf629d5f4226",
       "transform": "verbatim"
     },
     {
@@ -1329,9 +1329,9 @@
     {
       "source": "package/dist/store/mutate.js",
       "output": "store/mutate.js",
-      "bytes": 20171,
-      "sourceSha256": "d61d08f2caed6d7a803ca4c67511e5133d28f21a90a7417f76e23b49ed00591d",
-      "outputSha256": "d61d08f2caed6d7a803ca4c67511e5133d28f21a90a7417f76e23b49ed00591d",
+      "bytes": 20863,
+      "sourceSha256": "26bdedefed4c897aaccc5b2df679442b6a76367845d436edfaee0f934a463eb1",
+      "outputSha256": "26bdedefed4c897aaccc5b2df679442b6a76367845d436edfaee0f934a463eb1",
       "transform": "verbatim"
     },
     {
