@@ -8396,25 +8396,55 @@ describe('createRequestExecutor optional vault routing', () => {
     projectId: 'vault-project',
     report401: async () => {},
   })
+  type RoutingAsk = {
+    provider: string
+    modelId: string
+    refusals?: boolean
+    mode?: 'continue'
+    request_id?: string
+    candidates?: {
+      accounts: { account_id: string; credential_id: string }[]
+      view_digest: string
+    }
+    exhausted?: unknown
+  }
   async function routing(
-    run: (state: { asks: unknown[][]; reports: unknown[] }) => Promise<void>,
-    answer: () => Promise<unknown> = async () => undefined,
+    run: (state: {
+      asks: [RoutingAsk, unknown][]
+      reports: unknown[]
+      events: string[]
+    }) => Promise<void>,
+    answer: (
+      ask: RoutingAsk,
+      askCount: number,
+    ) => Promise<unknown> = async () => undefined,
     present = true,
   ) {
     const previous = Object.getOwnPropertyDescriptor(globalThis, symbol)
-    const state = { asks: [] as unknown[][], reports: [] as unknown[] }
+    const state = {
+      asks: [] as [RoutingAsk, unknown][],
+      reports: [] as unknown[],
+      events: [] as string[],
+    }
     if (present)
       Object.defineProperty(globalThis, symbol, {
         configurable: true,
         value: () => ({
-          accountFor: (...args: unknown[]) => {
+          accountFor: (...args: [RoutingAsk, unknown]) => {
             state.asks.push(args)
-            return answer()
+            state.events.push(args[0].mode ?? 'ask')
+            return answer(args[0], state.asks.length)
           },
           report: (input: unknown) => {
             // These assertions cover routing observations, not the separate billing records.
-            if ((input as { kind?: string }).kind !== 'billing')
+            const { kind, outcome } = input as {
+              kind?: string
+              outcome?: string
+            }
+            if (kind !== 'billing') {
               state.reports.push(input)
+              state.events.push(kind ?? outcome ?? 'report')
+            }
           },
         }),
       })
@@ -8434,6 +8464,10 @@ describe('createRequestExecutor optional vault routing', () => {
     account_id: 'identity-1',
     credential_id: 'credential-1',
   })
+  const firstAccountAnswer = {
+    account_id: 'identity-0',
+    credential_id: 'credential-0',
+  }
 
   const placementHarness = (options: Parameters<typeof harness>[0] = {}) =>
     harness({
@@ -8526,7 +8560,9 @@ describe('createRequestExecutor optional vault routing', () => {
             h.pool.markAccountCoolingDown(pinned, 60_000, 'network-error')
             await send('title')
             const alternate = h.pool.getAccounts()[1 - pinned.index]!
-            expect(wireBearers(h).at(-1)).toBe(bearer(alternate.index))
+            expect(wireBearers(h).at(-1)).toBe(
+              bearer(routed ? pinned.index : alternate.index),
+            )
             expect(pin()).toBe(routed ? pinned : alternate)
             expect(asks).toHaveLength(routed ? 2 : 0)
           } finally {
@@ -8641,12 +8677,14 @@ describe('createRequestExecutor optional vault routing', () => {
               bearer(1 - first),
               bearer(1 - first),
             ])
-            expect(asks).toHaveLength(Number(routed))
+            // The classified refusal can re-ask; the cache probe never does.
+            expect(asks).toHaveLength(routed ? 2 : 0)
           } finally {
             await executor.dispose()
           }
         },
-        secondAccountAnswer,
+        async (_ask, count) =>
+          count === 1 ? secondAccountAnswer() : firstAccountAnswer,
         mode !== 'unrouted vault',
       ))
   }
@@ -8679,8 +8717,7 @@ describe('createRequestExecutor optional vault routing', () => {
             await (
               await executor.execute(NON_STREAM_URL, CHAT_INIT(), session(id))
             ).text()
-            const expected =
-              scenario === 'moves' || scenario === 'cools down' ? target : first
+            const expected = scenario === 'moves' ? target : first
             const receipt = identities.get(expected)!
             expect(asks).toHaveLength(1)
             expect(wireBearers(h)).toEqual([`Bearer ${receipt.accessToken}`])
@@ -8717,12 +8754,10 @@ describe('createRequestExecutor optional vault routing', () => {
     })
   }
 
-  it('vault primary first placement asks once with eligible roster identities and uses the named candidate', async () => {
-    const candidates: unknown[] = []
-    let offered: unknown[] = []
+  it('routing phase 2: the wire candidates omit policy and model facts, not local marks', async () => {
     await routing(
       async (state) => {
-        const pool = makePool(6)
+        const pool = makePool(8)
         pool.markRateLimited(
           pool.getAccounts()[1]!,
           60_000,
@@ -8739,22 +8774,30 @@ describe('createRequestExecutor optional vault routing', () => {
         }
         pool.getAccounts()[3]!.cachedQuotaUpdatedAt = Date.now()
         pool.getAccounts()[4]!.enabled = false
+        pool.getAccounts()[6]!.ref = {
+          id: 'explicit-model-list',
+          credentialEpoch: 1,
+        }
         const h = harness({
           pool,
           config: { soft_quota_threshold_percent: 90 },
-          respond: async () => okJson(),
+          respond: async (_call, index) =>
+            index === 0
+              ? new Response(
+                  JSON.stringify({ error: { status: 'NOT_FOUND' } }),
+                  { status: 404 },
+                )
+              : okJson(),
         })
         const deps = vaultDeps(h, async (account) => admission(account))
-        if (deps.credentials.domain !== 'vault')
-          throw new Error('expected vault')
-        const candidate = deps.credentials.routingCandidate!
-        deps.credentials.routingCandidate = (account) => {
-          const value = candidate(account)
-          candidates.push(value)
-          return value
-        }
-        const executor = createRequestExecutor(deps)
+        const executor = createRequestExecutor({
+          ...deps,
+          modelAccess: () => ({ allows: (id) => id !== 'explicit-model-list' }),
+        })
         try {
+          // Let a request without a session teach the engine which account lacks the model.
+          await (await executor.execute(NON_STREAM_URL, CHAT_INIT())).text()
+          expect(wireBearers(h)[0]).toBe('Bearer vault-token-0')
           await (
             await executor.execute(
               NON_STREAM_URL,
@@ -8762,23 +8805,25 @@ describe('createRequestExecutor optional vault routing', () => {
               session('first'),
             )
           ).text()
-          expect(offered).toEqual([
-            { accountId: 'identity-0', credentialId: 'credential-0' },
-            { accountId: 'identity-5', credentialId: 'credential-5' },
-          ])
           expect(state.asks).toEqual([
             [
               {
                 provider: 'antigravity',
                 modelId: 'gemini-3-flash',
                 refusals: true,
+                candidates: {
+                  accounts: [1, 2, 5, 7].map((index) => ({
+                    account_id: `identity-${index}`,
+                    credential_id: `credential-${index}`,
+                  })),
+                  view_digest:
+                    '2f2356140c2cd8af8736936b20bd139c2476755cde212f6342705c48d57e2b6e',
+                },
               },
               { deadlineMs: 2000 },
             ],
           ])
-          expect(
-            new Headers(h.calls[0]!.init?.headers).get('authorization'),
-          ).toBe('Bearer vault-token-5')
+          expect(wireBearers(h).at(-1)).toBe('Bearer vault-token-2')
           await (
             await executor.execute(
               NON_STREAM_URL,
@@ -8787,25 +8832,533 @@ describe('createRequestExecutor optional vault routing', () => {
             )
           ).text()
           expect(state.asks).toHaveLength(1)
-          expect(
-            new Headers(h.calls[1]!.init?.headers).get('authorization'),
-          ).toBe('Bearer vault-token-5')
+          expect(wireBearers(h).at(-1)).toBe('Bearer vault-token-2')
           expect(state.reports).toHaveLength(2)
           expect(state.reports[0]).toMatchObject({
-            account_id: 'identity-5',
-            credential_id: 'credential-5',
+            account_id: 'identity-2',
+            credential_id: 'credential-2',
             outcome: 'served',
           })
         } finally {
           await executor.dispose()
         }
       },
-      async () => {
-        offered = [...candidates]
-        return { account_id: 'identity-5', credential_id: 'credential-5' }
-      },
+      async () => ({ account_id: 'identity-2', credential_id: 'credential-2' }),
     )
   })
+
+  it('routing phase 2: asks and sends even when every local choice is blocked', async () => {
+    await routing(async ({ asks }) => {
+      const pool = makePool(2)
+      pool.markAccountCoolingDown(
+        pool.getAccounts()[0]!,
+        60_000,
+        'network-error',
+      )
+      pool.markRateLimited(
+        pool.getAccounts()[1]!,
+        60_000,
+        'gemini',
+        'gemini-3-flash',
+      )
+      const h = placementHarness({
+        pool,
+        config: { max_rate_limit_wait_seconds: 1 },
+      })
+      const executor = createRequestExecutor(
+        vaultDeps(h, async (row) => admission(row)),
+      )
+      try {
+        const response = await executor.execute(
+          NON_STREAM_URL,
+          CHAT_INIT(),
+          session('all-locally-marked'),
+        )
+        await response.text()
+        expect(asks).toHaveLength(1)
+        expect(wireBearers(h)).toEqual(['Bearer vault-token-1'])
+      } finally {
+        await executor.dispose()
+      }
+    }, secondAccountAnswer)
+  })
+
+  it('routing phase 2: an unanswered ask leaves a pin subject to local marks', async () => {
+    await routing(async ({ asks }) => {
+      const h = placementHarness()
+      const executor = createRequestExecutor(
+        vaultDeps(h, async (row) => admission(row)),
+      )
+      const send = async () =>
+        (
+          await executor.execute(
+            NON_STREAM_URL,
+            CHAT_INIT(),
+            session('local-fallback'),
+          )
+        ).text()
+      try {
+        await send()
+        h.pool.markAccountCoolingDown(
+          h.pool.getAccounts()[0]!,
+          60_000,
+          'network-error',
+        )
+        await send()
+        expect(asks).toHaveLength(1)
+        expect(wireBearers(h)).toEqual([
+          'Bearer vault-token-0',
+          'Bearer vault-token-1',
+        ])
+      } finally {
+        await executor.dispose()
+      }
+    })
+  })
+
+  function quotaRefusal() {
+    return new Response(
+      JSON.stringify({
+        error: { status: 'RESOURCE_EXHAUSTED', details: [QUOTA_ERROR_INFO] },
+      }),
+      { status: 429, headers: { 'Retry-After': '8' } },
+    )
+  }
+
+  function quotaReading(pool: CoreAccountManager) {
+    const reset = FIXED_NOW + 3_600_000
+    const observedAt = FIXED_NOW - 1_000
+    const row = pool.getAccounts()[0]!
+    row.cachedQuotaUpdatedAt = observedAt
+    row.cachedQuota = {
+      gemini: {
+        modelCount: 1,
+        remainingFraction: 0,
+        windows: [
+          {
+            window: '5h',
+            remainingFraction: 0,
+            resetTime: new Date(reset).toISOString(),
+          },
+        ],
+      },
+    }
+    return { observedAt, reset }
+  }
+
+  function routedTime(...sleepDelays: number[]) {
+    let now = FIXED_NOW
+    const delays: number[] = []
+    const date = spyOn(Date, 'now').mockImplementation(() => now)
+    const realTimeout = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: () => void,
+      delay: number,
+    ) =>
+      sleepDelays.includes(delay)
+        ? realTimeout(() => {
+            delays.push(delay)
+            now += delay
+            fn()
+          }, 0)
+        : realTimeout(fn, delay)) as typeof setTimeout)
+    return {
+      delays,
+      restore: () => {
+        timer.mockRestore()
+        date.mockRestore()
+      },
+    }
+  }
+
+  for (const scenario of [
+    'retry header',
+    'no retry hint',
+    'quota without proof',
+    'retry cap',
+    'wait cap',
+    'cumulative wait cap',
+  ] as const) {
+    it(`routing phase 2: transient backoff on the same credential (${scenario})`, async () =>
+      routing(
+        async (state) => {
+          const delay = scenario === 'no retry hint' ? 5000 : 8000
+          const clock = routedTime(delay)
+          const h = placementHarness({
+            config: {
+              max_rate_limit_wait_seconds:
+                scenario === 'wait cap'
+                  ? 1
+                  : scenario === 'cumulative wait cap'
+                    ? 10
+                    : 30,
+            },
+            respond: async (_call, index) => {
+              state.events.push('send')
+              if (scenario === 'quota without proof' && index === 0)
+                return quotaRefusal()
+              if (
+                index === 0 ||
+                scenario === 'retry cap' ||
+                scenario === 'cumulative wait cap'
+              )
+                return new Response('{}', {
+                  status: 429,
+                  headers:
+                    scenario === 'no retry hint' ? {} : { 'Retry-After': '8' },
+                })
+              return okJson()
+            },
+          })
+          const executor = createRequestExecutor(
+            vaultDeps(h, async (row) => admission(row)),
+          )
+          try {
+            const result = await executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(),
+              session(scenario),
+            )
+            const refused = scenario.endsWith('cap')
+            expect(result.status).toBe(refused ? 412 : 200)
+            await result.text()
+            const sends =
+              scenario === 'retry cap' ? 3 : scenario === 'wait cap' ? 1 : 2
+            expect(wireBearers(h)).toEqual(
+              Array(sends).fill('Bearer vault-token-0'),
+            )
+            expect(state.asks.map(([ask]) => ask.mode)).toEqual([undefined])
+            expect(clock.delays).toEqual(Array(sends - 1).fill(delay))
+            expect(state.events.slice(0, 3)).toEqual([
+              'ask',
+              'send',
+              'transient_backoff',
+            ])
+            const transients = state.reports.filter(
+              (item) =>
+                (item as { kind?: string }).kind === 'transient_backoff',
+            )
+            expect(transients).toEqual(
+              Array.from(
+                {
+                  length:
+                    scenario === 'retry cap'
+                      ? 3
+                      : scenario === 'cumulative wait cap'
+                        ? 2
+                        : 1,
+                },
+                (_, index) => ({
+                  kind: 'transient_backoff',
+                  account_id: 'identity-0',
+                  credential_id: 'credential-0',
+                  retry_at_ms: FIXED_NOW + delay * (index + 1),
+                }),
+              ),
+            )
+          } finally {
+            await executor.dispose()
+            clock.restore()
+          }
+        },
+        async () => firstAccountAnswer,
+      ))
+  }
+
+  it('routing phase 2: a classified limit keeps the quick retry delay before a routed hold', async () =>
+    routing(
+      async (state) => {
+        const sendTimes: number[] = []
+        const h = placementHarness({
+          config: { switch_on_first_rate_limit: true },
+          respond: async (_call, index) => {
+            sendTimes.push(Date.now())
+            return index === 0
+              ? new Response(
+                  JSON.stringify({
+                    error: {
+                      details: [
+                        { ...QUOTA_ERROR_INFO, reason: 'RATE_LIMIT_EXCEEDED' },
+                      ],
+                    },
+                  }),
+                  { status: 429, headers: { 'Retry-After-Ms': '1750' } },
+                )
+              : okJson()
+          },
+        })
+        const executor = createRequestExecutor(
+          vaultDeps(h, async (row) => admission(row)),
+        )
+        try {
+          const outcome = await executor.execute(
+            NON_STREAM_URL,
+            CHAT_INIT(),
+            session('classified-short-limit'),
+          )
+          expect(outcome.status).toBe(200)
+          await outcome.text()
+          expect(wireBearers(h)).toEqual([
+            'Bearer vault-token-0',
+            'Bearer vault-token-0',
+          ])
+          expect(state.asks).toHaveLength(1)
+          const backoff = state.reports.find(
+            (report) =>
+              (report as { kind?: string }).kind === 'transient_backoff',
+          ) as {
+            kind: string
+            account_id: string
+            credential_id: string
+            retry_at_ms: number
+          }
+          expect(backoff).toEqual({
+            kind: 'transient_backoff',
+            account_id: 'identity-0',
+            credential_id: 'credential-0',
+            retry_at_ms: expect.any(Number),
+          })
+          expect(backoff.retry_at_ms - sendTimes[0]!).toBeGreaterThanOrEqual(
+            1750,
+          )
+          expect(sendTimes[1]!).toBeGreaterThanOrEqual(backoff.retry_at_ms)
+        } finally {
+          await executor.dispose()
+        }
+      },
+      async () => firstAccountAnswer,
+    ))
+
+  it('routing phase 2: an unexplained refusal with harness self-identification never reports or retries', async () =>
+    routing(
+      async (state) => {
+        const h = placementHarness({
+          respond: async () => new Response('{}', { status: 429 }),
+        })
+        const executor = createRequestExecutor({
+          ...vaultDeps(h, async (row) => admission(row)),
+          wire: {
+            ...WIRE,
+            prepare: (...args) => {
+              const prepared = WIRE.prepare(...args)
+              const body = JSON.parse(String(prepared.init.body))
+              body.request.systemInstruction = {
+                parts: [
+                  {
+                    text: 'You are a coding assistant running inside pi, a coding agent harness.',
+                  },
+                ],
+              }
+              return {
+                ...prepared,
+                init: { ...prepared.init, body: JSON.stringify(body) },
+              }
+            },
+          },
+        })
+        try {
+          const outcome = await executor.execute(
+            NON_STREAM_URL,
+            CHAT_INIT(),
+            session('routed-harness-refusal'),
+          )
+          expect(outcome.status).toBe(412)
+          expect(await outcome.text()).toContain(UNCONFIRMED_RATE_LIMIT_MESSAGE)
+          expect(wireBearers(h)).toEqual(['Bearer vault-token-0'])
+          expect(state.events).toEqual(['ask'])
+        } finally {
+          await executor.dispose()
+        }
+      },
+      async () => firstAccountAnswer,
+    ))
+
+  for (const scenario of [
+    'quota',
+    'ineligible',
+    'verification',
+    'missing model',
+    'generic limit',
+  ] as const) {
+    for (const present of [true, false]) {
+      if (present && scenario === 'generic limit') continue
+      it(`routing phase 2: ${scenario} with ${present ? 'routing' : 'no accessor'}`, async () =>
+        routing(
+          async (state) => {
+            const clock = routedTime()
+            const pool = makePool(3)
+            const { observedAt, reset } =
+              scenario === 'quota'
+                ? quotaReading(pool)
+                : { observedAt: FIXED_NOW, reset: undefined }
+            const h = placementHarness({
+              pool,
+              respond: async (_call, index) => {
+                state.events.push('send')
+                if (index !== 0) return okJson()
+                if (scenario === 'quota') return quotaRefusal()
+                if (scenario === 'missing model')
+                  return new Response(
+                    JSON.stringify({ error: { status: 'NOT_FOUND' } }),
+                    { status: 404 },
+                  )
+                if (scenario === 'generic limit')
+                  return new Response('{}', { status: 429 })
+                return new Response('{}', { status: 403 })
+              },
+            })
+            // Differentiate the local selector's next account from routing's answer.
+            pool.markAccountCoolingDown(
+              pool.getAccounts()[2]!,
+              60_000,
+              'network-error',
+            )
+            const executor = createRequestExecutor({
+              ...vaultDeps(h, async (row) => admission(row)),
+              classifyAccessError: () => ({
+                accountIneligible: scenario === 'ineligible',
+                validationRequired: scenario === 'verification',
+              }),
+            })
+            const id = `continue-${scenario}`
+            try {
+              const response = await executor.execute(
+                NON_STREAM_URL,
+                CHAT_INIT(),
+                session(id),
+              )
+              expect(response.status).toBe(200)
+              await response.text()
+              const continued = present && scenario !== 'missing model'
+              const expected = continued ? 2 : 1
+              expect(wireBearers(h)).toEqual([
+                'Bearer vault-token-0',
+                `Bearer vault-token-${expected}`,
+              ])
+              expect(
+                pool.getCurrentAccountForFamily('gemini', { id })?.index,
+              ).toBe(expected)
+              expect(state.asks.map(([ask]) => ask.mode)).toEqual(
+                continued
+                  ? [undefined, 'continue']
+                  : present
+                    ? [undefined]
+                    : [],
+              )
+              if (continued) {
+                expect(state.asks[1]?.[0].request_id).toMatch(/^[a-f\d-]{36}$/)
+                expect(state.asks[1]?.[0].exhausted).toEqual(
+                  scenario === 'quota'
+                    ? {
+                        account: 'identity-0',
+                        credential_id: 'credential-0',
+                        limit_window: 'five_hour',
+                        pool: 'gemini',
+                        observed_at_ms: observedAt,
+                        resets_at_ms: reset,
+                      }
+                    : {
+                        account: 'identity-0',
+                        credential_id: 'credential-0',
+                        limit_window: 'signed_out',
+                        observed_at_ms: observedAt,
+                      },
+                )
+                if (scenario !== 'quota')
+                  expect(
+                    state.asks[1]?.[0].candidates?.accounts.map(
+                      (row) => row.account_id,
+                    ),
+                  ).toEqual(['identity-1', 'identity-2'])
+              }
+              expect(state.events).toEqual([
+                ...(present ? ['ask'] : []),
+                'send',
+                ...(continued && scenario === 'quota' ? ['exhausted'] : []),
+                ...(continued ? ['continue'] : []),
+                'send',
+                ...(present ? ['served'] : []),
+              ])
+            } finally {
+              await executor.dispose()
+              clock.restore()
+            }
+          },
+          async (_ask, count) =>
+            count === 1
+              ? firstAccountAnswer
+              : { account_id: 'identity-2', credential_id: 'credential-2' },
+          present,
+        ))
+    }
+  }
+
+  for (const scenario of ['timeout', 'refused', 'hold'] as const) {
+    it(`routing phase 2: a continue answer can ${scenario}`, async () =>
+      routing(
+        async (state) => {
+          const clock = routedTime(2500)
+          const pool = makePool(2)
+          quotaReading(pool)
+          const h = placementHarness({
+            pool,
+            respond: async (_call, index) => {
+              state.events.push('send')
+              return index === 0 ? quotaRefusal() : okJson()
+            },
+          })
+          const executor = createRequestExecutor(
+            vaultDeps(h, async (row) => admission(row)),
+          )
+          try {
+            const outcome = await executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(),
+              session(`continued-${scenario}`),
+            )
+            await outcome.text()
+            expect(state.asks.map(([ask]) => ask.mode)).toEqual([
+              undefined,
+              'continue',
+            ])
+            expect(state.events.slice(0, 4)).toEqual([
+              'ask',
+              'send',
+              'exhausted',
+              'continue',
+            ])
+            expect(clock.delays).toEqual(scenario === 'hold' ? [2500] : [])
+            if (scenario === 'refused') {
+              expect(outcome.status).toBe(412)
+              expect(outcome.headers.get('Retry-After')).toBe('30')
+              expect(wireBearers(h)).toEqual(['Bearer vault-token-0'])
+            } else {
+              expect(outcome.status).toBe(200)
+              expect(wireBearers(h)).toEqual([
+                'Bearer vault-token-0',
+                `Bearer vault-token-${scenario === 'hold' ? 0 : 1}`,
+              ])
+            }
+          } finally {
+            await executor.dispose()
+            clock.restore()
+          }
+        },
+        async (_ask, count) => {
+          if (count === 1) return firstAccountAnswer
+          if (scenario === 'hold')
+            return { ...firstAccountAnswer, hold: { retry_after_ms: 2500 } }
+          if (scenario === 'timeout') return new Promise(() => {})
+          return {
+            refused: {
+              code: 'account_limit_exhausted',
+              reason: 'pool.empty',
+              retry_after_secs: 30,
+            },
+          }
+        },
+      ))
+  }
 
   it('routing candidates exclude the operator killswitch mask', async () =>
     routing(
@@ -9395,6 +9948,7 @@ describe('createRequestExecutor optional vault routing', () => {
         {
           code,
           routing_code: 'pool.empty',
+          reason: 'vault.empty',
           retry_after_secs: 30,
           // Routing's own retry delay wins over a later reset instant.
           resets_at_ms: Date.now() + 3_600_000,
@@ -9428,6 +9982,7 @@ describe('createRequestExecutor optional vault routing', () => {
       const logged = JSON.stringify(warns)
       expect(logged).toContain(code)
       expect(logged).toContain('pool.empty')
+      expect(logged).toContain('vault.empty')
       expect(logged).not.toMatch(/identity-|credential-|refused-/)
       expect(result.later).toEqual({
         status: 200,

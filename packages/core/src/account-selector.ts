@@ -542,6 +542,7 @@ export function refreshSelectableRow<A extends SelectableAccount>(
 interface AccountSessionState {
   parentId: string | null
   currentAccountIndexByFamily: Record<ModelFamily, number>
+  routedByFamily: Record<ModelFamily, boolean>
   cursorByFamily: Record<ModelFamily, number>
   offsetAppliedByFamily: Record<ModelFamily, boolean>
   usedAccounts: Set<number>
@@ -925,6 +926,7 @@ export class AccountSelector<A extends SelectableAccount> {
     const state: AccountSessionState = {
       parentId: identity.parentId ?? null,
       currentAccountIndexByFamily: { claude: -1, gemini: -1 },
+      routedByFamily: { claude: false, gemini: false },
       cursorByFamily: { ...this.cursorByFamily },
       offsetAppliedByFamily: { claude: false, gemini: false },
       usedAccounts: new Set<number>(),
@@ -977,6 +979,7 @@ export class AccountSelector<A extends SelectableAccount> {
     family: ModelFamily,
     index: number,
     identity?: AccountSessionIdentity,
+    routed = false,
   ): void {
     if (!identity) {
       this.setGlobalActiveIndex(family, index)
@@ -985,6 +988,7 @@ export class AccountSelector<A extends SelectableAccount> {
 
     const state = this.getRequestSessionState(identity)
     state.currentAccountIndexByFamily[family] = index
+    state.routedByFamily[family] = routed
     if (!state.parentId) {
       // Preserve a useful persisted starting point without coupling active root sessions.
       this.setGlobalActiveIndex(family, index)
@@ -1067,6 +1071,35 @@ export class AccountSelector<A extends SelectableAccount> {
       }
     }
     return null
+  }
+
+  getRoutedAccountForFamily(
+    family: ModelFamily,
+    identity: AccountSessionIdentity,
+  ): A | null {
+    return this.getRequestSessionState(identity).routedByFamily[family]
+      ? this.getCurrentAccountForFamily(family, identity)
+      : null
+  }
+
+  /** Use a roster row already admitted by routing, without local quota or retry filters. */
+  useRoutedAccount(
+    account: A,
+    family: ModelFamily,
+    model: string | undefined,
+    identity: AccountSessionIdentity,
+    pinSelection: boolean,
+  ): A | null {
+    if (
+      this.accounts[account.index] !== account ||
+      account.enabled === false ||
+      account.accountIneligible ||
+      account.verificationRequired
+    )
+      return null
+    this.markTouchedForQuota(account, getQuotaKey(family, model))
+    if (pinSelection) this.setActiveIndex(family, account.index, identity, true)
+    return account
   }
 
   /**
@@ -1162,6 +1195,8 @@ export class AccountSelector<A extends SelectableAccount> {
           ) ||
           this.isAccountCoolingDown(pinned)
         if (!unavailable) {
+          if (pinSelection)
+            this.getRequestSessionState(identity).routedByFamily[family] = false
           this.markTouchedForQuota(pinned, quotaKey)
           return pinned
         }

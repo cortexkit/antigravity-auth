@@ -57,6 +57,13 @@ export function routingExhaustionFields(
   }
 }
 
+export interface VaultExhaustionProof {
+  limitWindow: 'five_hour' | 'seven_day'
+  pool: string
+  observedAtMs: number
+  resetsAtMs: number
+}
+
 /**
  * A refusal alone does not establish exhaustion: large requests can fail while
  * quota remains. Each report names its quota pool, so routing blocks only that
@@ -71,31 +78,39 @@ export function reportVaultExhaustion(
     quota?: QuotaGroupSummary
     observedAt?: number
     signal?: AbortSignal | null
+    singleReport?: boolean
   },
   report: typeof reportRouting = reportRouting,
-): void {
+): VaultExhaustionProof | undefined {
+  const observedAtMs = input.observedAt
+  const now = Date.now()
   if (
     !hasVaultRoutingAccessor() ||
     input.signal?.aborted ||
     input.status !== 429 ||
     input.reason !== 'QUOTA_EXHAUSTED' ||
-    !Number.isFinite(input.observedAt) ||
-    (input.observedAt ?? 0) <= 0 ||
-    (input.observedAt ?? Infinity) > Date.now()
+    observedAtMs === undefined ||
+    !Number.isFinite(observedAtMs) ||
+    observedAtMs <= 0 ||
+    observedAtMs > now
   )
     return
+  let proof: VaultExhaustionProof | undefined
   for (const window of input.quota?.windows ?? []) {
     if (window.remainingFraction !== 0) continue
     const scope = routingQuotaScope(input.group, window.window)
     const resetsAt = Date.parse(window.resetTime)
-    if (!scope || !Number.isFinite(resetsAt) || resetsAt <= Date.now()) continue
+    if (!scope || !Number.isFinite(resetsAt) || resetsAt <= now) continue
     report({
       ...input.identity,
       outcome: 'exhausted',
       ...routingExhaustionFields(scope),
       resetsAt,
     })
+    proof ??= { ...scope, observedAtMs, resetsAtMs: resetsAt }
+    if (input.singleReport) break
   }
+  return proof
 }
 
 const RATE_LIMIT_HEADERS = [

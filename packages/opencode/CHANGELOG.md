@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Ask vault routing on the first model request in each session and model family, including generate and compaction requests. Titles don't set or move the session's account, routing's choice survives roster reordering, and proactive account switching stays off while routing is available.
+- Send vault routing the eligible account list and honor its pick despite local cooldowns. Ask routing before switching when a dated quota window shows zero or Google says the account is ineligible or needs verification. After a rate limit without that quota evidence, wait on the same account within the retry budget.
 
 ## [3.1.8] - 2026-11-18
 
