@@ -124,6 +124,7 @@ type LayoutCase = {
   setupFailed?: boolean
   body?: Promise<CaseResult>
   result?: CaseResult
+  timedOut?: boolean
 }
 let activeCase: LayoutCase | undefined
 let teardownInFlight: Promise<void> | undefined
@@ -179,7 +180,9 @@ function traceCase<Args extends readonly unknown[]>(register: Test<Args>) {
             return result
           })
         return current.body.then((result) => {
-          if (result.failed) throw result.error
+          // Bun already reported the timeout if afterEach saw a pending body.
+          // Rejecting Bun's promise again would report an error between tests.
+          if (result.failed && !current.timedOut) throw result.error
         })
       },
       timeout,
@@ -236,7 +239,7 @@ afterEach(() => {
 async function finishCase(current: LayoutCase) {
   // Normal bodies settle before Bun calls afterEach. A timeout can leave one
   // running; don't restore its environment or spies until it actually stops.
-  const timedOut = current.body !== undefined && current.result === undefined
+  current.timedOut = current.body !== undefined && current.result === undefined
   const result = await current.body
   let failed = current.setupFailed || result?.failed
   try {
@@ -246,7 +249,9 @@ async function finishCase(current: LayoutCase) {
     throw error
   } finally {
     layoutTrace = undefined
-    current.trace?.finish(timedOut ? 'timeout' : failed ? 'failure' : 'passed')
+    current.trace?.finish(
+      current.timedOut ? 'timeout' : failed ? 'failure' : 'passed',
+    )
   }
 }
 
