@@ -19,7 +19,7 @@ const identity = {
   credentialId: 'credential',
 }
 
-test('routing request bytes remain unchanged without a warm hint', async () => {
+test('routing request carries a candidate view but no hint when a warm credential is omitted', async () => {
   const previous = Object.getOwnPropertyDescriptor(globalThis, key)
   const bytes: string[] = []
   Object.defineProperty(globalThis, key, {
@@ -48,15 +48,23 @@ test('routing request bytes remain unchanged without a warm hint', async () => {
         ...options,
       })
     }
-    expect(bytes).toEqual([
-      '{"provider":"antigravity","modelId":"gemini-3-flash"}',
-      '{"provider":"antigravity","modelId":"gemini-3-flash","refusals":true}',
-      '{"provider":"antigravity","modelId":"gemini-3-flash","hold_wait_max_s":12}',
-      '{"provider":"antigravity","modelId":"gemini-3-flash","hold_wait_max_s":12,"refusals":true}',
+    const base = {
+      provider: 'antigravity',
+      modelId: 'gemini-3-flash',
+      candidates: {
+        view_digest:
+          '5993c000fcab580821b65aea053c754f033b9fc494bd88e9eb6ee884dcf97bff',
+        accounts: [
+          { account_id: 'vault-account', credential_id: 'credential' },
+        ],
+      },
+    }
+    expect(bytes.map((value) => JSON.parse(value))).toEqual([
+      base,
+      { ...base, refusals: true },
+      { ...base, hold_wait_max_s: 12 },
+      { ...base, hold_wait_max_s: 12, refusals: true },
     ])
-    expect(bytes.every((value) => !value.includes('warm_credential'))).toBe(
-      true,
-    )
   } finally {
     if (previous) Object.defineProperty(globalThis, key, previous)
     else Reflect.deleteProperty(globalThis, key)

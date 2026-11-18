@@ -177,6 +177,7 @@ describe('shared request engine import graph', () => {
       '../../common-auth-embedded/routing-accessor/index.js': [
         'askRouting',
         'reportRouting as reportVaultRouting',
+        'type AskRoutingInput',
         'type BillingRequestKind',
         'type RoutingCandidate',
         'type RoutingRefusal',
@@ -187,6 +188,8 @@ describe('shared request engine import graph', () => {
         'observeVaultServed',
         'observeVaultUpstream',
         'reportVaultExhaustion',
+        'type RoutingIdentity',
+        'type VaultExhaustionProof',
       ],
       './vault-routing-purpose': ['isTitleVaultRequest'],
       '@cortexkit/antigravity-auth-core': [

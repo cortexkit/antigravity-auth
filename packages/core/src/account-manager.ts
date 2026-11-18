@@ -1377,6 +1377,29 @@ export class AccountManager {
     return this.selection.getCurrentAccountForFamily(family, identity)
   }
 
+  getRoutedAccountForFamily(
+    family: ModelFamily,
+    identity: AccountSessionIdentity,
+  ): ManagedAccount | null {
+    return this.selection.getRoutedAccountForFamily(family, identity)
+  }
+
+  useRoutedAccount(
+    account: ManagedAccount,
+    family: ModelFamily,
+    model: string | undefined,
+    identity: AccountSessionIdentity,
+    pinSelection: boolean,
+  ): ManagedAccount | null {
+    return this.selection.useRoutedAccount(
+      account,
+      family,
+      model,
+      identity,
+      pinSelection,
+    )
+  }
+
   /**
    * Numeric active indexes for each model family. Exposed so callers
    * that persist `activeIndexByFamily` (e.g. command-data's remove
