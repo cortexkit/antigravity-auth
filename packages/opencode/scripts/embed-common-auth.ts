@@ -17,10 +17,10 @@ export const producerVersion = '0.54.1'
 export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  archiveBytes: 501155,
-  shasum: '5d941899847c6ba83ad31c5c0846059cbc1c3bc0',
-  sha256: '4c1e0bf7b4e364c2d52ffdc2b6ae34db0c668d08c539b5a4010ec7194ad8e90d',
-  sri: 'sha512-kHWTlVavZlGtfnRmfllFT9QZG0gpseEVajjmhc/j6OFcMiQSu1NQKTBXW8B8HPCn+fbkqOMtyhKzC9DcZrXlLA==',
+  archiveBytes: 501269,
+  shasum: '0e2e54e8a223fc2f09f7466b5151137bc0135110',
+  sha256: '3398a82c673e982ed3c53acb12f4e089492d78eeb1561804ff6c5870e7f4151f',
+  sri: 'sha512-+5svROLolB4ZNX/u4prf/2LuoN3DE3pI4VGrMIwh6/nLqOVxa7s2vc4qTuJk1BT9qss/gd/NBf9kcqXdK/D9Ng==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -1218,8 +1218,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/mutate.js',
-    20863,
-    '26bdedefed4c897aaccc5b2df679442b6a76367845d436edfaee0f934a463eb1',
+    21075,
+    'e2b69c850dface416ff3ebc54e2f57fd5c36b5346055b90195493cada75b6901',
   ],
   [
     'store/pool.d.ts',

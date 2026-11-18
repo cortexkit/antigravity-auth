@@ -67,7 +67,7 @@ export const PACKAGE_ROOT = resolve(
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..')
 const TOOL_ROOT = join(REPO_ROOT, 'tools/common-auth-build')
 const LOCK_HASH =
-  'e2ccd63046dec8e22ab9c698d40bdc40b706b76da8b7f1339f16825a2c66f19f'
+  '5d22b5e41f0dbb8d903c52e745dd9a81aa9fdcd518a0d9c9b753111085eedb67'
 export const BUNDLE_EXTERNALS = [
   'zod',
   'jsonc-parser',
@@ -904,6 +904,7 @@ async function admitExistingMap(mapFile: string) {
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.52.0' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.52.1' &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.53.0' &&
+        metadata.compiler !== '@cortexkit/common-auth/tui-build@0.54.1' &&
         metadata.compiler !==
           `@cortexkit/common-auth/tui-build@${producerVersion}` &&
         metadata.compiler !== '@cortexkit/common-auth/tui-build@0.11.6')

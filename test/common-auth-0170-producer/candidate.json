@@ -1,15 +1,15 @@
 {
   "version": "0.54.1",
   "artifactStatus": "candidate",
-  "archiveBytes": 501155,
-  "shasum": "5d941899847c6ba83ad31c5c0846059cbc1c3bc0",
-  "sha256": "4c1e0bf7b4e364c2d52ffdc2b6ae34db0c668d08c539b5a4010ec7194ad8e90d",
-  "sri": "sha512-kHWTlVavZlGtfnRmfllFT9QZG0gpseEVajjmhc/j6OFcMiQSu1NQKTBXW8B8HPCn+fbkqOMtyhKzC9DcZrXlLA==",
+  "archiveBytes": 501269,
+  "shasum": "0e2e54e8a223fc2f09f7466b5151137bc0135110",
+  "sha256": "3398a82c673e982ed3c53acb12f4e089492d78eeb1561804ff6c5870e7f4151f",
+  "sri": "sha512-+5svROLolB4ZNX/u4prf/2LuoN3DE3pI4VGrMIwh6/nLqOVxa7s2vc4qTuJk1BT9qss/gd/NBf9kcqXdK/D9Ng==",
   "manifestSha256": "f8de6548d6e655e3eb543406b71eb591ed1694efcc76bb0700647992c15298c5",
   "inventorySha256": "4c51b6fe88b8328d03d095e996ad2ae1c8283853fd7b1ea5f2012e3cd7606393",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
   "canonicalFiles": 250,
-  "canonicalBytes": 1474963,
+  "canonicalBytes": 1475175,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -1234,8 +1234,8 @@
     ],
     [
       "store/mutate.js",
-      20863,
-      "26bdedefed4c897aaccc5b2df679442b6a76367845d436edfaee0f934a463eb1"
+      21075,
+      "e2b69c850dface416ff3ebc54e2f57fd5c36b5346055b90195493cada75b6901"
     ],
     [
       "store/pool.d.ts",

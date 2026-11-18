@@ -54,7 +54,7 @@ test('producer.native_windows_archive_pin', async () => {
 
 async function archive() {
   const bytes = await readFile(join(root, inputPath))
-  expect(bytes.length).toBe(501155)
+  expect(bytes.length).toBe(501269)
   expect(digest(bytes)).toBe(publication.sha256)
   expect(createHash('sha1').update(bytes).digest('hex')).toBe(
     publication.shasum,
@@ -192,7 +192,7 @@ test('producer.public_roots_and_exact_closure', async () => {
       (sum, file) => sum + entries.get(`package/dist/${file}`)!.length,
       0,
     ),
-  ).toBe(1474963)
+  ).toBe(1475175)
   expect(graph.files.filter((file) => file.startsWith('routing/'))).toEqual(
     closure.routingFiles,
   )
@@ -300,7 +300,7 @@ test('producer.verbatim_map', async () => {
     './routing-accessor': publication.routingAccessorRoot,
   })
   expect(map.canonicalFiles).toBe(257)
-  expect(map.canonicalBytes).toBe(1516089)
+  expect(map.canonicalBytes).toBe(1516301)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.sri).toBe(publication.sri)
   expect(map.transforms).toEqual([])
@@ -424,7 +424,7 @@ test('producer.shared_core_profile_exact_closure', async () => {
   )
   expect(required.length).toBe(186)
   expect(map.canonicalFiles).toBe(186)
-  expect(map.canonicalBytes).toBe(1168549)
+  expect(map.canonicalBytes).toBe(1168761)
   expect(map.publicRoots).toEqual(profile.publicRoots)
   expect(map.tarballSha256).toBe(publication.sha256)
   expect(map.files.map((file: { output: string }) => file.output)).toEqual(

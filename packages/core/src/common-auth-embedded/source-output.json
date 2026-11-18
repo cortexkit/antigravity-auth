@@ -3,7 +3,7 @@
   "package": "@cortexkit/common-auth",
   "version": "0.54.1",
   "artifactStatus": "candidate",
-  "archiveBytes": 501155,
+  "archiveBytes": 501269,
   "publicRoots": {
     "./store": {
       "types": "./dist/store/index.d.ts",
@@ -43,15 +43,15 @@
     }
   },
   "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.54.1.tgz",
-  "tarballSha256": "4c1e0bf7b4e364c2d52ffdc2b6ae34db0c668d08c539b5a4010ec7194ad8e90d",
-  "sri": "sha512-kHWTlVavZlGtfnRmfllFT9QZG0gpseEVajjmhc/j6OFcMiQSu1NQKTBXW8B8HPCn+fbkqOMtyhKzC9DcZrXlLA==",
-  "shasum": "5d941899847c6ba83ad31c5c0846059cbc1c3bc0",
+  "tarballSha256": "3398a82c673e982ed3c53acb12f4e089492d78eeb1561804ff6c5870e7f4151f",
+  "sri": "sha512-+5svROLolB4ZNX/u4prf/2LuoN3DE3pI4VGrMIwh6/nLqOVxa7s2vc4qTuJk1BT9qss/gd/NBf9kcqXdK/D9Ng==",
+  "shasum": "0e2e54e8a223fc2f09f7466b5151137bc0135110",
   "canonicalFiles": 186,
-  "canonicalBytes": 1168549,
+  "canonicalBytes": 1168761,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "1029390256d0c254eecc78f91358cc914ea949cf7b8946954557ceb74a200441"
+    "sha256": "7ee28537a07144cce528831a95a843028c91e922040dbd8c34f974a5197643f7"
   },
   "files": [
     {
@@ -1329,9 +1329,9 @@
     {
       "source": "package/dist/store/mutate.js",
       "output": "store/mutate.js",
-      "bytes": 20863,
-      "sourceSha256": "26bdedefed4c897aaccc5b2df679442b6a76367845d436edfaee0f934a463eb1",
-      "outputSha256": "26bdedefed4c897aaccc5b2df679442b6a76367845d436edfaee0f934a463eb1",
+      "bytes": 21075,
+      "sourceSha256": "e2b69c850dface416ff3ebc54e2f57fd5c36b5346055b90195493cada75b6901",
+      "outputSha256": "e2b69c850dface416ff3ebc54e2f57fd5c36b5346055b90195493cada75b6901",
       "transform": "verbatim"
     },
     {
