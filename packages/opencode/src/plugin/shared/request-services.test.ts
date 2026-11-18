@@ -8456,32 +8456,31 @@ describe('createRequestExecutor optional vault routing', () => {
     const bearer = (index: number) =>
       `Bearer ${mode === 'local' ? 'access-refresh' : 'vault-token'}-${index}`
 
-    it(`routing placement: ${mode} generate then primary, and first compaction`, async () =>
-      routing(
-        async ({ asks }) => {
-          for (const kind of ['generate', 'compaction'] as const) {
+    for (const kind of ['generate', 'compaction'] as const) {
+      it(`routing placement: ${mode} ${kind} then primary in one Claude session`, async () =>
+        routing(
+          async ({ asks }) => {
             const h = placementHarness()
             const executor = createRequestExecutor(depsFor(h))
             const id = `welcome-${kind}`
-            const initialAskCount = asks.length
             const expected = routed ? 1 : 0
             try {
               await (
                 await executor.execute(
-                  NON_STREAM_URL,
+                  CLAUDE_URL,
                   CHAT_INIT(),
                   session(id, kind),
                 )
               ).text()
-              expect(asks).toHaveLength(initialAskCount + Number(routed))
+              expect(asks).toHaveLength(Number(routed))
               expect(wireBearers(h)).toEqual([bearer(expected)])
               expect(
-                h.pool.getCurrentAccountForFamily('gemini', { id })?.index,
+                h.pool.getCurrentAccountForFamily('claude', { id })?.index,
               ).toBe(expected)
               await (
-                await executor.execute(NON_STREAM_URL, CHAT_INIT(), session(id))
+                await executor.execute(CLAUDE_URL, CHAT_INIT(), session(id))
               ).text()
-              expect(asks).toHaveLength(initialAskCount + Number(routed))
+              expect(asks).toHaveLength(Number(routed))
               expect(wireBearers(h)).toEqual([
                 bearer(expected),
                 bearer(expected),
@@ -8489,11 +8488,11 @@ describe('createRequestExecutor optional vault routing', () => {
             } finally {
               await executor.dispose()
             }
-          }
-        },
-        secondAccountAnswer,
-        mode !== 'unrouted vault',
-      ))
+          },
+          secondAccountAnswer,
+          mode !== 'unrouted vault',
+        ))
+    }
 
     it(`routing placement: ${mode} title with and without a pin`, async () =>
       routing(
@@ -8659,7 +8658,7 @@ describe('createRequestExecutor optional vault routing', () => {
     'cools down',
   ] as const) {
     it(`routing placement: the answered credential ${scenario} during the ask`, async () => {
-      const pool = makePool(3)
+      const pool = makePool(scenario === 'cools down' ? 2 : 3)
       const rows = pool.getAccounts()
       const first = rows[0]!
       const target = rows[1]!
