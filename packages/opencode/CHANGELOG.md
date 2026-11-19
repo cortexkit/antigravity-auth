@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## [3.1.10] - 2026-11-19
 
 - Add Gemini 4 Neon with Low, Medium and High (default) on OpenCode 1, plus XHigh on OpenCode 2 and Pi. As with Hydrogen, OpenCode 1's built-in Google library cannot pass XHigh to the plugin. Neon uses the ordinary Gemini quota pool.
 - Embed published common-auth 0.55.1: the Windows setup process check retries once after a PowerShell crash, and vault logins whose sign-in kind doesn't match their type are refused.
