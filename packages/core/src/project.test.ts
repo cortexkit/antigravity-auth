@@ -40,6 +40,20 @@ describe('project bootstrap', () => {
     clearProvisionFailedKeys()
   })
 
+  it('rechecks credential admission before managed project discovery falls back', async () => {
+    const { fetchWithAgyCliTransport } = await import('./agy-transport.ts')
+    const send = mock(async () => new Response(null, { status: 403 }))
+    ;(fetchWithAgyCliTransport as any).mockImplementation(send)
+    let checks = 0
+    const admit = async () => {
+      if (++checks > 1) throw new Error('Local project authority changed')
+    }
+    await expect(
+      loadManagedProject('synthetic-bearer', 'project', admit),
+    ).rejects.toThrow('Local project authority changed')
+    expect(send).toHaveBeenCalledTimes(1)
+  })
+
   it('loads managed project with captured agy CLI loadCodeAssist fingerprint', async () => {
     const fetchSpy = mock().mockResolvedValue(
       mockResponse({ cloudaicompanionProject: 'proj' }),

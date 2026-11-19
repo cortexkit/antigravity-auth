@@ -383,7 +383,7 @@ export async function checkAccountsQuotaWith(
 
 export async function checkAccountsQuotaStandalone(
   accounts: AccountMetadataV3[],
-  options: { refresh: boolean },
+  options: { refresh: boolean; assertAdmission?: () => Promise<void> },
 ): Promise<AccountQuotaResult[]> {
   if (!options.refresh) {
     return accounts.map((account, index) => ({
@@ -397,10 +397,32 @@ export async function checkAccountsQuotaStandalone(
       },
     }))
   }
-  return checkAccountsQuotaWith(
+  const refused = new AbortController()
+  const admit = options.assertAdmission
+  const assertAdmission =
+    admit &&
+    (async () => {
+      refused.signal.throwIfAborted()
+      try {
+        await admit()
+      } catch (error) {
+        refused.abort(error)
+        throw error
+      }
+      refused.signal.throwIfAborted()
+    })
+  const results = await checkAccountsQuotaWith(
     accounts,
-    makeFetchAccountQuota(undefined, ANTIGRAVITY_PROVIDER_ID),
+    makeFetchAccountQuota(
+      undefined,
+      ANTIGRAVITY_PROVIDER_ID,
+      undefined,
+      assertAdmission,
+    ),
   )
+  // Losing local access must refuse the command, not just report a per-account error.
+  refused.signal.throwIfAborted()
+  return results
 }
 
 export async function checkAccountsQuota(
@@ -1123,6 +1145,7 @@ function makeFetchAccountQuota(
   client: PluginClient | undefined,
   providerId: string,
   fetchVia?: QuotaFetch,
+  assertAdmission?: () => Promise<void>,
 ): FetchAccountQuota {
   return async (account, signal, purpose = 'required') => {
     const index = 0
@@ -1213,6 +1236,8 @@ function makeFetchAccountQuota(
 
     try {
       if (accessTokenExpired(auth)) {
+        if (assertAdmission) await assertAdmission()
+        signal.throwIfAborted()
         const refreshed = await refreshAccessToken(
           auth,
           client as PluginClient,
@@ -1227,7 +1252,7 @@ function makeFetchAccountQuota(
         auth = refreshed
       }
 
-      const projectContext = await ensureProjectContext(auth)
+      const projectContext = await ensureProjectContext(auth, assertAdmission)
       auth = projectContext.auth
       const updatedAccount = applyAccountUpdates(
         account,
@@ -1249,11 +1274,22 @@ function makeFetchAccountQuota(
       const managedProjectId =
         authParts.managedProjectId ?? account.managedProjectId
 
+      const guarded: QuotaFetch | undefined = assertAdmission
+        ? async (url, init, extra) => {
+            await assertAdmission()
+            signal.throwIfAborted()
+            return fetchWithActiveTimeout(
+              url,
+              { ...init, signal },
+              { timeoutMs: extra.timeoutMs },
+            )
+          }
+        : fetchVia
       const payloads = await fetchQuotaPayloads({
         accessToken: auth.access ?? '',
         managedProjectId,
         projectId: projectContext.effectiveProjectId,
-        fetchVia,
+        fetchVia: guarded,
         logger: log,
       })
       quotaResult = payloads.quota

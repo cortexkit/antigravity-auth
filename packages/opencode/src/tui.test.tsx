@@ -2003,6 +2003,49 @@ describe('GA location client', () => {
     expect(client.cursor({ kind: 'sessionless' })).toBe(0)
   })
 
+  it('echoes the queue identity with the cursor and adopts a replacement queue', async () => {
+    const { createGaLocationClient } = await load()
+    const answers = [
+      gaSnapshot({ cursor: 4, queueID: 'queue-first' }),
+      gaSnapshot({ cursor: 1, queueID: 'queue-next', reset: 'queue-changed' }),
+      gaSnapshot({ cursor: 1, queueID: 'queue-next' }),
+    ]
+    const calls: unknown[] = []
+    const client = createGaLocationClient({
+      call: async ({ input }) => {
+        calls.push(input)
+        return answers.shift()
+      },
+      location: LOCATION,
+    })
+    await client.pull(SCOPE_A)
+    await client.pull(SCOPE_A)
+    await client.pull(SCOPE_A)
+    expect(calls).toEqual([
+      {
+        version: 1,
+        generation: null,
+        scope: SCOPE_A,
+        cursor: 0,
+        queueID: null,
+      },
+      {
+        version: 1,
+        generation: 'gen-1',
+        scope: SCOPE_A,
+        cursor: 4,
+        queueID: 'queue-first',
+      },
+      {
+        version: 1,
+        generation: 'gen-1',
+        scope: SCOPE_A,
+        cursor: 1,
+        queueID: 'queue-next',
+      },
+    ])
+  })
+
   it('runs pulls one at a time so a cursor is never sent twice', async () => {
     const { createGaLocationClient } = await load()
     const cursors: number[] = []

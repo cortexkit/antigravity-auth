@@ -15,6 +15,7 @@ import {
   createAccountMigrationFactory,
   createAccountRepositoryFactory,
   createAccountRollbackFactory,
+  type EnrollmentAuthority,
   initializeFreshAccountStore,
   loadCommonAuthStoreModules,
   readAccountStoreAdmission,
@@ -64,6 +65,7 @@ import {
   assertLocalOpenCodeLogin,
   assertSetupHostsStopped,
   persistPiSetupLogin,
+  readOpenCodeAuthority,
   runPluginSetup,
 } from './setup.ts'
 import { prepareVaultFolder } from './vault-folder'
@@ -102,9 +104,10 @@ export interface CliDependencies {
     context?: SetupCallbackContext,
   ): Promise<AntigravityTokenExchangeSuccess>
   loadAccounts(): Promise<AccountStorageV4 | null>
+  readAuthority?: () => Promise<EnrollmentAuthority>
   getQuota(
     accounts: AccountMetadataV3[],
-    options: { refresh: boolean },
+    options: { refresh: boolean; assertAdmission?: () => Promise<void> },
   ): Promise<AccountQuotaResult[]>
   /** Offline operations on the account store; see `AccountStoreOperations`. */
   accountStore: AccountStoreOperations
@@ -491,11 +494,25 @@ export async function runCli(
   }
 
   try {
+    const assertLocalAccounts = async () => {
+      const authority = await (deps.readAuthority ?? readOpenCodeAuthority)()
+      if (authority === 'local') return
+      const source =
+        authority === 'vault'
+          ? "Accounts are served by the vault, not this computer's local sign-ins."
+          : authority === 'host'
+            ? "Accounts are served by Thalamus, not this computer's local sign-ins."
+            : "Account authority could not be read, so this computer's local sign-ins were not used."
+      throw new Error(
+        `${source} Use the /antigravity menu in OpenCode to see them and their quota.`,
+      )
+    }
+    if (parsed.value.command === 'list' || parsed.value.command === 'quota')
+      await assertLocalAccounts()
+
     // Setup settles the vault folder and holds the heartbeat itself, only on
-    // a real run that passed its checks; every other command uses the
-    // plugin's data from here on. Of those, only login reads a vault file
-    // (whether vault enrollment excludes a local sign-in), so only login
-    // settles the vault folder; the account-store commands leave it alone.
+    // a real run that passed its checks. Account inspection follows the
+    // existing vault layout without moving anything.
     if (parsed.value.command !== 'setup') {
       // Login reads a vault file, so it settles the vault folder. The store
       // commands move the store themselves and settle nothing: their anchor
@@ -618,6 +635,7 @@ export async function runCli(
 
     const results = await deps.getQuota(storage?.accounts ?? [], {
       refresh: parsed.value.refresh,
+      ...(parsed.value.refresh ? { assertAdmission: assertLocalAccounts } : {}),
     })
     deps.stdout.write(
       parsed.value.json

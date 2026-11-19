@@ -283,6 +283,51 @@ describe('runCli commands', () => {
     expect(harness.stderr).toBe('callback failed\n')
   })
 
+  it('refuses account inspection for non-local authority before touching the store', async () => {
+    for (const [authority, reason] of [
+      [
+        'vault',
+        "Accounts are served by the vault, not this computer's local sign-ins.",
+      ],
+      [
+        'host',
+        "Accounts are served by Thalamus, not this computer's local sign-ins.",
+      ],
+      [
+        'unreadable',
+        "Account authority could not be read, so this computer's local sign-ins were not used.",
+      ],
+    ] as const) {
+      for (const args of [['list'], ['quota'], ['quota', '--refresh']]) {
+        const read = mock(async () => ({ kind: 'legacy' }) as const)
+        const harness = createHarness({ readAuthority: async () => authority })
+        harness.deps.accountStore.read = read
+
+        expect(await runCli(args, harness.deps)).toBe(1)
+        expect(read).not.toHaveBeenCalled()
+        expect(harness.touched).toBe(0)
+        expect(harness.stdout).toBe('')
+        expect(harness.stderr).toBe(
+          `${reason} Use the /antigravity menu in OpenCode to see them and their quota.\n`,
+        )
+      }
+    }
+  })
+
+  it('recognizes Thalamus authority without an injected reader', async () => {
+    const original = process.env.CORTEXKIT_VAULT_HOST
+    process.env.CORTEXKIT_VAULT_HOST = 'thalamus'
+    try {
+      const harness = createHarness()
+      expect(await runCli(['quota', '--refresh'], harness.deps)).toBe(1)
+      expect(harness.touched).toBe(0)
+      expect(harness.stderr).toContain('served by Thalamus')
+    } finally {
+      if (original === undefined) delete process.env.CORTEXKIT_VAULT_HOST
+      else process.env.CORTEXKIT_VAULT_HOST = original
+    }
+  })
+
   it('prints redacted parseable account JSON without prose', async () => {
     const harness = createHarness()
 

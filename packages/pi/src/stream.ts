@@ -2,6 +2,7 @@ import {
   type AgyRequestScope,
   AgyRequestSessionStore,
   ANTIGRAVITY_ENDPOINT,
+  appendAgyContinuation,
   applyAgyNativeGenerationConfig,
   buildAgyAgentRequestMetadata,
   buildAntigravityHarnessUserAgent,
@@ -75,14 +76,35 @@ async function nextWithTimeout<T>(
   }
 }
 
-function mapFinishReason(reason: string | null | undefined): StopReason {
+// Pi 0.87.1: @earendil-works/pi-ai/dist/api/google-shared.js:383–424
+// (mapStopReason and mapStopReasonString). Only name known reasons in errors.
+const GOOGLE_ERROR_FINISH_REASONS = new Set([
+  'BLOCKLIST',
+  'PROHIBITED_CONTENT',
+  'SPII',
+  'SAFETY',
+  'IMAGE_SAFETY',
+  'IMAGE_PROHIBITED_CONTENT',
+  'IMAGE_RECITATION',
+  'IMAGE_OTHER',
+  'RECITATION',
+  'FINISH_REASON_UNSPECIFIED',
+  'OTHER',
+  'LANGUAGE',
+  'MALFORMED_FUNCTION_CALL',
+  'UNEXPECTED_TOOL_CALL',
+  'TOO_MANY_TOOL_CALLS',
+  'NO_IMAGE',
+])
+
+function mapFinishReason(reason: string): StopReason {
   switch (reason) {
     case 'STOP':
       return 'stop'
     case 'MAX_TOKENS':
       return 'length'
     default:
-      return reason ? 'stop' : 'stop'
+      return 'error'
   }
 }
 
@@ -284,7 +306,10 @@ export async function* parseGeminiSse(
       if (done) break
       // Antigravity uses CRLF line endings (`\r\n\r\n` frame separators);
       // normalize so a single boundary check works for both LF and CRLF.
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+      const text = decoder.decode(value, { stream: true })
+      if (text.startsWith('\n') && buffer.endsWith('\r'))
+        buffer = buffer.slice(0, -1)
+      buffer += text.replace(/\r\n/g, '\n')
       let boundary = buffer.indexOf('\n\n')
       while (boundary !== -1) {
         const frame = buffer.slice(0, boundary)
@@ -326,6 +351,8 @@ export function finalizePiAntigravityRequest(
   scope: AgyRequestScope,
 ): string {
   delete request.toolConfig
+  if (Array.isArray(request.contents))
+    appendAgyContinuation(request.contents, wireModel)
 
   const metadata = buildAgyAgentRequestMetadata(
     scope.session,
@@ -899,8 +926,17 @@ function runAntigravityStream(
         if (candidate?.finishReason) {
           closeText()
           closeThinking()
-          if (output.stopReason !== 'toolUse') {
-            output.stopReason = mapFinishReason(candidate.finishReason)
+          const reason = mapFinishReason(candidate.finishReason)
+          if (reason === 'error') {
+            const label = GOOGLE_ERROR_FINISH_REASONS.has(
+              candidate.finishReason,
+            )
+              ? candidate.finishReason
+              : 'unknown reason'
+            throw new HostRefusalError(`Google stopped the response: ${label}.`)
+          }
+          if (reason !== 'stop' || output.stopReason !== 'toolUse') {
+            output.stopReason = reason
           }
           terminalSeen = true
           const needsTrailingUsage =

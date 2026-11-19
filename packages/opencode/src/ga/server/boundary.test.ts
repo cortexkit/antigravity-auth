@@ -505,6 +505,47 @@ describe('scoped notifications', () => {
     expect(output.notifications.map(messageOf)).toEqual(['one'])
   })
 
+  it('does not acknowledge new notifications with an evicted scope queue cursor', async () => {
+    const activation = activate({
+      state: makeState(),
+      commands: makeCommands(),
+      generation: 'gen',
+      maxScopes: 1,
+    })
+    try {
+      activation.notify(SESSION_A, toast('first'))
+      const first = snapshot(
+        await activation.handlers.state({
+          ...stateInput('gen', SESSION_A, 0),
+          queueID: null,
+        }),
+      )
+      expect(first.cursor).toBe(1)
+      expect(typeof first.queueID).toBe('string')
+      await activation.handlers.state(stateInput('gen', SESSION_B, 0))
+      activation.notify(SESSION_A, toast('after eviction'))
+      const next = snapshot(
+        await activation.handlers.state({
+          ...stateInput('gen', SESSION_A, first.cursor),
+          queueID: first.queueID,
+        }),
+      )
+      expect(next.queueID).not.toBe(first.queueID)
+      expect(next.reset).toBe('queue-changed')
+      expect(next.notifications.map(messageOf)).toEqual(['after eviction'])
+      const legacy = snapshot(
+        await activation.handlers.state(
+          stateInput('gen', SESSION_A, next.cursor),
+        ),
+      )
+      expect(legacy).not.toHaveProperty('queueID')
+      expect(legacy.reset).toBeNull()
+      expect(legacy.notifications).toEqual([])
+    } finally {
+      await activation.dispose()
+    }
+  })
+
   it('a cursor issued in one session is ahead in another, never an acknowledgement there', async () => {
     const activation = activate({
       state: makeState(),

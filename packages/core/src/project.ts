@@ -157,6 +157,7 @@ export function clearProvisionFailedKeys(): void {
 export async function loadManagedProject(
   accessToken: string,
   _projectId?: string,
+  admit?: () => Promise<void>,
 ): Promise<LoadCodeAssistPayload | null> {
   const requestBody = buildBootstrapRequestBody()
   const loadHeaders = buildAntigravityHarnessBootstrapHeaders(accessToken)
@@ -169,6 +170,7 @@ export async function loadManagedProject(
   )
 
   for (const baseEndpoint of loadEndpoints) {
+    if (admit) await admit()
     try {
       const response = await fetchWithAgyCliTransport(
         `${baseEndpoint}/v1internal:loadCodeAssist`,
@@ -204,6 +206,7 @@ export async function onboardManagedProject(
   projectId?: string,
   attempts = 10,
   delayMs = 5000,
+  admit?: () => Promise<void>,
 ): Promise<string | undefined> {
   const requestBody: Record<string, unknown> = { tierId }
   const onboardEndpoints = Array.from(
@@ -216,6 +219,7 @@ export async function onboardManagedProject(
 
   for (const baseEndpoint of onboardEndpoints) {
     for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (admit) await admit()
       try {
         const response = await fetchWithAgyCliTransport(
           `${baseEndpoint}/v1internal:onboardUser`,
@@ -263,6 +267,7 @@ export async function onboardManagedProject(
  */
 export async function ensureProjectContext(
   auth: OAuthAuthDetails,
+  admit?: () => Promise<void>,
 ): Promise<ProjectContextResult> {
   const accessToken = auth.access
   if (!accessToken) {
@@ -322,6 +327,7 @@ export async function ensureProjectContext(
     const loadPayload = await loadManagedProject(
       accessToken,
       parts.projectId ?? fallbackProjectId,
+      admit,
     )
     // Capture tier from the loadCodeAssist payload. The raw id is stored
     // as-is; absent payload or missing tier leaves capturedTier undefined.
@@ -355,6 +361,9 @@ export async function ensureProjectContext(
       accessToken,
       tierId,
       parts.projectId,
+      undefined,
+      undefined,
+      admit,
     )
 
     if (provisionedProjectId) {

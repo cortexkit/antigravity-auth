@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `antigravity-auth list` and `quota` no longer read or refresh local sign-ins when the vault serves your accounts directly or through the Thalamus agent runner, or when the account source cannot be read. Use `/antigravity` in OpenCode to see your accounts and quota.
+
 ## [3.1.10] - 2026-11-19
 
 - Add Gemini 4 Neon with Low, Medium and High (default) on OpenCode 1, plus XHigh on OpenCode 2 and Pi. As with Hydrogen, OpenCode 1's built-in Google library cannot pass XHigh to the plugin. Neon uses the ordinary Gemini quota pool.

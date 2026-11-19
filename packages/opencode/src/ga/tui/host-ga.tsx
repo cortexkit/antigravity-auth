@@ -235,8 +235,14 @@ export interface GaSnapshot {
   readonly kind: 'snapshot'
   readonly generation: string
   readonly scope: GaScope
-  readonly reset: 'initial' | 'generation-changed' | 'cursor-ahead' | null
+  readonly reset:
+    | 'initial'
+    | 'generation-changed'
+    | 'queue-changed'
+    | 'cursor-ahead'
+    | null
   readonly cursor: number
+  readonly queueID?: string
   readonly dropped: number
   readonly more: boolean
   readonly notifications: readonly GaNotification[]
@@ -684,7 +690,7 @@ export function parseGaStateAnswer(
       'status',
       'settings',
     ],
-    ['vaultHostStatus'],
+    ['vaultHostStatus', 'queueID'],
     'output',
     issues,
   )
@@ -697,11 +703,14 @@ export function parseGaStateAnswer(
   checkAccountsStatus(output.accountsStatus, 'output.accountsStatus', issues)
   checkSettings(output.settings, 'output.settings', issues)
   checkGeneration(output.generation, 'output.generation', issues)
+  if (Object.hasOwn(output, 'queueID'))
+    checkGeneration(output.queueID, 'output.queueID', issues)
   checkScope(output.scope, 'output.scope', issues)
   if (
     output.reset !== null &&
     output.reset !== 'initial' &&
     output.reset !== 'generation-changed' &&
+    output.reset !== 'queue-changed' &&
     output.reset !== 'cursor-ahead'
   ) {
     issues.push('output.reset: unknown reset')
@@ -813,7 +822,7 @@ export function createGaLocationClient(options: {
   readonly logger?: GaLogger
 }): GaLocationClient {
   let generation: string | null = null
-  const cursors = new Map<string, number>()
+  const cursors = new Map<string, { cursor: number; queueID: string | null }>()
   let isDisposed = false
   // Bumped on every rebind and on disposal. A request remembers the epoch
   // it was sent in; an answer from an older epoch is dropped unread.
@@ -842,11 +851,13 @@ export function createGaLocationClient(options: {
     if (isDisposed) throw new GaClientDisposedError()
     const sentEpoch = epoch
     const key = scopeKey(scope)
+    const previous = cursors.get(key)
     const raw = await call('state', {
       version: GA_RPC_VERSION,
       generation,
       scope,
-      cursor: cursors.get(key) ?? 0,
+      cursor: previous?.cursor ?? 0,
+      queueID: previous?.queueID ?? null,
     })
     if (isDisposed || sentEpoch !== epoch) return { kind: 'dropped' }
     const parsed = parseGaStateAnswer(raw)
@@ -868,13 +879,13 @@ export function createGaLocationClient(options: {
     if (output.generation !== generation) {
       rebind(output.generation)
     }
-    cursors.set(key, output.cursor)
+    cursors.set(key, { cursor: output.cursor, queueID: output.queueID ?? null })
     return { kind: 'snapshot', snapshot: output }
   }
 
   return {
     generation: () => generation,
-    cursor: (scope) => cursors.get(scopeKey(scope)) ?? 0,
+    cursor: (scope) => cursors.get(scopeKey(scope))?.cursor ?? 0,
     disposed: () => isDisposed,
     dispose() {
       isDisposed = true

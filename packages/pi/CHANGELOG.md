@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Responses that Google stops for safety or another refusal now show an error instead of appearing to complete successfully.
+- Pi can resume Antigravity conversations that end with an assistant reply, while normal Gemini tool continuations stay unchanged.
 - While Pi uses the vault, it no longer keeps a copy of its own Google login, and any old saved copy is deleted. Leaving vault mode removes the vault marker and asks you to sign in again with `/login google`.
 - Remove only the codemode clause from Pi's stock docs bullet in outgoing system prompts to avoid Antigravity's false quota refusal, preserving its other documentation pointers.
 - Rewrite Pi and Pi-Bolt's stock system-prompt opener to the shorter coding-assistant identity accepted by Antigravity ([#76](https://github.com/cortexkit/antigravity-auth/issues/76)).

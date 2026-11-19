@@ -43,6 +43,8 @@
  *   A cursor ahead of the scope's last issued cursor is answered with
  *   `reset: 'cursor-ahead'` and delivery from cursor 0. `dropped` counts
  *   notifications evicted before the client acknowledged them.
+ *   A client can opt in with `queueID: null`, then echo the returned queue ID
+ *   with its cursor. A stale queue ID resets delivery after scope eviction.
  * - Disposal: once an activation is disposed, both methods answer
  *   `kind: 'disposed'` with that activation's generation, and a late
  *   completion from it never touches a newer activation.
@@ -169,6 +171,8 @@ export interface AntigravityStateInput {
   readonly scope: AntigravityRpcScope
   /** Highest notification cursor the client has received in this scope. */
   readonly cursor: number
+  /** Scope queue identity; absent for older clients, null on first pull. */
+  readonly queueID?: string | null
 }
 
 /**
@@ -296,11 +300,13 @@ export interface AntigravityNotificationDto {
 export type AntigravityStateReset =
   | 'initial'
   | 'generation-changed'
+  | 'queue-changed'
   | 'cursor-ahead'
 
 export const ANTIGRAVITY_STATE_RESETS = [
   'initial',
   'generation-changed',
+  'queue-changed',
   'cursor-ahead',
 ] as const satisfies readonly AntigravityStateReset[]
 
@@ -314,6 +320,8 @@ export interface AntigravityStateSnapshot {
   readonly reset: AntigravityStateReset | null
   /** Send this cursor next time; it acknowledges what this answer holds. */
   readonly cursor: number
+  /** Echo this with the cursor; returned only to clients that opt in. */
+  readonly queueID?: string
   /** Notifications evicted in this scope before they were acknowledged. */
   readonly dropped: number
   /** True when notifications after `cursor` are still waiting. */
@@ -1407,7 +1415,7 @@ function validateStateInput(value: unknown, issues: Issues): void {
       path,
       issues,
       ['version', 'scope', 'cursor'],
-      ['generation'],
+      ['generation', 'queueID'],
     )
   ) {
     return
@@ -1420,6 +1428,8 @@ function validateStateInput(value: unknown, issues: Issues): void {
   }
   if (present(value, 'scope')) checkScope(value.scope, ['scope'], issues)
   if (present(value, 'cursor')) checkCursor(value.cursor, ['cursor'], issues)
+  if (present(value, 'queueID') && value.queueID !== null)
+    checkGeneration(value.queueID, ['queueID'], issues)
 }
 
 function validateApplyInput(value: unknown, issues: Issues): void {
@@ -1546,7 +1556,7 @@ function validateStateOutput(value: unknown, issues: Issues): void {
         'status',
         'settings',
       ],
-      ['reset', 'route', 'vaultHostStatus'],
+      ['reset', 'route', 'vaultHostStatus', 'queueID'],
     )
   ) {
     return
@@ -1566,6 +1576,8 @@ function validateStateOutput(value: unknown, issues: Issues): void {
     checkLiteral(value.reset, ANTIGRAVITY_STATE_RESETS, ['reset'], issues)
   }
   if (present(value, 'cursor')) checkCursor(value.cursor, ['cursor'], issues)
+  if (present(value, 'queueID'))
+    checkGeneration(value.queueID, ['queueID'], issues)
   if (present(value, 'dropped')) {
     checkCursor(value.dropped, ['dropped'], issues)
   }
@@ -1940,7 +1952,7 @@ export const ANTIGRAVITY_RPC_CONTRACT = {
   selectorPattern: '^sel-[A-Za-z0-9_-]{32}$',
   limits: ANTIGRAVITY_RPC_LIMITS,
   keys: {
-    stateInput: ['version', 'generation', 'scope', 'cursor'],
+    stateInput: ['version', 'generation', 'scope', 'cursor', 'queueID?'],
     applyInput: ['version', 'generation', 'scope', 'request'],
     menuRequest: [
       'command',
@@ -1957,6 +1969,7 @@ export const ANTIGRAVITY_RPC_CONTRACT = {
       'scope',
       'reset',
       'cursor',
+      'queueID?',
       'dropped',
       'more',
       'notifications',

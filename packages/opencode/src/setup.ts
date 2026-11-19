@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path'
 import {
   ANTIGRAVITY_PROVIDER_ID,
   accountStorePointerPath,
+  type EnrollmentAuthority,
   getPiAntigravityVaultDir,
   loadCommonAuthClaustrum,
   loadCommonAuthFs,
@@ -10,6 +11,7 @@ import {
   loadCommonAuthStoreModules,
   readAccountStoreBinding,
   resolveClaustrumConnectionPath,
+  vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import {
   OPENCODE2_POOL_AUTH_LABEL,
@@ -112,6 +114,28 @@ async function readNativeAuth(path: string): Promise<Record<string, unknown>> {
   }
 }
 
+/** Decide which source may serve accounts without reading local logins or OpenCode's auth file. */
+export async function readOpenCodeAuthority(
+  legacyPath?: string,
+): Promise<EnrollmentAuthority> {
+  try {
+    const claustrum = await loadCommonAuthClaustrum()
+    if (claustrum.hasVaultHost()) return 'host'
+    return await vaultAuthority(
+      claustrum.hostEnrollmentPaths({
+        stateDir: openCodeVaultDir(
+          legacyPath ?? resolve(accountFileForVault()),
+        ),
+        host: 'opencode',
+      }),
+      OPENCODE_VAULT_ENROLLMENT_NAME,
+      claustrum,
+    )
+  } catch {
+    return 'unreadable'
+  }
+}
+
 /**
  * Refuse local sign-in if vault access is approved or auth.json holds its vault
  * marker. Re-read both because they can change while the OAuth browser is open.
@@ -120,22 +144,14 @@ export async function assertLocalOpenCodeLogin(
   legacyPath: string,
   generation?: SetupCallbackContext['opencodeGeneration'],
 ): Promise<void> {
-  const claustrum = await loadCommonAuthClaustrum()
-  if (
-    (await claustrum.vaultAuthority(
-      claustrum.hostEnrollmentPaths({
-        stateDir: openCodeVaultDir(legacyPath),
-        host: 'opencode',
-      }),
-      OPENCODE_VAULT_ENROLLMENT_NAME,
-    )) !== 'local'
-  )
+  if ((await readOpenCodeAuthority(legacyPath)) !== 'local')
     throw new Error(
       'Vault enrollment excludes local sign-in. Resolve vault access before choosing local setup.',
     )
   // OpenCode 2 authenticates Google through its own connection, not OpenCode 1's
   // auth.json. That dormant file must not block its native login.
   if (generation === '2') return
+  const claustrum = await loadCommonAuthClaustrum()
   claustrum.assertHostSlotMatchesMode({
     mode: 'local',
     auth: (await readNativeAuth(nativeOpenCodeAuthPath()))[

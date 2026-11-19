@@ -219,6 +219,27 @@ export function countAgyRequestSteps(payload: Record<string, unknown>): number {
   return Array.isArray(payload.contents) ? payload.contents.length : 0
 }
 
+/** Finish a model-ending history before its turns are counted in the wire metadata. */
+export function appendAgyContinuation(
+  contents: unknown[],
+  wireModel: string,
+): void {
+  const last = contents.at(-1) as
+    | { role?: unknown; parts?: unknown }
+    | undefined
+  if (last?.role !== 'model' && last?.role !== 'assistant') return
+  // Native Gemini replays a model turn of function responses without a user prompt.
+  if (
+    last.role === 'model' &&
+    wireModel.startsWith('gemini-') &&
+    Array.isArray(last.parts) &&
+    last.parts.length > 0 &&
+    last.parts.every((part) => part?.functionResponse)
+  )
+    return
+  contents.push({ role: 'user', parts: [{ text: '[Continue]' }] })
+}
+
 function hasSecondUserTurn(payload: Record<string, unknown>): boolean {
   if (!Array.isArray(payload.contents)) return false
   // Claude tool responses are user-role contents, but do not start a new turn.

@@ -551,10 +551,7 @@ export function gaPreHeaderFailureResponse(
 export async function startGaLoopbackBridge(
   options: GaLoopbackBridgeOptions,
 ): Promise<GaLoopbackBridge> {
-  const queued = new Map<
-    string,
-    { job: GaBridgeJob; timer: ReturnType<typeof setTimeout> }
-  >()
+  const queued = new Map<string, { job: GaBridgeJob; release: () => void }>()
   const running = new Set<AbortController>()
   const reads = new Set<Promise<void>>()
   const sockets = new Set<Socket>()
@@ -641,8 +638,7 @@ export async function startGaLoopbackBridge(
       return
     }
     // A job runs at most once.
-    queued.delete(id)
-    clearTimeout(entry.timer)
+    entry.release()
 
     const state: ResponseLifetime = {
       id,
@@ -733,20 +729,27 @@ export async function startGaLoopbackBridge(
     origin,
     rewrite(original, job, env) {
       if (closing) throw new Error('The Antigravity bridge is disposed')
+      const signal = original.signal
+      signal.throwIfAborted()
       const id = randomUUID()
       const target = `${origin}/agy/${id}`
       assertLoopbackProxyGuard({ env, target })
-      const timer = setTimeout(() => {
-        queued.delete(id)
-      }, GA_UNCLAIMED_JOB_TTL_MS)
-      timer.unref?.()
-      queued.set(id, { job, timer })
-      return new Request(target, {
+      const rewritten = new Request(target, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: '{}',
-        signal: original.signal,
+        signal,
       })
+      const release = () => {
+        clearTimeout(timer)
+        signal.removeEventListener('abort', release)
+        queued.delete(id)
+      }
+      const timer = setTimeout(release, GA_UNCLAIMED_JOB_TTL_MS)
+      timer.unref?.()
+      queued.set(id, { job, release })
+      signal.addEventListener('abort', release, { once: true })
+      return rewritten
     },
     adaptResponse(request, response) {
       let url: URL
@@ -827,8 +830,7 @@ export async function startGaLoopbackBridge(
       if (!disposal) {
         closing = true
         disposal = (async () => {
-          for (const { timer } of queued.values()) clearTimeout(timer)
-          queued.clear()
+          for (const entry of queued.values()) entry.release()
           const closed = new Promise<void>((resolve) => {
             server.close(() => resolve())
           })
@@ -937,8 +939,13 @@ async function pipeResponse(
       }
       if (!response.write(value) && !response.destroyed) {
         await new Promise<void>((resolve) => {
-          response.once('drain', resolve)
-          response.once('close', resolve)
+          const resume = () => {
+            response.off('drain', resume)
+            response.off('close', resume)
+            resolve()
+          }
+          response.once('drain', resume)
+          response.once('close', resume)
         })
       }
       if (response.destroyed) {
@@ -1204,6 +1211,7 @@ const DEFAULT_NOTIFICATIONS_PER_SCOPE = 100
 const DEFAULT_MAX_SCOPES = 256
 
 interface ScopeQueue {
+  readonly id: string
   /** Last cursor issued in this scope; 0 before the first. */
   lastIssued: number
   /** Highest cursor evicted unacknowledged; 0 when none. */
@@ -1274,6 +1282,7 @@ export function createGaRpcActivation(
       scopes.delete(key)
     } else {
       queue = {
+        id: randomUUID(),
         lastIssued: 0,
         evictedThrough: 0,
         notifications: [],
@@ -1405,6 +1414,12 @@ export function createGaRpcActivation(
     let reset: AntigravityStateReset | null = null
     if (request.generation === null) reset = 'initial'
     else if (request.generation !== generation) reset = 'generation-changed'
+    else if (
+      request.queueID !== undefined &&
+      request.queueID !== queue.id &&
+      (request.queueID !== null || request.cursor !== 0)
+    )
+      reset = 'queue-changed'
     else if (request.cursor > queue.lastIssued) reset = 'cursor-ahead'
     const acknowledged = reset === null ? request.cursor : 0
 
@@ -1431,6 +1446,7 @@ export function createGaRpcActivation(
       scope: request.scope,
       reset,
       cursor,
+      ...(request.queueID !== undefined ? { queueID: queue.id } : {}),
       dropped: Math.max(0, queue.evictedThrough - acknowledged),
       more: queue.notifications.length > delivered.length,
       notifications: delivered,

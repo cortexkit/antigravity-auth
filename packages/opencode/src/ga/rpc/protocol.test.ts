@@ -215,7 +215,7 @@ describe('antigravity-auth RPC identity', () => {
       .update(JSON.stringify(ANTIGRAVITY_RPC_CONTRACT))
       .digest('hex')
     expect(hash).toBe(
-      '375d1048f1d6a23438d2eb0b46d11cfb8f5385555c79bb948ae1bffdae2eab56',
+      '3068a1fdec224cf6b1185310412e8f38a6b11e9cb0b5ebec6791951e163dfae7',
     )
   })
 
@@ -232,6 +232,21 @@ describe('antigravity-auth RPC identity', () => {
 })
 
 describe('state input', () => {
+  it('accepts an optional queue identity or null for a first queue pull', () => {
+    for (const queueID of [null, 'queue-a']) {
+      expect(
+        AntigravityStateInputSchema.parse({ ...STATE_INPUT, queueID }).ok,
+      ).toBe(true)
+    }
+    expect(
+      pathsOf(
+        AntigravityStateInputSchema.parse({
+          ...STATE_INPUT,
+          queueID: 'not a queue id',
+        }),
+      ),
+    ).toEqual(['queueID'])
+  })
   it('accepts session and sessionless scopes and a null first-contact generation', () => {
     expect(AntigravityStateInputSchema.parse(STATE_INPUT).ok).toBe(true)
     expect(
@@ -510,6 +525,15 @@ describe('apply input', () => {
 })
 
 describe('state output', () => {
+  it('accepts a queue identity and queue-changed reset in a snapshot', () => {
+    expect(
+      AntigravityStateOutputSchema.parse({
+        ...SNAPSHOT,
+        queueID: 'queue-a',
+        reset: 'queue-changed',
+      }).ok,
+    ).toBe(true)
+  })
   it('[hosted] accepts only the public hosted vault status in a snapshot', () => {
     expect(
       AntigravityStateOutputSchema.parse({
