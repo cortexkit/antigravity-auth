@@ -8,6 +8,7 @@
 - Skip fresh vault accounts during background quota checks, even if another account has no reading yet.
 - Embed published common-auth 0.55.2: routing now sends an explicit empty account list when a continuation has no candidates.
 - If vault routing refuses its first account choice and specifies a wait of at most five seconds, wait and ask once more. Stop waiting on cancellation; a second refusal is final.
+- `antigravity-auth list` and `quota` no longer read or refresh local sign-ins when the vault serves your accounts directly or through the Thalamus agent runner, or when the account source cannot be read. Use `/antigravity` in OpenCode to see your accounts and quota.
 
 ## [3.1.10] - 2026-11-19
 

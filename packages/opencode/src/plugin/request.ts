@@ -26,6 +26,7 @@ import {
 } from '../constants'
 import {
   type AgyRequestSessionContext,
+  appendAgyContinuation,
   buildAgyAgentRequestMetadata,
   createAgyRequestSessionContext,
   orderAgyRequestPayloadInPlace,
@@ -715,19 +716,6 @@ function stripUnsupportedAntigravityFields(
       stripCacheControlFromParts((instruction as Record<string, unknown>).parts)
     }
   }
-}
-
-function isGeminiFunctionResponseTurn(
-  content: any,
-  wireModel: string,
-): boolean {
-  return (
-    wireModel.startsWith('gemini-') &&
-    content?.role === 'model' &&
-    Array.isArray(content.parts) &&
-    content.parts.length > 0 &&
-    content.parts.every((part: any) => part?.functionResponse)
-  )
 }
 
 function configureAntigravityToolCalling(
@@ -1717,17 +1705,8 @@ function prepareAntigravityRequestIn(
           normalizeNativeFunctionResponseRoles(req, effectiveModel)
         }
         for (const req of requestObjects) {
-          if (Array.isArray((req as any).contents)) {
-            const contents = (req as any).contents
-            const lastContent = contents[contents.length - 1]
-            if (
-              (lastContent?.role === 'model' &&
-                !isGeminiFunctionResponseTurn(lastContent, effectiveModel)) ||
-              lastContent?.role === 'assistant'
-            ) {
-              contents.push({ role: 'user', parts: [{ text: '[Continue]' }] })
-            }
-          }
+          if (Array.isArray(req.contents))
+            appendAgyContinuation(req.contents, effectiveModel)
           if (Array.isArray((req as any).messages)) {
             const messages = (req as any).messages
             const lastMessage = messages[messages.length - 1]
@@ -2482,21 +2461,8 @@ function prepareAntigravityRequestIn(
             wire.signatures.signatureStore.delete(signatureSessionKey)
           }
         }
-        if (Array.isArray(requestPayload.contents)) {
-          const lastContent = requestPayload.contents[
-            requestPayload.contents.length - 1
-          ] as any
-          if (
-            (lastContent?.role === 'model' &&
-              !isGeminiFunctionResponseTurn(lastContent, effectiveModel)) ||
-            lastContent?.role === 'assistant'
-          ) {
-            requestPayload.contents.push({
-              role: 'user',
-              parts: [{ text: '[Continue]' }],
-            })
-          }
-        }
+        if (Array.isArray(requestPayload.contents))
+          appendAgyContinuation(requestPayload.contents, effectiveModel)
         if (Array.isArray(requestPayload.messages)) {
           const lastMessage = (requestPayload.messages as any[])[
             requestPayload.messages.length - 1
@@ -2537,18 +2503,8 @@ function prepareAntigravityRequestIn(
           // Replay signatures decide Gemini's function-response role; Claude
           // keeps function responses in user turns.
           normalizeNativeFunctionResponseRoles(requestPayload, effectiveModel)
-          if (Array.isArray(requestPayload.contents)) {
-            const lastContent = requestPayload.contents.at(-1) as any
-            if (
-              lastContent?.role === 'model' &&
-              !isGeminiFunctionResponseTurn(lastContent, effectiveModel)
-            ) {
-              requestPayload.contents.push({
-                role: 'user',
-                parts: [{ text: '[Continue]' }],
-              })
-            }
-          }
+          if (Array.isArray(requestPayload.contents))
+            appendAgyContinuation(requestPayload.contents, effectiveModel)
         }
         // Use the stable default project ID (never a per-request random one):
         // a fresh random project each request busts the prompt cache and

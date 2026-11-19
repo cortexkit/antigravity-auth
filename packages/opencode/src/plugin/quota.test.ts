@@ -39,6 +39,7 @@ import { createPluginLifecycle } from './lifecycle.ts'
 import type { Logger } from './logger.ts'
 import { commitLogins } from './persist-account-pool.ts'
 import {
+  checkAccountsQuotaStandalone,
   classifyQuotaGroup,
   createAuthorizedFetchAccountQuota,
   createLocationQuotaManager,
@@ -61,6 +62,39 @@ interface QuotaSnapshotAccount {
 
 const hooks = lifetimeHooks()
 const { it, afterEach } = hooks
+
+it('standalone quota rechecks local authority before using a refresh token or bearer', async () => {
+  const urls: string[] = []
+  const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
+    input: Parameters<typeof fetch>[0],
+  ) => {
+    urls.push(String(input))
+    return urls.length === 1
+      ? Response.json({ access_token: 'synthetic-bearer', expires_in: 3600 })
+      : new Response(null, { status: 403 })
+  }) as typeof fetch)
+  const account: AccountMetadataV3 = {
+    refreshToken: 'synthetic-refresh',
+    managedProjectId: 'synthetic-project',
+    addedAt: 1,
+    lastUsed: 1,
+  }
+  let checks = 0
+  const assertAdmission = async () => {
+    if (++checks > 1) throw new Error('Local quota authority changed')
+  }
+  try {
+    await expect(
+      checkAccountsQuotaStandalone([account], {
+        refresh: true,
+        assertAdmission,
+      }),
+    ).rejects.toThrow('Local quota authority changed')
+    expect(urls).toEqual(['https://oauth2.googleapis.com/token'])
+  } finally {
+    fetchSpy.mockRestore()
+  }
+})
 
 it('pool-file advisory quota skips refresh without OAuth, project or quota network work', async () => {
   let fetchCalls = 0

@@ -1324,6 +1324,36 @@ describe('resolvePiAntigravityModel', () => {
 })
 
 describe('finalizePiAntigravityRequest', () => {
+  it('appends a user continuation before counting a model-ending history, except Gemini tool responses', () => {
+    const session = {
+      conversationId: 'conversation',
+      trajectoryId: 'trajectory',
+      numericSessionId: '1',
+    }
+    const prompt = { role: 'user', parts: [{ text: 'prompt' }] }
+    const answer = { role: 'model', parts: [{ text: 'partial answer' }] }
+    const continuation = { role: 'user', parts: [{ text: '[Continue]' }] }
+    const toolResponse = {
+      role: 'model',
+      parts: [
+        { functionResponse: { name: 'read', response: { output: 'fixture' } } },
+      ],
+    }
+    for (const [model, last, expected] of [
+      ['gemini-3.8-flash', answer, [prompt, answer, continuation]],
+      ['gemini-3.8-flash', toolResponse, [prompt, toolResponse]],
+      ['claude-opus-5-5', toolResponse, [prompt, toolResponse, continuation]],
+    ] as const) {
+      const request = { contents: [prompt, last] }
+      const id = finalizePiAntigravityRequest(request, model, {
+        session,
+        timestamp: 1,
+      })
+      expect(request.contents).toEqual([...expected])
+      expect(id).toBe(`agent/conversation/1/trajectory/${expected.length}`)
+    }
+  })
+
   it('omits toolConfig for every Carbon tier and grouped selector even with tools', () => {
     for (const model of [
       'gemini-4-carbon-low',
@@ -1618,6 +1648,46 @@ describe('streamCortexKitAntigravity', () => {
     expect(events.map((event) => event.type)).toEqual(['start', 'error'])
     expect(result.stopReason).toBe('error')
     expect(result.errorMessage).toContain('without a terminal candidate')
+  })
+
+  it('rejects Gemini candidate finish failures even after text or a tool call', async () => {
+    const partCases = [
+      { text: 'partial answer' },
+      { functionCall: { name: 'read', id: 'call_1' } },
+    ]
+    for (const [finishReason, label] of [
+      ['SAFETY', 'SAFETY'],
+      ['MALFORMED_FUNCTION_CALL', 'MALFORMED_FUNCTION_CALL'],
+      ['unexpected upstream detail 429', 'unknown reason'],
+    ]) {
+      for (const part of partCases) {
+        const { events, result } = await runStream(
+          fakeModel(),
+          sseResponse([
+            `data: ${JSON.stringify({ candidates: [{ content: { parts: [part] } }] })}\n\n`,
+            `data: ${JSON.stringify({ candidates: [{ finishReason }] })}\n\n`,
+          ]),
+          'candidate-failure',
+        )
+        expect(events.at(-1)?.type).toBe('error')
+        expect(result.stopReason).toBe('error')
+        expect(result.errorMessage).toBe(
+          `Google stopped the response: ${label}.`,
+        )
+      }
+    }
+  })
+
+  it('does not use a tool call to override the Gemini token limit', async () => {
+    const { events, result } = await runStream(
+      fakeModel(),
+      sseResponse([
+        'data: {"candidates":[{"content":{"parts":[{"functionCall":{"name":"read","id":"call_1"}}]},"finishReason":"MAX_TOKENS"}]}\n\n',
+      ]),
+      'candidate-length',
+    )
+    expect(events.at(-1)?.type).toBe('done')
+    expect(result.stopReason).toBe('length')
   })
 
   it('rejects a candidate-less terminal response instead of returning an empty success', async () => {
@@ -2293,6 +2363,35 @@ describe('parseGeminiSse', () => {
       text: 'crlf',
     })
     expect(chunks[1]?.candidates?.[0]?.finishReason).toBe('STOP')
+  })
+
+  it('parses an SSE event without reading past a split CRLF terminator', async () => {
+    const encoder = new TextEncoder()
+    const body = new ReadableStream<Uint8Array>(
+      {
+        start(controller) {
+          controller.enqueue(
+            encoder.encode(
+              'data: {"candidates":[{"finishReason":"STOP"}]}\r\n\r',
+            ),
+          )
+          controller.enqueue(encoder.encode('\n'))
+        },
+        pull(controller) {
+          controller.error(new Error('read past the complete SSE event'))
+        },
+      },
+      { highWaterMark: 0 },
+    )
+    const iterator = parseGeminiSse(new Response(body))
+    try {
+      const first = await iterator.next()
+      expect(first.done).toBe(false)
+      expect(first.value?.candidates?.[0]?.finishReason).toBe('STOP')
+    } finally {
+      await iterator.return(undefined)
+      await body.cancel().catch(() => {})
+    }
   })
 
   it('flushes a trailing frame without a blank-line separator', async () => {

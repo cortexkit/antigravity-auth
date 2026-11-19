@@ -33,6 +33,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { ServerResponse } from 'node:http'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import type * as Core from '@cortexkit/antigravity-auth-core'
@@ -303,6 +304,60 @@ describe('loopback bridge', () => {
     expect([...rewritten.headers.keys()]).toEqual(['content-type'])
     expect(rewritten.headers.get('content-type')).toBe('application/json')
     expect(await rewritten.text()).toBe('{}')
+  })
+
+  it('releases queued bridge jobs on abort and refuses pre-aborted jobs', async () => {
+    const execute = mock(async () => new Response('{}'))
+    const active = await start(execute)
+    const abort = new AbortController()
+    const original = hostRequest(abort.signal)
+    const rewritten = active.rewrite(original, JOB, NO_PROXY_ENV)
+    expect(active.pendingJobs()).toBe(1)
+    abort.abort(new Error('host cancelled'))
+    expect(rewritten.signal.aborted).toBe(true)
+    expect(active.pendingJobs()).toBe(0)
+    expect(() => active.rewrite(original, JOB, NO_PROXY_ENV)).toThrow(
+      'host cancelled',
+    )
+    expect(active.pendingJobs()).toBe(0)
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('does not accumulate bridge close listeners over repeated drains', async () => {
+    const writes = 16
+    const counts: number[] = []
+    const realWrite = ServerResponse.prototype.write
+    // Give each tiny write a deterministic drain instead of relying on socket buffer sizes.
+    const spy = spyOn(ServerResponse.prototype, 'write').mockImplementation(
+      function (this: ServerResponse, ...args: unknown[]) {
+        counts.push(this.listenerCount('close'))
+        Reflect.apply(realWrite, this, args)
+        queueMicrotask(() => this.emit('drain'))
+        return false
+      },
+    )
+    try {
+      const active = await start(
+        async () =>
+          new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                for (let i = 0; i < writes; i++)
+                  controller.enqueue(Uint8Array.of(120))
+                controller.close()
+              },
+            }),
+          ),
+      )
+      const response = await fetch(
+        active.rewrite(hostRequest(), JOB, NO_PROXY_ENV),
+      )
+      expect(await response.text()).toBe('x'.repeat(writes))
+      expect(counts).toHaveLength(writes)
+      expect(new Set(counts).size).toBe(1)
+    } finally {
+      spy.mockRestore()
+    }
   })
 
   it('conforms to the accepted loopback dispatch contract', async () => {
