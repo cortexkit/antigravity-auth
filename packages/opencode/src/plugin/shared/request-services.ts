@@ -1531,6 +1531,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     }
 
     let accountSwitchCount = 0
+    // Google's capacity and server-busy errors describe the model, not the
+    // account, so another account rarely helps and each switch repeats the
+    // full endpoint retries. One switch is allowed per request; a second
+    // exhaustion ends the request.
+    let capacityExhaustedSelections = 0
     let unconfirmedRetries = 0
     const maxAccountSwitches = config.max_account_switches ?? 2
     let previousAccountIndex = -1
@@ -3303,10 +3308,19 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     i -= 1
                     continue
                   }
+                  retainHttpFailure(response)
+                  capacityExhaustedSelections++
+                  if (capacityExhaustedSelections > 1) {
+                    pushDebug(
+                      `Total capacity retries (${MAX_TOTAL_CAPACITY_RETRIES}) exhausted again after one account switch, giving up`,
+                    )
+                    return terminalMainAttemptFailure(
+                      'Antigravity has no capacity for this model right now',
+                    )
+                  }
                   pushDebug(
                     `Total capacity retries (${MAX_TOTAL_CAPACITY_RETRIES}) exhausted, switching account`,
                   )
-                  retainHttpFailure(response)
                   shouldSwitchAccount = true
                   break
                 }
