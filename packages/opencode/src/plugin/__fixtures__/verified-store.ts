@@ -7,7 +7,7 @@ const PIN = {
   package: '@cortexkit/common-auth',
   version: '0.55.2',
   tarballSha256:
-    'f8878f24beb3e8b061ade30ac8a4888e947b9bf6c6ad8e8d45c85396610a2a5e',
+    'ca51b83059e16b39c5e1ddb3d0c35aaa47794b68d7c56299a0ae4fcae213a06e',
 } as const
 
 async function filesBelow(root: string, dir: string): Promise<string[]> {

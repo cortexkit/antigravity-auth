@@ -73,13 +73,13 @@ it('refuses a missing owned public consumer', async () => {
   ).rejects.toThrow('ENOENT')
 })
 
-it('admits the complete candidate archive and records every member payload', async () => {
+it('admits the complete published archive and records every member payload', async () => {
   const fixture = await provisionPublicConsumer()
   try {
     const admitted = await admitPublicConsumer(fixture.root)
-    expect(admitted.receipt.archive.bytes).toBe(503431)
+    expect(admitted.receipt.archive.bytes).toBe(503294)
     expect(admitted.receipt.archive.sha256).toBe(
-      'f8878f24beb3e8b061ade30ac8a4888e947b9bf6c6ad8e8d45c85396610a2a5e',
+      'ca51b83059e16b39c5e1ddb3d0c35aaa47794b68d7c56299a0ae4fcae213a06e',
     )
     expect(admitted.entries).toEqual(await admittedPublicArchive())
     const pkg = JSON.parse(

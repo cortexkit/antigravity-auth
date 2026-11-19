@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Embed published common-auth 0.55.2: routing now sends an explicit empty account list when a continuation has no candidates.
+- If vault routing refuses its first account choice and specifies a wait of at most five seconds, wait and ask once more. Stop waiting on cancellation; a second refusal is final.
+
 ## [3.1.10] - 2026-11-19
 
 - Add Gemini 4 Neon with Low, Medium and High (default) on OpenCode 1, plus XHigh on OpenCode 2 and Pi. As with Hydrogen, OpenCode 1's built-in Google library cannot pass XHigh to the plugin. Neon uses the ordinary Gemini quota pool.
