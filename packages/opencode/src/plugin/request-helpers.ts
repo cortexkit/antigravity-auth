@@ -1830,8 +1830,16 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
     insertAfterIdx: number
   }> = []
 
-  // Collected orphan responses (by ID)
+  // Collected orphan responses (by ID), in arrival order
   const collectedResponses = new Map<string, any>()
+  // Arrival number of each collected response. A queue entry below is still
+  // valid only while its ID is collected under the same arrival number, so
+  // consumed responses never need to be removed from the queues.
+  const arrivalById = new Map<string, number>()
+  let arrivals = 0
+  // Collected response IDs per function name, oldest first. Names are read
+  // once on arrival, and a collected response is only renamed when consumed.
+  const idsByName = new Map<string, { entries: OrphanEntry[]; head: number }>()
 
   for (const content of contents) {
     const role = content.role
@@ -1846,6 +1854,15 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
         const respId = resp.functionResponse?.id || ''
         if (respId && !collectedResponses.has(respId)) {
           collectedResponses.set(respId, resp)
+          const arrival = arrivals++
+          arrivalById.set(respId, arrival)
+          const name = resp.functionResponse?.name || ''
+          let queue = idsByName.get(name)
+          if (!queue) {
+            queue = { entries: [], head: 0 }
+            idsByName.set(name, queue)
+          }
+          queue.entries.push({ id: respId, arrival })
         }
       }
 
@@ -1893,9 +1910,28 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
     }
   }
 
-  // Handle remaining pending groups with orphan recovery
-  // Process in reverse order so insertions don't shift indices
+  // Oldest still-collected response with this name, or null.
+  const firstCollectedNamed = (name: string): string | null => {
+    const queue = idsByName.get(name)
+    if (!queue) return null
+    while (queue.head < queue.entries.length) {
+      const entry = queue.entries[queue.head]!
+      if (
+        collectedResponses.has(entry.id) &&
+        arrivalById.get(entry.id) === entry.arrival
+      ) {
+        return entry.id
+      }
+      queue.head++
+    }
+    return null
+  }
+
+  // Handle remaining pending groups with orphan recovery. Groups are matched
+  // from the latest model message backwards, which decides which orphan each
+  // one receives; the recovered response turns are inserted afterwards.
   pendingGroups.sort((a, b) => b.insertAfterIdx - a.insertAfterIdx)
+  const insertedAfter = new Map<number, any>()
 
   for (const group of pendingGroups) {
     const groupResponses: any[] = []
@@ -1913,22 +1949,11 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
         let matchedId: string | null = null
 
         // Pass 1: Match by function name
-        for (const [orphanId, orphanResp] of collectedResponses) {
-          const orphanName = orphanResp.functionResponse?.name || ''
-          if (orphanName === expectedName) {
-            matchedId = orphanId
-            break
-          }
-        }
+        matchedId = firstCollectedNamed(expectedName)
 
         // Pass 2: Match "unknown_function" orphans
         if (!matchedId) {
-          for (const [orphanId, orphanResp] of collectedResponses) {
-            if (orphanResp.functionResponse?.name === 'unknown_function') {
-              matchedId = orphanId
-              break
-            }
-          }
+          matchedId = firstCollectedNamed('unknown_function')
         }
 
         // Pass 3: Take first available
@@ -1984,16 +2009,25 @@ export function fixToolResponseGrouping(contents: any[]): any[] {
     }
 
     if (groupResponses.length > 0) {
-      // Insert at correct position (after the model message that made the calls)
-      newContents.splice(group.insertAfterIdx + 1, 0, {
+      // Inserted after the model message that made the calls
+      insertedAfter.set(group.insertAfterIdx, {
         parts: groupResponses,
         role: 'user',
       })
     }
   }
 
-  return newContents
+  if (insertedAfter.size === 0) return newContents
+  const withRecovered: any[] = []
+  for (let i = 0; i < newContents.length; i++) {
+    withRecovered.push(newContents[i])
+    const recovered = insertedAfter.get(i)
+    if (recovered) withRecovered.push(recovered)
+  }
+  return withRecovered
 }
+
+type OrphanEntry = { id: string; arrival: number }
 
 /**
  * Checks if contents have any tool call/response ID mismatches.

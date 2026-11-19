@@ -9,6 +9,13 @@
 - Embed published common-auth 0.55.2: routing now sends an explicit empty account list when a continuation has no candidates.
 - If vault routing refuses its first account choice and specifies a wait of at most five seconds, wait and ask once more. Stop waiting on cancellation; a second refusal is final.
 - `antigravity-auth list` and `quota` no longer read or refresh local sign-ins when the vault serves your accounts directly or through the Thalamus agent runner, or when the account source cannot be read. Use `/antigravity` in OpenCode to see your accounts and quota.
+- A model response that stalls, is aborted, is cancelled or is cut off before its end now fails with an error and closes its connection, instead of hanging or being passed on as a complete answer.
+- Once the 10-minute wait for Google's first answer has run out, a failure while reading an answer no longer sends the request to Google again.
+- An empty answer is retried at most `empty_response_max_attempts` times for each request; another request finishing no longer resets that count.
+- Identical Gemini thinking in two different sessions is now shown in both, and the plugin remembers shown thinking for a bounded number of sessions instead of for the life of the process.
+- With `thinking_warmup` on, a warmup that keeps failing stops after two attempts per session instead of running before every request.
+- Repairing a long tool history with many unmatched tool results no longer slows down with the square of its length, and an unconfirmed rate-limit refusal no longer re-reads the whole request.
+- The debug line that counted responses on the current account is renamed so it no longer claims to count every request for the message.
 
 ## [3.1.10] - 2026-11-19
 

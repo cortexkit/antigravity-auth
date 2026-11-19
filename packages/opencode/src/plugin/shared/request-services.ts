@@ -1365,6 +1365,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       : undefined
     const isChildRequest = requestSessionIdentity.parentSessionId !== null
     let physicalSendCount = 0
+    // Empty-response retries are budgeted per logical request: a success or
+    // an exhausted budget in another request must not refill this one.
+    let emptyResponseAttempts = 0
 
     if (accountManager.getAccountCount() === 0) {
       // Surface a real 401 with the Google error envelope instead of a
@@ -2655,12 +2658,15 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           projectId,
         })
 
+        // Only a warmup that never reached the sender gets its attempt back.
+        let warmupDispatched = false
         try {
           pushDebug('thinking-warmup: start')
           const warmupSend = await credentialForAuxiliarySend(
             warmupInit,
             projectId,
           )
+          warmupDispatched = true
           const warmupResponse = await sendPhysical(
             warmupUrl,
             warmupSend.init,
@@ -2685,7 +2691,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           warmupState.markSuccess(prepared.sessionId)
           pushDebug('thinking-warmup: done')
         } catch (error) {
-          warmupState.clearWarmupAttempt(prepared.sessionId)
+          if (!warmupDispatched) warmupState.refundAttempt(prepared.sessionId)
           if (error instanceof PreResponseTimeoutError) throw error
           checkAborted()
           if (isLocalGrantError(error)) throw error
@@ -3122,10 +3128,15 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
               if (response.status === 429 && rateLimitReason === 'UNKNOWN') {
                 await logResponseBody(debugContext, response, 429)
-                // Inspect the actual wire instruction, not conversation or tool text.
-                const outgoing = JSON.parse(String(prepared.init.body))
+                // Inspect the actual wire instruction, not conversation or tool
+                // text. Preparation keeps the instruction it serialized; parse
+                // the body only when something replaced it afterwards.
+                const carried = prepared.wireSystemInstruction
                 const recognised = systemInstructionHasHarnessIdentity(
-                  outgoing.request?.systemInstruction,
+                  carried && carried.body === prepared.init.body
+                    ? carried.instruction
+                    : JSON.parse(String(prepared.init.body)).request
+                        ?.systemInstruction,
                 )
                 if (recognised) {
                   void response.body?.cancel().catch(() => {})
@@ -3766,9 +3777,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               )
 
               if (isEmptyResponseBody(bodyText)) {
-                const emptyAttemptKey = `${prepared.sessionId ?? 'none'}:${prepared.effectiveModel ?? 'unknown'}`
-                const currentAttempts =
-                  retryState.recordEmptyResponseAttempt(emptyAttemptKey)
+                const currentAttempts = ++emptyResponseAttempts
 
                 pushDebug(
                   `empty-response: attempt ${currentAttempts}/${maxAttempts}`,
@@ -3784,15 +3793,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   continue
                 }
 
-                retryState.clearEmptyResponseAttempts()
                 return createNativeGoogleErrorResponse({
                   status: 502,
                   reason: 'empty_response',
                 })
               }
-
-              const _emptyAttemptKeyClean = `${prepared.sessionId ?? 'none'}:${prepared.effectiveModel ?? 'unknown'}`
-              retryState.clearEmptyResponseAttempts()
             }
 
             const routingObservation =
@@ -3838,8 +3843,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             }
 
             if (apiRequestCount > 1) {
+              // Counts only main-request responses received on the current
+              // account selection; warmups, probes, failed sends and earlier
+              // selections are not included.
               pushDebug(
-                `[Quota] Total API requests for this user message: ${apiRequestCount} (${apiRequestCount - 1} retries)`,
+                `[Quota] Main-request responses on this account selection: ${apiRequestCount}`,
               )
             }
             const dailyCounts = accountManager.getDailyRequestCounts(
@@ -3920,6 +3928,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               tokenConsumed = false
             }
 
+            // Successful headers pause the deadline while the response is
+            // read. Every branch below can send again, so a failure while
+            // reading must restore the original expiry first; once it has
+            // passed, this throws the deadline error instead of resending.
+            deadline.resume()
             if (
               credentials.domain === 'local' &&
               localGrant?.captured.source === 'store' &&

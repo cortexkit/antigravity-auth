@@ -410,12 +410,24 @@ function parseResponseHead(head: string): ParsedResponseHead {
   }
 }
 
-export class ContentLengthStream extends Transform {
+/** A body decoder that knows whether its HTTP framing has fully arrived. */
+interface FramedBodyStream extends Transform {
+  readonly complete: boolean
+}
+
+export class ContentLengthStream extends Transform implements FramedBodyStream {
   private remaining: number
 
   constructor(contentLength: number) {
     super()
     this.remaining = contentLength
+    // An empty body is complete at the headers: a keep-alive peer sends
+    // nothing more, so waiting for socket EOF would never end it.
+    if (this.remaining <= 0) this.push(null)
+  }
+
+  get complete(): boolean {
+    return this.remaining <= 0
   }
 
   override _transform(
@@ -441,16 +453,36 @@ export class ContentLengthStream extends Transform {
     }
     callback()
   }
+
+  override _flush(callback: (error?: Error | null) => void): void {
+    // The input ended before the declared length: the body is truncated and
+    // must not be delivered as a complete one.
+    callback(
+      this.remaining > 0
+        ? new Error('Antigravity response ended before its declared length')
+        : null,
+    )
+  }
 }
 
-class ChunkedDecodeStream extends Transform {
+class ChunkedDecodeStream extends Transform implements FramedBodyStream {
   private buffer = Buffer.alloc(0)
+  private finished = false
+
+  get complete(): boolean {
+    return this.finished
+  }
 
   override _transform(
     chunk: Buffer,
     _encoding: BufferEncoding,
     callback: (error?: Error | null) => void,
   ): void {
+    // Bytes after the last chunk belong to the next keep-alive response.
+    if (this.finished) {
+      callback()
+      return
+    }
     this.buffer = Buffer.concat([this.buffer, chunk])
     try {
       this.flushAvailableChunks()
@@ -462,8 +494,13 @@ class ChunkedDecodeStream extends Transform {
 
   override _flush(callback: (error?: Error | null) => void): void {
     try {
-      this.flushAvailableChunks()
-      callback()
+      if (!this.finished) this.flushAvailableChunks()
+      // Without the zero-size last chunk the body was cut off mid-transfer.
+      callback(
+        this.finished
+          ? null
+          : new Error('Antigravity response ended before its final chunk'),
+      )
     } catch (error) {
       callback(error instanceof Error ? error : new Error(String(error)))
     }
@@ -479,25 +516,42 @@ class ChunkedDecodeStream extends Transform {
       if (!Number.isFinite(size)) {
         throw new Error(`Invalid chunk size: ${sizeLine}`)
       }
-      const chunkStart = lineEnd + 2
-      const chunkEnd = chunkStart + size
-      const nextOffset = chunkEnd + 2
-      if (this.buffer.length < nextOffset) return
       if (size === 0) {
+        // The last chunk is followed by optional trailer lines and one empty
+        // line; the body is complete only once that empty line has arrived.
+        if (this.buffer.indexOf('\r\n\r\n', lineEnd) === -1) return
+        this.finished = true
         this.buffer = Buffer.alloc(0)
         this.push(null)
         return
       }
+      const chunkStart = lineEnd + 2
+      const chunkEnd = chunkStart + size
+      const nextOffset = chunkEnd + 2
+      if (this.buffer.length < nextOffset) return
       this.push(this.buffer.subarray(chunkStart, chunkEnd))
       this.buffer = this.buffer.subarray(nextOffset)
     }
   }
 }
 
-function buildResponseStream(
-  socket: tls.TLSSocket,
+/** The parts of a response head that decide how its body is read. */
+export type AgyResponseFraming = Pick<
+  ParsedResponseHead,
+  'chunked' | 'gzip' | 'contentLength'
+>
+
+/**
+ * Turns the socket after the response head into the Web body. The body and
+ * the socket share one lifetime: a socket error, a premature close, the idle
+ * watchdog or caller abort errors the body, so a pending read rejects instead
+ * of hanging; a finished, failed or cancelled body destroys the socket.
+ * Exported for the transport tests, which drive it over plain sockets.
+ */
+export function buildResponseStream(
+  socket: net.Socket,
   leftover: Buffer,
-  head: ParsedResponseHead,
+  head: AgyResponseFraming,
   signal?: AbortSignal | null,
   idleTimeoutMs?: number,
   onDebug?: (message: string) => void,
@@ -508,23 +562,31 @@ function buildResponseStream(
   }
   socket.pipe(source)
 
+  const stages: Readable[] = [source]
+  let framing: FramedBodyStream | undefined
   let responseBody: Readable = source
   if (head.chunked) {
-    responseBody = responseBody.pipe(new ChunkedDecodeStream())
+    framing = new ChunkedDecodeStream()
   } else if (typeof head.contentLength === 'number') {
     // Non-chunked with a known length: emit exactly contentLength bytes then
     // end, rather than reading until socket EOF (which over-reads on keep-alive
     // connections and never ends if the server keeps the socket open).
-    responseBody = responseBody.pipe(
-      new ContentLengthStream(head.contentLength),
-    )
+    framing = new ContentLengthStream(head.contentLength)
+  }
+  if (framing) {
+    responseBody = responseBody.pipe(framing)
+    stages.push(framing)
   }
   if (head.gzip) {
     responseBody = responseBody.pipe(createGunzip())
+    stages.push(responseBody)
   }
 
-  // Idle-read watchdog: if no body bytes arrive within idleTimeoutMs, destroy
-  // the socket so a hung/stalled response can't hold the connection forever.
+  let settled = false
+  let socketEnded = false
+
+  // Idle-read watchdog: if no body bytes arrive within idleTimeoutMs, fail the
+  // body so a hung/stalled response can't hold the connection forever.
   let idleTimer: ReturnType<typeof setTimeout> | undefined
   const clearIdle = () => {
     if (idleTimer) {
@@ -539,38 +601,70 @@ function buildResponseStream(
       onDebug?.(
         `agy transport idle timeout after ${idleTimeoutMs}ms with no body data`,
       )
-      socket.destroy(
+      settle(
         new Error(
-          `Antigravity response stalled: no data for ${idleTimeoutMs}ms`,
+          'Antigravity response stalled: no body data within the limit',
         ),
       )
     }, idleTimeoutMs)
   }
-  socket.on('data', armIdle)
-  armIdle()
 
   const abort = () =>
-    socket.destroy(new DOMException('The operation was aborted', 'AbortError'))
-  const cleanup = () => {
+    settle(new DOMException('The operation was aborted', 'AbortError'))
+  const onSocketEnd = () => {
+    // EOF: the framing decoders now decide whether the body was complete.
+    socketEnded = true
+  }
+  const onSocketClose = () => {
+    // A close without EOF before the framing finished means bytes are missing.
+    if (!socketEnded && !framing?.complete) {
+      settle(
+        new Error(
+          'Antigravity response connection closed before the body ended',
+        ),
+      )
+    }
+  }
+  const fail = (error: unknown) =>
+    settle(error instanceof Error ? error : new Error(String(error)))
+
+  // Ends the body's ownership of the socket, once. With an error, the body is
+  // errored with it so the reader sees the real cause.
+  function settle(error?: Error): void {
+    if (settled) return
+    settled = true
     clearIdle()
     socket.off('data', armIdle)
+    socket.off('end', onSocketEnd)
+    socket.off('close', onSocketClose)
     signal?.removeEventListener('abort', abort)
+    socket.unpipe(source)
+    socket.destroy()
+    for (const stage of stages) {
+      if (stage !== responseBody && !stage.destroyed) stage.destroy()
+    }
+    if (!responseBody.destroyed) {
+      if (error) responseBody.destroy(error)
+      else if (!responseBody.readableEnded) responseBody.destroy()
+    }
   }
+
+  // The socket keeps this listener after settling: a late socket error must
+  // never become an unhandled 'error' event.
+  socket.on('error', fail)
+  socket.on('data', armIdle)
+  socket.once('end', onSocketEnd)
+  socket.once('close', onSocketClose)
+  for (const stage of stages) stage.on('error', fail)
+  responseBody.once('end', () => settle())
+  // A cancelled Web body destroys its Node stream without an end or error.
+  responseBody.once('close', () => settle())
+  armIdle()
   if (signal?.aborted) {
     abort()
   } else {
     signal?.addEventListener('abort', abort, { once: true })
   }
-
-  responseBody.once('end', () => {
-    cleanup()
-    socket.destroy()
-  })
-  responseBody.once('error', () => {
-    cleanup()
-    socket.destroy()
-  })
-  responseBody.once('close', cleanup)
   return Readable.toWeb(responseBody) as unknown as ReadableStream<Uint8Array>
 }
 

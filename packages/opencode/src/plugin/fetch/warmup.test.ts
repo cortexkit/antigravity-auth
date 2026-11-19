@@ -18,13 +18,29 @@ describe('WarmupState', () => {
       expect(state.trackAttempt('sess-1')).toBe(false)
     })
 
-    it('returns false only after success has been recorded', () => {
-      // Without success, attempts are not blocked at the per-session level
-      // (the legacy semantics gate only on the succeeded set).
+    it('refuses further attempts after success', () => {
       state.trackAttempt('sess-2')
-      expect(state.trackAttempt('sess-2')).toBe(true)
       state.markSuccess('sess-2')
       expect(state.trackAttempt('sess-2')).toBe(false)
+    })
+
+    it('stops a failing warmup after the retry limit', () => {
+      // A failed warmup that reached the network keeps its attempt, so
+      // repeated failures cannot run a warmup before every request.
+      const allowed: boolean[] = []
+      for (let i = 0; i < 6; i++) allowed.push(state.trackAttempt('failing'))
+      expect(allowed).toEqual([true, true, false, false, false, false])
+      expect(state.getAttemptCount('failing')).toBe(2)
+    })
+
+    it('refunds an attempt that never reached the network', () => {
+      expect(state.trackAttempt('refund')).toBe(true)
+      state.refundAttempt('refund')
+      expect(state.getAttemptCount('refund')).toBe(0)
+      expect(state.trackAttempt('refund')).toBe(true)
+      expect(state.trackAttempt('refund')).toBe(true)
+      state.refundAttempt('refund')
+      expect(state.getAttemptCount('refund')).toBe(1)
     })
 
     it('reports attempt count for sessions', () => {
@@ -71,7 +87,7 @@ describe('WarmupState', () => {
       // After dispose, calls are no-ops but should not throw
       expect(state.trackAttempt('sess-5')).toBe(false)
       expect(state.markSuccess('sess-5')).toBeUndefined()
-      expect(state.clearWarmupAttempt('sess-5')).toBeUndefined()
+      expect(state.refundAttempt('sess-5')).toBeUndefined()
     })
   })
 })

@@ -6,6 +6,9 @@
  * leaked across plugin lifetimes and across concurrent interceptors. This
  * factory scopes the same sets to a single interceptor; `dispose()` evicts
  * everything so the next interceptor starts clean.
+ *
+ * Attempts are counted per session, so a warmup that keeps failing stops after
+ * `MAX_WARMUP_RETRIES` physical sends instead of retrying on every turn.
  */
 
 const MAX_WARMUP_SESSIONS = 1000
@@ -23,8 +26,12 @@ export interface WarmupState {
   getAttemptCount(sessionId: string): number
   /** Marks the session as warmed-up; subsequent attempts are rejected. */
   markSuccess(sessionId: string): void
-  /** Drops a single session's attempt counter (used on warmup failure). */
-  clearWarmupAttempt(sessionId: string): void
+  /**
+   * Gives back one attempt recorded by `trackAttempt`. Only for a warmup that
+   * failed before anything was sent; a warmup that reached the network keeps
+   * its count even when it fails.
+   */
+  refundAttempt(sessionId: string): void
   /** Drops every session entry. */
   clear(): void
   /** Marks the instance as torn down; subsequent mutations are no-ops. */
@@ -32,7 +39,8 @@ export interface WarmupState {
 }
 
 export function createWarmupState(): WarmupState {
-  const warmupAttemptedSessionIds = new Set<string>()
+  // Insertion order doubles as eviction order once the session cap is hit.
+  const warmupAttemptCounts = new Map<string, number>()
   const warmupSucceededSessionIds = new Set<string>()
   let disposed = false
 
@@ -41,23 +49,23 @@ export function createWarmupState(): WarmupState {
     if (warmupSucceededSessionIds.has(sessionId)) {
       return false
     }
-    if (warmupAttemptedSessionIds.size >= MAX_WARMUP_SESSIONS) {
-      const first = warmupAttemptedSessionIds.values().next().value
-      if (first) {
-        warmupAttemptedSessionIds.delete(first)
-        warmupSucceededSessionIds.delete(first)
-      }
-    }
     const attempts = getAttemptCount(sessionId)
     if (attempts >= MAX_WARMUP_RETRIES) {
       return false
     }
-    warmupAttemptedSessionIds.add(sessionId)
+    if (attempts === 0 && warmupAttemptCounts.size >= MAX_WARMUP_SESSIONS) {
+      const first = warmupAttemptCounts.keys().next().value
+      if (first !== undefined) {
+        warmupAttemptCounts.delete(first)
+        warmupSucceededSessionIds.delete(first)
+      }
+    }
+    warmupAttemptCounts.set(sessionId, attempts + 1)
     return true
   }
 
   function getAttemptCount(sessionId: string): number {
-    return warmupAttemptedSessionIds.has(sessionId) ? 1 : 0
+    return warmupAttemptCounts.get(sessionId) ?? 0
   }
 
   function markSuccess(sessionId: string): void {
@@ -69,13 +77,15 @@ export function createWarmupState(): WarmupState {
     }
   }
 
-  function clearWarmupAttempt(sessionId: string): void {
+  function refundAttempt(sessionId: string): void {
     if (disposed) return
-    warmupAttemptedSessionIds.delete(sessionId)
+    const attempts = getAttemptCount(sessionId)
+    if (attempts <= 1) warmupAttemptCounts.delete(sessionId)
+    else warmupAttemptCounts.set(sessionId, attempts - 1)
   }
 
   function clear(): void {
-    warmupAttemptedSessionIds.clear()
+    warmupAttemptCounts.clear()
     warmupSucceededSessionIds.clear()
   }
 
@@ -92,7 +102,7 @@ export function createWarmupState(): WarmupState {
     trackAttempt,
     getAttemptCount,
     markSuccess,
-    clearWarmupAttempt,
+    refundAttempt,
     clear,
     dispose,
   }
