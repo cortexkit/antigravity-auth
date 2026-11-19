@@ -369,6 +369,62 @@ function expectFixedRefusal(
   })
 }
 
+function firstPlacementRefusal(retryAfterSecs?: number): Answer {
+  return {
+    refused: {
+      code: 'account_selection_refused',
+      ...(retryAfterSecs === undefined
+        ? {}
+        : { retry_after_secs: retryAfterSecs }),
+    },
+  }
+}
+
+it('re-asks after a short first-placement refusal and sends on the picked login', async () => {
+  const { sample } = await runCase({
+    name: 'first-refusal-then-pick',
+    answers: [firstPlacementRefusal(2), route(1)],
+    sleepMs: 2000,
+  })
+  expect(sample.response.status).toBe(200)
+  expect(sample.sends).toEqual([route(1)])
+  expect(asks(sample.calls)).toHaveLength(2)
+  expect(placementEvents(sample.calls)).toEqual(['first', 'first', 'served'])
+  expectServed(sample.calls, 1)
+})
+
+it('makes a second short first-placement refusal final without sending', async () => {
+  const { sample } = await runCase({
+    name: 'two-first-refusals',
+    answers: [firstPlacementRefusal(1), firstPlacementRefusal(1)],
+    sleepMs: 1000,
+  })
+  expect(sample.sends).toEqual([])
+  expect(asks(sample.calls)).toHaveLength(2)
+  expect(placementEvents(sample.calls)).toEqual(['first', 'first'])
+  expectFixedRefusal(sample.response, '1')
+})
+
+it('keeps a first-placement refusal above five seconds final without waiting', async () => {
+  const { sample } = await runCase({
+    name: 'first-refusal-six-seconds',
+    answers: [firstPlacementRefusal(6)],
+  })
+  expect(sample.sends).toEqual([])
+  expect(asks(sample.calls)).toHaveLength(1)
+  expectFixedRefusal(sample.response, '6')
+})
+
+it('keeps a first-placement refusal without a retry delay final without waiting', async () => {
+  const { sample } = await runCase({
+    name: 'first-refusal-without-delay',
+    answers: [firstPlacementRefusal()],
+  })
+  expect(sample.sends).toEqual([])
+  expect(asks(sample.calls)).toHaveLength(1)
+  expectFixedRefusal(sample.response)
+})
+
 it('records the three refusal answers and their fixed 412 responses', async () => {
   const refusalCases = [
     {

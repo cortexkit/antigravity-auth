@@ -149,11 +149,12 @@ const FIRST_RETRY_DELAY_MS = 1000
 // Re-probe within an hour even when no quota refresh has revealed a new allowance.
 const MODEL_UNAVAILABLE_TTL_MS = 60 * 60 * 1000
 
-// Routing is asked once, when a session is first placed, and its answer holds
-// for the whole session, so a slow answer that misses the deadline is costly
+// Routing is normally asked when a session is first placed, and its answer
+// holds for the whole session. A slow answer that misses the deadline is costly
 // while the wait itself is rare. Use the routing accessor's 2 s ceiling, well
 // above routing's normal admission time.
 const ROUTING_ASK_DEADLINE_MS = 2000
+const FIRST_PLACEMENT_REFUSAL_MAX_RETRY_SECS = 5
 
 const REFUSAL_BODY_TIMEOUT_MS = 2_000
 const REFUSAL_BODY_MAX_BYTES = 64 * 1024
@@ -1939,32 +1940,53 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             candidates.some(
               (candidate) => routingIdentityKey(candidate) === holdCandidate,
             )
-          const answer = await deadline.wait(() => {
-            const input = {
-              sessionId: accountSessionIdentity.id,
-              provider: 'antigravity',
-              modelId: model,
-              candidates,
-              deadlineMs: Math.min(
-                ROUTING_ASK_DEADLINE_MS,
-                deadline.remainingMs(),
-              ),
-              refusals: true as const,
-            }
-            return askRouting(
-              exhausted
-                ? {
-                    ...input,
-                    mode: 'continue',
-                    requestId: randomUUID(),
-                    exhausted,
-                    holdWaitMaxS: canHold
-                      ? Math.floor(routingWaitRemainingMs() / 1000)
-                      : 0,
-                  }
-                : input,
+          const ask = () =>
+            deadline.wait(() => {
+              const input = {
+                sessionId: accountSessionIdentity.id,
+                provider: 'antigravity',
+                modelId: model,
+                candidates,
+                deadlineMs: Math.min(
+                  ROUTING_ASK_DEADLINE_MS,
+                  deadline.remainingMs(),
+                ),
+                refusals: true as const,
+              }
+              return askRouting(
+                exhausted
+                  ? {
+                      ...input,
+                      mode: 'continue',
+                      requestId: randomUUID(),
+                      exhausted,
+                      holdWaitMaxS: canHold
+                        ? Math.floor(routingWaitRemainingMs() / 1000)
+                        : 0,
+                    }
+                  : input,
+              )
+            })
+          let answer = await ask()
+          const firstRefusal =
+            !exhausted && answer && 'refused' in answer
+              ? answer.refused
+              : undefined
+          if (
+            firstRefusal?.code === 'account_selection_refused' &&
+            firstRefusal.retryAfterSecs !== undefined &&
+            firstRefusal.retryAfterSecs <=
+              FIRST_PLACEMENT_REFUSAL_MAX_RETRY_SECS
+          ) {
+            // Wait without sending, then give routing one more chance to place
+            // the session. A second refusal is final.
+            await routingSleep(
+              firstRefusal.retryAfterSecs * 1000,
+              'account_free',
             )
-          })
+            checkAborted()
+            answer = await ask()
+          }
           checkAborted()
           if (answer && 'refused' in answer)
             return routingRefusalResponse(answer.refused)

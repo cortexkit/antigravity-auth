@@ -9959,6 +9959,42 @@ describe('createRequestExecutor optional vault routing', () => {
     )
   })
 
+  it('cancels a short first-placement refusal wait without another ask or send', async () => {
+    const caller = new AbortController()
+    const reason = new Error('cancelled during first-placement refusal wait')
+    let abortTimer: ReturnType<typeof setTimeout> | undefined
+    await routing(
+      async (state) => {
+        const h = harness({ respond: async () => okJson() })
+        const executor = createRequestExecutor(
+          vaultDeps(h, async (account) => admission(account)),
+        )
+        try {
+          const request = executor.execute(
+            NON_STREAM_URL,
+            CHAT_INIT(caller.signal),
+            session('cancel-first-placement-refusal'),
+          )
+          await expect(request).rejects.toThrow(reason.message)
+          expect(state.asks).toHaveLength(1)
+          expect(h.calls).toEqual([])
+        } finally {
+          if (abortTimer) clearTimeout(abortTimer)
+          await executor.dispose()
+        }
+      },
+      async () => {
+        abortTimer = setTimeout(() => caller.abort(reason), 20)
+        return {
+          refused: {
+            code: 'account_selection_refused',
+            retry_after_secs: 5,
+          },
+        }
+      },
+    )
+  })
+
   const ROUTING_REFUSED_MESSAGE =
     'Routing has no Antigravity account available for this request right now. Wait before sending another request.'
 
