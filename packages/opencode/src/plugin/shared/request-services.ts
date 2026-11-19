@@ -149,11 +149,12 @@ const FIRST_RETRY_DELAY_MS = 1000
 // Re-probe within an hour even when no quota refresh has revealed a new allowance.
 const MODEL_UNAVAILABLE_TTL_MS = 60 * 60 * 1000
 
-// Routing is asked once, when a session is first placed, and its answer holds
-// for the whole session, so a slow answer that misses the deadline is costly
+// Routing is normally asked when a session is first placed, and its answer
+// holds for the whole session. A slow answer that misses the deadline is costly
 // while the wait itself is rare. Use the routing accessor's 2 s ceiling, well
 // above routing's normal admission time.
 const ROUTING_ASK_DEADLINE_MS = 2000
+const FIRST_PLACEMENT_REFUSAL_MAX_RETRY_SECS = 5
 
 const REFUSAL_BODY_TIMEOUT_MS = 2_000
 const REFUSAL_BODY_MAX_BYTES = 64 * 1024
@@ -1540,6 +1541,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     let routingPlacementConsidered = false
     let routedCandidate: RoutingCandidate | undefined
     let continueRouting: AskRoutingInput['exhausted']
+    let continueOnlyLogin = false
     const refusedRoutes = new Map<
       string,
       NonNullable<AskRoutingInput['exhausted']>
@@ -1632,10 +1634,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       const choice = routedCandidate
       routedCandidate = undefined
       const exhausted = continueRouting
+      const onlyLoginContinuation = continueOnlyLogin
       continueRouting = undefined
+      continueOnlyLogin = false
       if (exhausted) refusedRoutes.set(routingIdentityKey(exhausted), exhausted)
       const accountCount = accountManager.getAccountCount()
-      if (accountCount === 0) {
+      if (accountCount === 0 && !onlyLoginContinuation) {
         if (choice) return failedRoutedPick()
         // Mirror the no-account short-circuit inside the retry loop so callers
         // that race with account removal still get a proper 401 instead of a
@@ -1943,35 +1947,58 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             candidates.some(
               (candidate) => routingIdentityKey(candidate) === holdCandidate,
             )
-          const answer = await deadline.wait(() => {
-            const input = {
-              sessionId: accountSessionIdentity.id,
-              provider: 'antigravity',
-              modelId: model,
-              candidates,
-              deadlineMs: Math.min(
-                ROUTING_ASK_DEADLINE_MS,
-                deadline.remainingMs(),
-              ),
-              refusals: true as const,
-            }
-            return askRouting(
-              exhausted
-                ? {
-                    ...input,
-                    mode: 'continue',
-                    requestId: randomUUID(),
-                    exhausted,
-                    holdWaitMaxS: canHold
-                      ? Math.floor(routingWaitRemainingMs() / 1000)
-                      : 0,
-                  }
-                : input,
+          const ask = () =>
+            deadline.wait(() => {
+              const input = {
+                sessionId: accountSessionIdentity.id,
+                provider: 'antigravity',
+                modelId: model,
+                candidates,
+                deadlineMs: Math.min(
+                  ROUTING_ASK_DEADLINE_MS,
+                  deadline.remainingMs(),
+                ),
+                refusals: true as const,
+              }
+              return askRouting(
+                exhausted
+                  ? {
+                      ...input,
+                      mode: 'continue',
+                      requestId: randomUUID(),
+                      exhausted,
+                      holdWaitMaxS: canHold
+                        ? Math.floor(routingWaitRemainingMs() / 1000)
+                        : 0,
+                    }
+                  : input,
+              )
+            })
+          let answer = await ask()
+          const firstRefusal =
+            !exhausted && answer && 'refused' in answer
+              ? answer.refused
+              : undefined
+          if (
+            firstRefusal?.code === 'account_selection_refused' &&
+            firstRefusal.retryAfterSecs !== undefined &&
+            firstRefusal.retryAfterSecs <=
+              FIRST_PLACEMENT_REFUSAL_MAX_RETRY_SECS
+          ) {
+            // Wait without sending, then give routing one more chance to place
+            // the session. A second refusal is final.
+            await routingSleep(
+              firstRefusal.retryAfterSecs * 1000,
+              'account_free',
             )
-          })
+            checkAborted()
+            answer = await ask()
+          }
           checkAborted()
           if (answer && 'refused' in answer)
             return routingRefusalResponse(answer.refused)
+          if (!answer && onlyLoginContinuation && candidates.length === 0)
+            return failedRoutedPick()
           if (exhausted && answer?.hold) {
             if (
               !canHold ||
@@ -3438,6 +3465,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 continue
               }
 
+              if (routed429 && exhaustion) {
+                const { accountId, credentialId } = routed429
+                continueRouting = { accountId, credentialId, ...exhaustion }
+              }
               const switchAccountDelayMs = config.switch_account_delay_ms ?? 500
 
               if (accountCount > 1) {
@@ -3449,7 +3480,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   'warning',
                 )
                 await sleep(switchAccountDelayMs, abortSignal)
-              } else {
+              } else if (!continueRouting || isHardEligible(account)) {
                 const expBackoffMs = Math.min(
                   FIRST_RETRY_DELAY_MS * 2 ** (backoff.attempt - 1),
                   60000,
@@ -3470,10 +3501,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               }
 
               retainHttpFailure(response)
-              if (routed429 && exhaustion) {
-                const { accountId, credentialId } = routed429
-                continueRouting = { accountId, credentialId, ...exhaustion }
-              }
               shouldSwitchAccount = true
               break
             }
@@ -4008,6 +4035,17 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       if (shouldSwitchAccount) {
         // Unconfirmed refusals have their own request-wide retry budget.
         if (switchedForUnconfirmed) continue
+        if (
+          accountCount === 1 &&
+          continueRouting &&
+          (continueRouting.limitWindow === 'signed_out' ||
+            !isHardEligible(account))
+        ) {
+          // Tell routing the last login signed out or exhausted its quota even
+          // when the pool counts no usable logins. The ask itself sends nothing.
+          continueOnlyLogin = true
+          continue
+        }
         accountSwitchCount++
 
         if (accountSwitchCount > maxAccountSwitches) {

@@ -29,6 +29,7 @@ type Ask = {
   candidates?: { view_digest: string; accounts: Route[] }
 }
 type Answer =
+  | undefined
   | Route
   | {
       refused: {
@@ -64,7 +65,7 @@ async function captureRouting<T>(
     configurable: true,
     value: (sessionId: string) => ({
       async accountFor(...args: [Ask, { deadlineMs: number }]) {
-        const answer = answers[askIndex++]!
+        const answer = answers[askIndex++]
         calls.push({
           method: 'accountFor',
           sessionId,
@@ -108,8 +109,9 @@ function route(index: number): Route {
 type Scenario = {
   name: string
   kind?: 'primary' | 'generate' | 'compaction'
+  loginCount?: number
   answers: readonly Answer[]
-  firstResponse?: () => Response
+  firstResponse?: (pool: ReturnType<typeof makePool>) => Response
   provedQuota?: boolean
   sleepMs?: number
 }
@@ -117,6 +119,7 @@ type Scenario = {
 async function runCase({
   name,
   kind = 'primary',
+  loginCount = 2,
   answers,
   firstResponse,
   provedQuota,
@@ -124,12 +127,12 @@ async function runCase({
 }: Scenario) {
   const clock = routedTime(...(sleepMs === undefined ? [] : [sleepMs]))
   try {
-    const pool = makePool(2)
+    const pool = makePool(loginCount)
     const quota = provedQuota ? quotaReading(pool) : undefined
     const h = placementHarness({
       pool,
       respond: async (_call, index) =>
-        index === 0 && firstResponse ? firstResponse() : okJson(),
+        index === 0 && firstResponse ? firstResponse(pool) : okJson(),
     })
     const executor = createRequestExecutor(
       vaultDeps(h, async (account) => routingAdmission(account)),
@@ -277,28 +280,31 @@ it('records proved quota exhaustion and a successful continuation', async () => 
   await writeSample(name, sample)
 })
 
+function validationRequired() {
+  return Response.json(
+    {
+      error: {
+        code: 403,
+        status: 'PERMISSION_DENIED',
+        message: 'Verify your account',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            reason: 'VALIDATION_REQUIRED',
+          },
+        ],
+      },
+    },
+    { status: 403 },
+  )
+}
+
 it('records a validation-required continuation without a credential-refused report', async () => {
   const name = '04-signed-out-continue'
   const { sample } = await runCase({
     name,
     answers: [route(0), route(1)],
-    firstResponse: () =>
-      Response.json(
-        {
-          error: {
-            code: 403,
-            status: 'PERMISSION_DENIED',
-            message: 'Verify your account',
-            details: [
-              {
-                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
-                reason: 'VALIDATION_REQUIRED',
-              },
-            ],
-          },
-        },
-        { status: 403 },
-      ),
+    firstResponse: validationRequired,
   })
   expect(sample.response.status).toBe(200)
   expect(sample.sends).toEqual([route(0), route(1)])
@@ -345,6 +351,78 @@ it('records transient backoff and a retry on the same credential', async () => {
   )
   expectServed(sample.calls, 0)
   await writeSample(name, sample)
+})
+
+function expectFixedRefusal(
+  response: Awaited<ReturnType<typeof runCase>>['sample']['response'],
+  retryAfter?: string,
+) {
+  expect(response.status).toBe(412)
+  expect(response.headers['retry-after']).toBe(retryAfter)
+  expect(JSON.parse(response.body)).toEqual({
+    error: {
+      code: 412,
+      status: 'FAILED_PRECONDITION',
+      message:
+        'Routing has no Antigravity account available for this request right now. Wait before sending another request.',
+    },
+  })
+}
+
+function firstPlacementRefusal(retryAfterSecs?: number): Answer {
+  return {
+    refused: {
+      code: 'account_selection_refused',
+      ...(retryAfterSecs === undefined
+        ? {}
+        : { retry_after_secs: retryAfterSecs }),
+    },
+  }
+}
+
+it('re-asks after a short first-placement refusal and sends on the picked login', async () => {
+  const { sample } = await runCase({
+    name: 'first-refusal-then-pick',
+    answers: [firstPlacementRefusal(2), route(1)],
+    sleepMs: 2000,
+  })
+  expect(sample.response.status).toBe(200)
+  expect(sample.sends).toEqual([route(1)])
+  expect(asks(sample.calls)).toHaveLength(2)
+  expect(placementEvents(sample.calls)).toEqual(['first', 'first', 'served'])
+  expectServed(sample.calls, 1)
+})
+
+it('makes a second short first-placement refusal final without sending', async () => {
+  const { sample } = await runCase({
+    name: 'two-first-refusals',
+    answers: [firstPlacementRefusal(1), firstPlacementRefusal(1)],
+    sleepMs: 1000,
+  })
+  expect(sample.sends).toEqual([])
+  expect(asks(sample.calls)).toHaveLength(2)
+  expect(placementEvents(sample.calls)).toEqual(['first', 'first'])
+  expectFixedRefusal(sample.response, '1')
+})
+
+it('keeps a first-placement refusal above five seconds final without waiting', async () => {
+  const { sample } = await runCase({
+    name: 'first-refusal-six-seconds',
+    answers: [firstPlacementRefusal(6)],
+  })
+  expect(sample.sends).toEqual([])
+  expect(asks(sample.calls)).toHaveLength(1)
+  expectFixedRefusal(sample.response, '6')
+})
+
+it('keeps a first-placement refusal without a retry delay final without waiting', async () => {
+  const { sample } = await runCase({
+    name: 'first-refusal-without-delay',
+    answers: [firstPlacementRefusal()],
+  })
+  expect(sample.sends).toEqual([])
+  expect(asks(sample.calls)).toHaveLength(1)
+  expectFixedRefusal(sample.response)
 })
 
 it('records the three refusal answers and their fixed 412 responses', async () => {
@@ -395,17 +473,108 @@ it('records the three refusal answers and their fixed 412 responses', async () =
       continued ? ['first', 'exhausted', 'continue'] : ['first'],
     )
     expect(sample.sends).toEqual(continued ? [route(0)] : [])
-    expect(sample.response.status).toBe(412)
-    expect(sample.response.headers['retry-after']).toBe(retryAfter)
-    expect(JSON.parse(sample.response.body)).toEqual({
-      error: {
-        code: 412,
-        status: 'FAILED_PRECONDITION',
-        message:
-          'Routing has no Antigravity account available for this request right now. Wait before sending another request.',
-      },
-    })
+    expectFixedRefusal(sample.response, retryAfter)
     samples.push(sample)
   }
   await writeSample('06-refusals', samples)
+})
+
+const accountUnservable = {
+  refused: {
+    code: 'account_selection_final',
+    routing_code: 'account_unservable',
+  },
+} as const satisfies Answer
+
+const emptyCandidates = {
+  view_digest:
+    'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+  accounts: [],
+}
+
+it('records an empty continue candidate view when the only login is signed out', async () => {
+  const name = '07-signed-out-only-login'
+  const { sample } = await runCase({
+    name,
+    loginCount: 1,
+    answers: [route(0), accountUnservable],
+    firstResponse: validationRequired,
+  })
+  expect(sample.sends).toEqual([route(0)])
+  expect(placementEvents(sample.calls)).toEqual(['first', 'continue'])
+  expectFixedRefusal(sample.response)
+  const [first, next] = asks(sample.calls)
+  expect(first?.candidates?.accounts).toEqual([route(0)])
+  expect(next).toMatchObject({
+    mode: 'continue',
+    exhausted: {
+      account: route(0).account_id,
+      credential_id: route(0).credential_id,
+      limit_window: 'signed_out',
+      observed_at_ms: FIXED_NOW,
+    },
+  })
+  expect(next?.candidates).toEqual(emptyCandidates)
+  await writeSample(name, sample)
+})
+
+it('returns the fixed refusal when the signed-out only login has no route answer', async () => {
+  const { sample } = await runCase({
+    name: 'signed-out-only-login-no-answer',
+    loginCount: 1,
+    answers: [route(0), undefined],
+    firstResponse: validationRequired,
+  })
+  expect(sample.sends).toEqual([route(0)])
+  expect(placementEvents(sample.calls)).toEqual(['first', 'continue'])
+  expectFixedRefusal(sample.response)
+})
+
+it('records an empty continue candidate view when the only login is exhausted', async () => {
+  const { sample, quota } = await runCase({
+    name: 'exhausted-only-login',
+    loginCount: 1,
+    answers: [route(0), accountUnservable],
+    firstResponse: (pool) => {
+      // The account pool marks this login ineligible before the 429 arrives.
+      pool.markAccountIneligible(0, 'Login no longer eligible')
+      return quotaRefusal()
+    },
+    provedQuota: true,
+  })
+  expect(quota).toBeDefined()
+  expect(sample.sends).toEqual([route(0)])
+  expect(placementEvents(sample.calls)).toEqual([
+    'first',
+    'exhausted',
+    'continue',
+  ])
+  expectFixedRefusal(sample.response)
+  const [first, next] = asks(sample.calls)
+  expect(first?.candidates?.accounts).toEqual([route(0)])
+  expect(next).toMatchObject({
+    mode: 'continue',
+    exhausted: {
+      account: route(0).account_id,
+      credential_id: route(0).credential_id,
+      limit_window: 'five_hour',
+      pool: 'gemini',
+      observed_at_ms: quota!.observedAt,
+      resets_at_ms: quota!.reset,
+    },
+  })
+  expect(next?.candidates).toEqual(emptyCandidates)
+})
+
+it('keeps the existing quota response for a still-eligible only login', async () => {
+  const { sample } = await runCase({
+    name: 'exhausted-only-eligible-login',
+    loginCount: 1,
+    answers: [route(0)],
+    firstResponse: quotaRefusal,
+    provedQuota: true,
+  })
+  expect(sample.sends).toEqual([route(0)])
+  expect(placementEvents(sample.calls)).toEqual(['first', 'exhausted'])
+  expect(sample.response.status).toBe(429)
 })

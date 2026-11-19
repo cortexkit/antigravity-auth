@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.55.1",
+  "version": "0.55.2",
   "artifactStatus": "published",
-  "archiveBytes": 503150,
+  "archiveBytes": 503294,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -74,16 +74,16 @@
       "import": "./src/quota-sidebar/index.tsx"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.55.1.tgz",
-  "tarballSha256": "80a78298cecc98c5b3b7eb3534e2eb77353d582d997962efe9df27a79ef12589",
-  "sri": "sha512-koCwml7Kbf2u6fIIaNmHbDOp2B15hGQ/9kZUB3VSYlBtvyp9ldDUJU1yVGUmin5gzwTzAF9c7g/OWPlWNqgMPw==",
-  "shasum": "703dd80358754aa4c3d1b9d6a0d3b9d150860daa",
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.55.2.tgz",
+  "tarballSha256": "ca51b83059e16b39c5e1ddb3d0c35aaa47794b68d7c56299a0ae4fcae213a06e",
+  "sri": "sha512-csS+wr+jjiwoFEg3uL03nZCjHQLzWw1TJBDbqCe7ZDstQXWTykG0q/kJkLykWZ1L5LQGo07P1aB5a7q6XEY8BA==",
+  "shasum": "e73d01bafc09c35ef5b484c1b2ebf579a23a6ca4",
   "canonicalFiles": 257,
-  "canonicalBytes": 1524660,
+  "canonicalBytes": 1524970,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "53208174ea6d4a497b8ea378bcb8712971742272d2fd766ea4617866dea60f4b"
+    "sha256": "597d8d0c65127179e893d9fe2b3da7024031ca7be196be759f17bb2d2b8acc1a"
   },
   "files": [
     {
@@ -2137,9 +2137,9 @@
     {
       "source": "package/dist/routing-accessor/index.js",
       "output": "routing-accessor/index.js",
-      "bytes": 22848,
-      "sourceSha256": "13f13701391958c2e1f52d614a78da8d276594a90ee54b4f6af33bf81b4ca669",
-      "outputSha256": "13f13701391958c2e1f52d614a78da8d276594a90ee54b4f6af33bf81b4ca669",
+      "bytes": 23158,
+      "sourceSha256": "728aa2d9dd16d7e71ff3583aa767b74818850bdd4dbdca1f15e85d0c0c1b09bd",
+      "outputSha256": "728aa2d9dd16d7e71ff3583aa767b74818850bdd4dbdca1f15e85d0c0c1b09bd",
       "transform": "verbatim"
     }
   ],

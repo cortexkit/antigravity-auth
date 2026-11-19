@@ -6,6 +6,8 @@
 - Keep newer quota readings and rate-limit decisions when older quota checks finish late.
 - Don't impose a long quota wait based on an empty quota window that has already reset.
 - Skip fresh vault accounts during background quota checks, even if another account has no reading yet.
+- Embed published common-auth 0.55.2: routing now sends an explicit empty account list when a continuation has no candidates.
+- If vault routing refuses its first account choice and specifies a wait of at most five seconds, wait and ask once more. Stop waiting on cancellation; a second refusal is final.
 
 ## [3.1.10] - 2026-11-19
 

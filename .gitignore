@@ -67,3 +67,4 @@ package-lock.json
 !/tools/common-auth-build/inputs/cortexkit-common-auth-0.53.0.tgz
 !/tools/common-auth-build/inputs/cortexkit-common-auth-0.55.0.tgz
 !/tools/common-auth-build/inputs/cortexkit-common-auth-0.55.1.tgz
+!/tools/common-auth-build/inputs/cortexkit-common-auth-0.55.2.tgz

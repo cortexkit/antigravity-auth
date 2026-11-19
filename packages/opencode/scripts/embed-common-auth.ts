@@ -12,15 +12,15 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.55.1.tgz'
-export const producerVersion = '0.55.1'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.55.2.tgz'
+export const producerVersion = '0.55.2'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  archiveBytes: 503150,
-  shasum: '703dd80358754aa4c3d1b9d6a0d3b9d150860daa',
-  sha256: '80a78298cecc98c5b3b7eb3534e2eb77353d582d997962efe9df27a79ef12589',
-  sri: 'sha512-koCwml7Kbf2u6fIIaNmHbDOp2B15hGQ/9kZUB3VSYlBtvyp9ldDUJU1yVGUmin5gzwTzAF9c7g/OWPlWNqgMPw==',
+  archiveBytes: 503294,
+  shasum: 'e73d01bafc09c35ef5b484c1b2ebf579a23a6ca4',
+  sha256: 'ca51b83059e16b39c5e1ddb3d0c35aaa47794b68d7c56299a0ae4fcae213a06e',
+  sri: 'sha512-csS+wr+jjiwoFEg3uL03nZCjHQLzWw1TJBDbqCe7ZDstQXWTykG0q/kJkLykWZ1L5LQGo07P1aB5a7q6XEY8BA==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -1424,8 +1424,8 @@ const routingAccessorCanonical: readonly CanonicalEntry[] = [
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.js',
     output: 'routing-accessor/index.js',
-    bytes: 22848,
-    hash: '13f13701391958c2e1f52d614a78da8d276594a90ee54b4f6af33bf81b4ca669',
+    bytes: 23158,
+    hash: '728aa2d9dd16d7e71ff3583aa767b74818850bdd4dbdca1f15e85d0c0c1b09bd',
   },
 ]
 
@@ -1564,7 +1564,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '541e17afac898f8305712c4d15c491ba0c7ad82f9b0b4e124d783dc7610befae'
+    'cc0248f2d287c3bb7a36bb7358c796b91e9005d34d3a7c0040426ba562336606'
   )
     throw new Error('publication: manifest bytes')
 }
