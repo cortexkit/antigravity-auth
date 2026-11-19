@@ -978,6 +978,29 @@ describe('harness rewrite and unconfirmed refusals', () => {
     }
   })
 
+  it('classifies an unconfirmed refusal without parsing the sent body again', async () => {
+    const h = harness({
+      pool: makePool(2),
+      respond: async (_call, index) => (index === 0 ? refusal() : okJson()),
+    })
+    const executor = createRequestExecutor(h.deps)
+    const parse = spyOn(JSON, 'parse')
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(h.calls).toHaveLength(2)
+      const refusedBody = h.calls[0]!.init?.body
+      expect(typeof refusedBody).toBe('string')
+      expect(
+        parse.mock.calls.filter(([text]) => text === refusedBody),
+      ).toHaveLength(0)
+      await response.body?.cancel()
+    } finally {
+      parse.mockRestore()
+      await executor.dispose()
+    }
+  })
+
   it('does not mark or retry a recognised phrase when a wire seam bypasses the rewrite', async () => {
     const h = harness({ respond: async () => refusal() })
     const wire: RequestWire = {

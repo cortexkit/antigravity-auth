@@ -3094,10 +3094,15 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
               if (response.status === 429 && rateLimitReason === 'UNKNOWN') {
                 await logResponseBody(debugContext, response, 429)
-                // Inspect the actual wire instruction, not conversation or tool text.
-                const outgoing = JSON.parse(String(prepared.init.body))
+                // Inspect the actual wire instruction, not conversation or tool
+                // text. Preparation keeps the instruction it serialized; parse
+                // the body only when something replaced it afterwards.
+                const carried = prepared.wireSystemInstruction
                 const recognised = systemInstructionHasHarnessIdentity(
-                  outgoing.request?.systemInstruction,
+                  carried && carried.body === prepared.init.body
+                    ? carried.instruction
+                    : JSON.parse(String(prepared.init.body)).request
+                        ?.systemInstruction,
                 )
                 if (recognised) {
                   void response.body?.cancel().catch(() => {})

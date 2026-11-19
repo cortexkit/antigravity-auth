@@ -24,6 +24,7 @@ import {
   filterUnsignedThinkingBlocks,
   findOrphanedToolUseIds,
   fixClaudeToolPairing,
+  fixToolResponseGrouping,
   formatResetDuration,
   injectParameterSignatures,
   injectToolHardeningInstruction,
@@ -3155,5 +3156,100 @@ describe('parseDurationToMs and retry validation', () => {
     const text = await redacted.text()
     expect(text).toContain('[credential]')
     expect(text).not.toContain(syntheticSecret)
+  })
+})
+
+describe('fixToolResponseGrouping orphan recovery', () => {
+  const call = (id: string, name: string) => ({
+    role: 'model',
+    parts: [{ functionCall: { id, name, args: {} } }],
+  })
+  const result = (id: string, name: string) => ({
+    functionResponse: { id, name, response: { ok: id } },
+  })
+  const pairs = (contents: any[]) =>
+    contents.flatMap((content) =>
+      (content.parts ?? []).flatMap((part: any) =>
+        part.functionResponse
+          ? [
+              `${part.functionResponse.id}<-${part.functionResponse.response.ok}`,
+            ]
+          : [],
+      ),
+    )
+
+  it('reads each orphan name once however many calls are unmatched', () => {
+    const n = 400
+    let nameReads = 0
+    const contents: any[] = []
+    for (let i = 0; i < n; i++) contents.push(call(`call-${i}`, 'wanted'))
+    contents.push({
+      role: 'user',
+      parts: Array.from({ length: n }, (_, i) => ({
+        functionResponse: {
+          id: `orphan-${i}`,
+          get name() {
+            nameReads++
+            return 'unmatched'
+          },
+          response: { ok: `orphan-${i}` },
+        },
+      })),
+    })
+    const fixed = fixToolResponseGrouping(contents)
+    // Every call still receives exactly one orphan, right after itself.
+    expect(fixed).toHaveLength(2 * n)
+    expect(fixed[1].parts[0].functionResponse.id).toBe('call-0')
+    expect(nameReads).toBeLessThanOrEqual(2 * n)
+  })
+
+  it('keeps the pairing order: exact ID, then name, then unknown, then oldest', () => {
+    const contents = [
+      { role: 'user', parts: [{ text: 'start' }] },
+      call('a', 'read'),
+      call('b', 'write'),
+      call('c', 'grep'),
+      call('d', 'list'),
+      {
+        role: 'user',
+        parts: [
+          result('x-1', 'other'),
+          result('x-2', 'unknown_function'),
+          result('x-3', 'write'),
+          result('d', 'list'),
+          result('x-4', 'grep'),
+          result('x-5', 'other'),
+        ],
+      },
+    ]
+    const fixed = fixToolResponseGrouping(contents)
+    expect(fixed.map((content) => content.role)).toEqual([
+      'user',
+      'model',
+      'user',
+      'model',
+      'user',
+      'model',
+      'user',
+      'model',
+      'user',
+    ])
+    // Groups are matched from the last model message backwards: d by ID,
+    // c and b by name, a takes the unknown_function orphan.
+    expect(pairs(fixed)).toEqual(['a<-x-2', 'b<-x-3', 'c<-x-4', 'd<-d'])
+  })
+
+  it('falls back to the oldest orphan and then to placeholders', () => {
+    const contents = [
+      call('a', 'read'),
+      call('b', 'read'),
+      call('c', 'read'),
+      {
+        role: 'user',
+        parts: [result('x-1', 'other'), result('x-2', 'other')],
+      },
+    ]
+    const fixed = fixToolResponseGrouping(contents)
+    expect(pairs(fixed)).toEqual(['a<-undefined', 'b<-x-2', 'c<-x-1'])
   })
 })

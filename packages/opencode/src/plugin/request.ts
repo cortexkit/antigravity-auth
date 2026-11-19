@@ -357,6 +357,12 @@ function ensureThinkingFields(obj: unknown): void {
   }
 }
 
+function systemInstructionOf(request: unknown): unknown {
+  return request && typeof request === 'object'
+    ? (request as Record<string, unknown>).systemInstruction
+    : undefined
+}
+
 function safeStringify(obj: unknown): string {
   ensureThinkingFields(obj)
   return JSON.stringify(obj, thinkingSafeReplacer)
@@ -1534,6 +1540,12 @@ function prepareAntigravityRequestIn(
   needsSignedThinkingWarmup?: boolean
   headerStyle: 'antigravity'
   thinkingRecoveryMessage?: string
+  /**
+   * The system instruction serialized into `body`, kept so a refusal can be
+   * classified without parsing the body again. Valid only while
+   * `init.body` is still exactly `body`.
+   */
+  wireSystemInstruction?: { body: string; instruction: unknown }
 } {
   const baseInit: RequestInit = { ...init }
   const headers = new Headers(init?.headers ?? {})
@@ -1543,6 +1555,7 @@ function prepareAntigravityRequestIn(
   let sessionId: string | undefined
   let needsSignedThinkingWarmup = false
   let thinkingRecoveryMessage: string | undefined
+  let wireSystemInstruction: { body: string; instruction: unknown } | undefined
 
   if (!isGenerativeLanguageRequest(input)) {
     return {
@@ -1803,6 +1816,10 @@ function prepareAntigravityRequestIn(
         }
 
         body = safeStringify(orderAntigravityEnvelope(wrappedBody))
+        wireSystemInstruction = {
+          body,
+          instruction: systemInstructionOf(wrappedBody.request),
+        }
       } else {
         const requestPayload: Record<string, unknown> = { ...parsedBody }
         if (
@@ -2587,6 +2604,10 @@ function prepareAntigravityRequestIn(
         }
 
         body = safeStringify(orderAntigravityEnvelope(wrappedBody))
+        wireSystemInstruction = {
+          body,
+          instruction: requestPayload.systemInstruction,
+        }
       }
     } catch {
       throw new Error('Failed to build Antigravity request body')
@@ -2644,6 +2665,7 @@ function prepareAntigravityRequestIn(
     needsSignedThinkingWarmup,
     headerStyle: 'antigravity',
     thinkingRecoveryMessage,
+    ...(wireSystemInstruction ? { wireSystemInstruction } : {}),
   }
 }
 
