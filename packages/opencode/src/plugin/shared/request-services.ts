@@ -4042,7 +4042,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             !isHardEligible(account))
         ) {
           // Tell routing the last login signed out or exhausted its quota even
-          // when the pool counts no usable logins. The ask itself sends nothing.
+          // when the pool counts no usable logins. Asking routing sends nothing to Google.
           continueOnlyLogin = true
           continue
         }
