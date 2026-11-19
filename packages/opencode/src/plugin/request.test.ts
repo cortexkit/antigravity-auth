@@ -7,6 +7,7 @@ import opusLow from '../../../../test-fixtures/agy-cli-1.3.3/native-opus-low.jso
 import sonnetLow from '../../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
 import carbonLow from '../../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
 import identityProjection from '../../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
+import neon from '../../../../test-fixtures/agy-cli-1.5.9/neon-evidence.json'
 import { SKIP_THOUGHT_SIGNATURE } from '../constants'
 import * as config from './config'
 import { DEFAULT_CONFIG } from './config'
@@ -2038,6 +2039,49 @@ describe('request.ts', () => {
         maxOutputTokens: 262144,
         thinkingConfig: { includeThoughts: true, thinkingLevel: 'HIGH' },
       })
+    })
+
+    it('sends Neon with the captured generation config for every wrapped and unwrapped effort', () => {
+      const selector = 'antigravity-gemini-4-neon'
+      for (const effort of [
+        undefined,
+        'low',
+        'medium',
+        'high',
+        'xhigh',
+      ] as const) {
+        const tier = effort ?? 'high'
+        const wire = `gemini-4-neon-${tier}` as const
+        for (const wrapped of [false, true]) {
+          const model = effort ? `${selector}-xhigh` : selector
+          const request = {
+            contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],
+            tools: [{ functionDeclarations: [{ name: 'read' }] }],
+            toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+          }
+          const result = prepareAntigravityRequest(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+            {
+              method: 'POST',
+              body: JSON.stringify(
+                wrapped ? { project: mockProjectId, model, request } : request,
+              ),
+            },
+            mockAccessToken,
+            mockProjectId,
+            undefined,
+            undefined,
+            effort ? { variant: { thinkingLevel: effort } } : undefined,
+          )
+          const body = JSON.parse(String(result.init.body))
+          expect(body.model).toBe(wire)
+          expect(body.request.labels.model_enum).toBe(neon.routes[wire].model)
+          expect(body.request.generationConfig).toEqual(
+            neon[`native_generation_config_${tier}`],
+          )
+          expect(body.request).not.toHaveProperty('toolConfig')
+        }
+      }
     })
 
     it('sends Carbon tiers and grouped variants with native Low shaping and no toolConfig', () => {

@@ -66,6 +66,7 @@ The extension registers the Antigravity model catalog under the
 - `antigravity-gemini-4-argon`
 - `antigravity-gemini-4-carbon`
 - `antigravity-gemini-4-hydrogen`
+- `antigravity-gemini-4-neon`
 - `antigravity-claude-sonnet-5-5`
 - `antigravity-claude-opus-5-5`
 - `antigravity-gpt-oss-120b-medium`
@@ -97,6 +98,10 @@ follow Carbon's `"MEDIUM"`/`"HIGH"`. A live probe on 13 November saw all four
 levels accepted, each thinking longer than the one below. The server does not
 name the level it served, so thinking depth is the evidence. Hydrogen uses the
 ordinary Gemini quota pool; no Hydrogen-specific allowance has been observed.
+
+Gemini 4 Neon supports low, medium, high (default) and xhigh effort, with
+1,048,576 context and 262,144 output tokens. Pi preserves XHigh for Neon just
+as it does for Hydrogen. Neon uses the ordinary Gemini quota pool.
 
 The image-generation model is currently OpenCode-only because Pi's provider event
 protocol does not expose image-output stream events.

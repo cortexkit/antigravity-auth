@@ -7,5 +7,6 @@ export const RELEASE_MODEL_IDS = [
   'antigravity-gemini-4-argon',
   'antigravity-gemini-4-carbon',
   'antigravity-gemini-4-hydrogen',
+  'antigravity-gemini-4-neon',
   'antigravity-gpt-oss-120b-medium',
 ]

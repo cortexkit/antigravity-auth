@@ -4,6 +4,7 @@ import capturedCatalog from '../../../test-fixtures/agy-cli-1.3.3/current-model-
 import serverCatalog from '../../../test-fixtures/agy-cli-1.3.5/server-model-catalog.json'
 import carbonMetadata from '../../../test-fixtures/agy-cli-1.5.5/carbon-model-metadata.json'
 import hydrogen from '../../../test-fixtures/agy-cli-1.5.5/hydrogen-evidence.json'
+import neon from '../../../test-fixtures/agy-cli-1.5.9/neon-evidence.json'
 import { getAgyModelEnum } from './agy-request-metadata.ts'
 import {
   AGY_NATIVE_MODEL_DEFINITIONS,
@@ -13,12 +14,20 @@ import {
   getGemini37FlashAntigravityModel,
   getGemini38FlashAntigravityModel,
   getPublicModelDefinitions,
+  getQuotaGroupForModel,
   getResolverAliasMap,
   isRetiredAgyModel,
 } from './model-registry.ts'
-import { resolveModelWithTier } from './transform/model-resolver.ts'
+import {
+  resolveModelWithTier,
+  resolveModelWithVariant,
+} from './transform/model-resolver.ts'
 
 const EXPECTED_NATIVE_IDS = [
+  'gemini-4-neon-low',
+  'gemini-4-neon-medium',
+  'gemini-4-neon-high',
+  'gemini-4-neon-xhigh',
   'gemini-4-hydrogen-low',
   'gemini-4-hydrogen-medium',
   'gemini-4-hydrogen-high',
@@ -57,13 +66,14 @@ const REQUIRED_PUBLIC_MODEL_FIELDS = [
 
 describe('model registry', () => {
   it('preserves the pre-Carbon public catalog after Gemini 3.5 Flash removal', () => {
-    // Keep the old catalog's frozen hash: additive Carbon and Hydrogen have
+    // Keep the old catalog's frozen hash: additive Carbon, Hydrogen and Neon have
     // separate contract tests, while every field of older models stays pinned.
     const baseline = Object.fromEntries(
       Object.entries(getPublicModelDefinitions()).filter(
         ([id]) =>
           id !== 'antigravity-gemini-4-carbon' &&
-          id !== 'antigravity-gemini-4-hydrogen',
+          id !== 'antigravity-gemini-4-hydrogen' &&
+          id !== 'antigravity-gemini-4-neon',
       ),
     )
     const digest = createHash('sha256')
@@ -109,6 +119,7 @@ describe('model registry', () => {
       'antigravity-gemini-4-argon',
       'antigravity-gemini-4-carbon',
       'antigravity-gemini-4-hydrogen',
+      'antigravity-gemini-4-neon',
       'antigravity-gpt-oss-120b-medium',
     ])
 
@@ -117,6 +128,22 @@ describe('model registry', () => {
         expect(definition).toHaveProperty(field)
       }
     }
+  })
+
+  it('defaults Neon to high and keeps all Neon routes on the Gemini quota pool', () => {
+    const selector = 'antigravity-gemini-4-neon'
+    expect(resolveModelWithVariant(selector)).toMatchObject({
+      actualModel: 'gemini-4-neon-high',
+      thinkingLevel: 'high',
+    })
+    expect(
+      resolveModelWithVariant(`${selector}-xhigh`, { thinkingLevel: 'low' })
+        .actualModel,
+    ).toBe('gemini-4-neon-low')
+    for (const id of [selector, ...Object.keys(neon.routes)]) {
+      expect(getQuotaGroupForModel(id, true)).toBe('gemini')
+    }
+    expect(getAgyNativeModel('gemini-pro-orchestrator-neon')).toBeUndefined()
   })
 
   it('preserves historical Gemini 3.5 effort parsing without authorizing admission', () => {
@@ -222,13 +249,15 @@ describe('model registry', () => {
         ...serverCatalog.models,
         ...carbonMetadata.models,
         ...hydrogen.routes,
+        ...neon.routes,
       }).find(([key]) => key === id)?.[1]
       expect(observed).toBeDefined()
-      // Carbon and Hydrogen map projections record routes and enums, not limits.
+      // Carbon, Hydrogen and Neon map projections record routes and enums, not limits.
       // Native output caps are pinned separately to their request captures.
       if (
         Object.hasOwn(carbonMetadata.models, id) ||
-        Object.hasOwn(hydrogen.routes, id)
+        Object.hasOwn(hydrogen.routes, id) ||
+        Object.hasOwn(neon.routes, id)
       )
         expect(observed).toMatchObject({
           displayName: metadata.displayName,
@@ -263,9 +292,10 @@ describe('model registry', () => {
       'gemini-4-argon',
       'gemini-4-carbon',
       'gemini-4-hydrogen',
+      'gemini-4-neon',
     ]) {
       const efforts =
-        family === 'gemini-4-hydrogen'
+        family === 'gemini-4-hydrogen' || family === 'gemini-4-neon'
           ? ['low', 'medium', 'high', 'xhigh']
           : ['low', 'medium', 'high']
       const definition = definitions[`antigravity-${family}`]!
@@ -345,6 +375,7 @@ describe('server catalog authority', () => {
               ...serverCatalog.models,
               ...carbonMetadata.models,
               ...hydrogen.routes,
+              ...neon.routes,
             },
             wire,
           ),

@@ -28,6 +28,8 @@ Pi local mode uses Pi's native Google login, not the OpenCode account pool.
 
 Gemini 4 Hydrogen is supported with low, medium, high (default), and xhigh thinking levels on OpenCode 2 and Pi. OpenCode 1 offers low, medium and high only, because its built-in Google library drops xhigh. Hydrogen requires a Pro or Ultra subscription in Google Antigravity.
 
+Gemini 4 Neon (`google/antigravity-gemini-4-neon`) uses the ordinary Gemini quota pool. Its thinking levels are low, medium and high (default), plus xhigh on OpenCode 2 and Pi. As with Hydrogen, OpenCode 1 cannot pass xhigh to the plugin.
+
 ## Install
 
 Quit all OpenCode and Pi processes, then run:

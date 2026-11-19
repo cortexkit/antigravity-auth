@@ -18,6 +18,10 @@ does not name the level it served, so thinking depth is the evidence.
 Hydrogen uses the ordinary Gemini quota pool; no Hydrogen-specific allowance has
 been observed.
 
+Gemini 4 Neon (`google/antigravity-gemini-4-neon`) also offers Low, Medium and
+High (default), plus XHigh on OpenCode 2. OpenCode 1 omits XHigh for the same
+Google library limitation as Hydrogen. Neon uses the ordinary Gemini quota pool.
+
 ## Host requirements and entries
 
 OpenCode 1 from 1.18.4 (the first release with OpenTUI 0.4.5), or OpenCode 2 from 2.0.22.

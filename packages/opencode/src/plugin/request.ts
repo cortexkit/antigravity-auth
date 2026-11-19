@@ -4,7 +4,6 @@ import {
   getAgyNativeModel,
   isGeminiArgonModel,
   isGeminiCarbonModel,
-  isGeminiHydrogenModel,
   isRetiredAgyModel,
   markUpstreamFailure,
   maskSensitiveIdentifier,
@@ -13,6 +12,7 @@ import {
   redactCredentialText,
   redactProjectIdText,
   rewriteSystemInstruction,
+  supportsGeminiXHigh,
 } from '@cortexkit/antigravity-auth-core'
 import {
   ANTIGRAVITY_DEFAULT_PROJECT_ID,
@@ -1578,13 +1578,13 @@ function prepareAntigravityRequestIn(
   const [, rawModel = '', rawAction = ''] = match
   const requestedModel = rawModel
 
-  // Apply the selected Gemini 4 Hydrogen effort before shaping either body format.
-  const hydrogenTier = isGeminiHydrogenModel(rawModel)
+  // Apply the selected Hydrogen or Neon effort before shaping either body format.
+  const geminiTier = supportsGeminiXHigh(rawModel)
     ? options?.variant?.thinkingLevel
     : undefined
   const resolved = resolveAntigravityModel(
-    hydrogenTier
-      ? `${rawModel.replace(/-(low|medium|high|xhigh)$/i, '')}-${hydrogenTier}`
+    geminiTier
+      ? `${rawModel.replace(/-(low|medium|high|xhigh)$/i, '')}-${geminiTier}`
       : rawModel,
   )
   let effectiveModel = resolved.actualModel
@@ -1855,7 +1855,7 @@ function prepareAntigravityRequestIn(
           (isGemini3 ||
             isGeminiArgonModel(effectiveModel) ||
             isGeminiCarbonModel(effectiveModel) ||
-            isGeminiHydrogenModel(effectiveModel) ||
+            supportsGeminiXHigh(effectiveModel) ||
             getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking)
         ) {
           // Host effort variants select the corresponding native wire route.
@@ -1863,7 +1863,7 @@ function prepareAntigravityRequestIn(
             .replace(/-preview-customtools$/i, '')
             .replace(/-preview$/i, '')
             .replace(
-              isGeminiHydrogenModel(effectiveModel)
+              supportsGeminiXHigh(effectiveModel)
                 ? /-(low|medium|high|xhigh)$/i
                 : /-(minimal|low|medium|high)$/i,
               '',

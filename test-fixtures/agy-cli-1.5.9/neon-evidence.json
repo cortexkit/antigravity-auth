@@ -1,0 +1,47 @@
+{
+  "captured_at": "2026-11-19T11:04:01Z",
+  "agy_version": "1.5.9",
+  "routes": {
+    "gemini-4-neon-high": {
+      "displayName": "Gemini 4 Neon (High)",
+      "model": "MODEL_PLACEHOLDER_M532",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-4-neon-low": {
+      "displayName": "Gemini 4 Neon (Low)",
+      "model": "MODEL_PLACEHOLDER_M534",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-4-neon-medium": {
+      "displayName": "Gemini 4 Neon (Medium)",
+      "model": "MODEL_PLACEHOLDER_M533",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    },
+    "gemini-4-neon-xhigh": {
+      "displayName": "Gemini 4 Neon (XHigh)",
+      "model": "MODEL_PLACEHOLDER_M535",
+      "apiProvider": "API_PROVIDER_GOOGLE_GEMINI",
+      "modelProvider": "MODEL_PROVIDER_GOOGLE"
+    }
+  },
+  "native_generation_config_low": {
+    "maxOutputTokens": 262144,
+    "thinkingConfig": { "includeThoughts": true, "thinkingLevel": "LOW" }
+  },
+  "native_generation_config_medium": {
+    "maxOutputTokens": 262144,
+    "thinkingConfig": { "includeThoughts": true, "thinkingLevel": "MEDIUM" }
+  },
+  "native_generation_config_high": {
+    "maxOutputTokens": 262144,
+    "thinkingConfig": { "includeThoughts": true, "thinkingLevel": "HIGH" }
+  },
+  "native_generation_config_xhigh": {
+    "maxOutputTokens": 262144,
+    "thinkingConfig": { "includeThoughts": true, "thinkingLevel": 100 }
+  },
+  "note": "Projection of the Neon catalog and generation captures. All four native generations returned HTTP 200 with STOP. The catalog default agent model was gemini-4-neon-high."
+}

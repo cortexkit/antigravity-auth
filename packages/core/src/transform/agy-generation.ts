@@ -2,7 +2,7 @@ import {
   getAgyNativeModel,
   isGeminiArgonModel,
   isGeminiCarbonModel,
-  isGeminiHydrogenModel,
+  supportsGeminiXHigh,
 } from '../model-registry.ts'
 
 const ADAPTIVE_LEVELS: Readonly<Record<number, string>> = {
@@ -47,12 +47,10 @@ export function applyAgyNativeGenerationConfig(
         ? { thinkingBudget: budget }
         : { thinkingLevel: capturedTier.toUpperCase() }),
     }
-  } else if (isGeminiHydrogenModel(wireModel)) {
+  } else if (supportsGeminiXHigh(wireModel)) {
     const tier = wireModel.toLowerCase().split('-').at(-1)
     // The native CLI sends the numeric value 100 for XHigh, not a string.
-    // The CLI capture shows LOW; MEDIUM and HIGH follow Carbon's mapping. A live
-    // probe on 13 Nov saw all four values accepted, with thinking depth rising
-    // from LOW to XHigh (the server does not name the tier it served).
+    // The Neon CLI 1.5.9 capture confirms that the server accepts all four values.
     generationConfig.thinkingConfig = {
       includeThoughts: true,
       thinkingLevel:

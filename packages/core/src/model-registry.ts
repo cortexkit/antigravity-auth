@@ -104,6 +104,35 @@ export interface AgyNativeModelDefinition {
 export const AGY_NATIVE_MODEL_DEFINITIONS: Readonly<
   Record<string, AgyNativeModelDefinition>
 > = {
+  // Native CLI 1.5.9 catalog: all four Neon routes share the same limits.
+  'gemini-4-neon-low': {
+    displayName: 'Gemini 4 Neon (Low)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M534',
+    supportsThinking: true,
+  },
+  'gemini-4-neon-medium': {
+    displayName: 'Gemini 4 Neon (Medium)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M533',
+    supportsThinking: true,
+  },
+  'gemini-4-neon-high': {
+    displayName: 'Gemini 4 Neon (High)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M532',
+    supportsThinking: true,
+  },
+  'gemini-4-neon-xhigh': {
+    displayName: 'Gemini 4 Neon (XHigh)',
+    maxTokens: 1048576,
+    maxOutputTokens: 262144,
+    model: 'MODEL_PLACEHOLDER_M535',
+    supportsThinking: true,
+  },
   // Context: Google's "Introducing Gemini 4 Hydrogen" announcement (12 Nov 2026).
   // Output caps and route enums: native CLI 1.5.5 capture (13 Nov 2026).
   'gemini-4-hydrogen-low': {
@@ -320,6 +349,18 @@ export function isRetiredAgyModel(model: string): boolean {
 }
 
 const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
+  'antigravity-gemini-4-neon': defineModel('antigravity-gemini-4-neon', {
+    name: 'Gemini 4 Neon (Antigravity)',
+    reasoning: true,
+    limit: { context: 1048576, output: 262144 },
+    modalities: DEFAULT_MODALITIES,
+    variants: {
+      low: { thinkingLevel: 'low' },
+      medium: { thinkingLevel: 'medium' },
+      high: { thinkingLevel: 'high' },
+      xhigh: { thinkingLevel: 'xhigh' },
+    },
+  }),
   'antigravity-gemini-4-hydrogen': defineModel(
     'antigravity-gemini-4-hydrogen',
     {
@@ -521,6 +562,7 @@ const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
   'antigravity-gemini-4-argon',
   'antigravity-gemini-4-carbon',
   'antigravity-gemini-4-hydrogen',
+  'antigravity-gemini-4-neon',
   'antigravity-gemini-3.8-flash',
   'antigravity-gemini-3.1-flash-image',
   'antigravity-claude-sonnet-5-5',
@@ -586,6 +628,8 @@ export function getQuotaGroupForModel(
   hasArgonPool = false,
 ): ModelQuotaGroup | undefined {
   const normalized = modelId.toLowerCase()
+  // Neon and the other Gemini 4 routes share quota in the CLI catalog.
+  if (isGeminiNeonModel(normalized)) return 'gemini'
   // Hydrogen stays on the ordinary Gemini pool until a bucket is observed.
   if (isGeminiHydrogenModel(normalized)) return 'gemini'
   // Carbon counts against the Gemini pool until a Carbon quota bucket is observed.
@@ -641,6 +685,31 @@ export function getGeminiHydrogenAntigravityModel(tier?: ThinkingTier): string {
         medium: 'gemini-4-hydrogen-medium',
         high: 'gemini-4-hydrogen-high',
         xhigh: 'gemini-4-hydrogen-xhigh',
+      },
+    },
+    tier,
+  )
+}
+
+export function isGeminiNeonModel(model: string): boolean {
+  return /^(?:antigravity-)?gemini-4-neon(?:-(?:low|medium|high|xhigh))?$/i.test(
+    model,
+  )
+}
+
+export function supportsGeminiXHigh(model: string): boolean {
+  return isGeminiHydrogenModel(model) || isGeminiNeonModel(model)
+}
+
+export function getGeminiNeonAntigravityModel(tier?: ThinkingTier): string {
+  return getTieredAntigravityModel(
+    {
+      defaultModel: 'gemini-4-neon-high',
+      byTier: {
+        low: 'gemini-4-neon-low',
+        medium: 'gemini-4-neon-medium',
+        high: 'gemini-4-neon-high',
+        xhigh: 'gemini-4-neon-xhigh',
       },
     },
     tier,

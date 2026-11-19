@@ -256,23 +256,25 @@ describe('updateOpencodeConfig', () => {
     }
   })
 
-  test('writes Hydrogen for OpenCode 1 without xhigh, which its Google SDK cannot carry', async () => {
+  test.each([
+    'hydrogen',
+    'neon',
+  ])('writes %s for OpenCode 1 without xhigh, which its Google SDK cannot carry', async (family) => {
+    const id = `antigravity-gemini-4-${family}`
     const result = await updateOpencodeConfig({ configPath })
 
     expect(result.success).toBe(true)
 
     const writtenConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'))
     expect(
-      Object.keys(
-        writtenConfig.provider.google.models['antigravity-gemini-4-hydrogen']
-          .variants,
-      ),
+      Object.keys(writtenConfig.provider.google.models[id]?.variants ?? {}),
     ).toEqual(['low', 'medium', 'high'])
-    expect(
-      Object.keys(
-        OPENCODE_MODEL_DEFINITIONS['antigravity-gemini-4-hydrogen']!.variants!,
-      ),
-    ).toEqual(['low', 'medium', 'high', 'xhigh'])
+    expect(Object.keys(OPENCODE_MODEL_DEFINITIONS[id]!.variants!)).toEqual([
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ])
   })
 
   test('parses existing jsonc config files with comments and trailing commas', async () => {

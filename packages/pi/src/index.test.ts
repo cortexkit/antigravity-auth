@@ -294,7 +294,10 @@ describe('Pi vault session shutdown', () => {
 })
 
 describe('Pi Antigravity model catalog', () => {
-  it('publishes Hydrogen with reasoning and the native output limit', async () => {
+  it.each([
+    'Hydrogen',
+    'Neon',
+  ])('publishes %s with reasoning and the native output limit', async (family) => {
     const registerProvider = mock()
     await cortexKitPiAntigravityAuth({
       registerProvider,
@@ -305,10 +308,10 @@ describe('Pi Antigravity model catalog', () => {
     }
     expect(
       config.models.find(
-        (model) => model.id === 'antigravity-gemini-4-hydrogen',
+        (model) => model.id === `antigravity-gemini-4-${family.toLowerCase()}`,
       ),
     ).toMatchObject({
-      name: 'Gemini 4 Hydrogen (Antigravity)',
+      name: `Gemini 4 ${family} (Antigravity)`,
       reasoning: true,
       contextWindow: 1048576,
       maxTokens: 262144,
@@ -350,6 +353,7 @@ describe('Pi Antigravity model catalog', () => {
       'antigravity-gemini-4-argon',
       'antigravity-gemini-4-carbon',
       'antigravity-gemini-4-hydrogen',
+      'antigravity-gemini-4-neon',
       'antigravity-gpt-oss-120b-medium',
     ])
   })
@@ -456,6 +460,7 @@ it('replaces the native Google catalog and reads only the google OAuth credentia
       'antigravity-gemini-4-argon',
       'antigravity-gemini-4-carbon',
       'antigravity-gemini-4-hydrogen',
+      'antigravity-gemini-4-neon',
       'antigravity-gpt-oss-120b-medium',
     ])
     for (const family of ['opus', 'sonnet']) {

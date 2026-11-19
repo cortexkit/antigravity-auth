@@ -14,10 +14,12 @@ import {
   getGeminiArgonAntigravityModel,
   getGeminiCarbonAntigravityModel,
   getGeminiHydrogenAntigravityModel,
+  getGeminiNeonAntigravityModel,
   getResolverAliasMap,
   isGeminiArgonModel,
   isGeminiCarbonModel,
-  isGeminiHydrogenModel,
+  isGeminiNeonModel,
+  supportsGeminiXHigh,
 } from '../model-registry.ts'
 import type {
   GoogleSearchConfig,
@@ -58,7 +60,7 @@ export const GEMINI_3_THINKING_LEVELS = [
  */
 export const MODEL_ALIASES: Record<string, string> = getResolverAliasMap()
 const TIER_REGEX = /-(minimal|low|medium|high)$/
-const HYDROGEN_TIER_REGEX = /-(low|medium|high|xhigh)$/i
+const XHIGH_TIER_REGEX = /-(low|medium|high|xhigh)$/i
 const QUOTA_PREFIX_REGEX = /^antigravity-/i
 const GEMINI_3_PRO_REGEX = /^gemini-3(?:\.\d+)?-pro/i
 const GEMINI_3_FLASH_REGEX = /^gemini-3(?:\.\d+)?-flash/i
@@ -174,13 +176,14 @@ export function resolveModelWithTier(requestedModel: string): ResolvedModel {
   const isAntigravity = QUOTA_PREFIX_REGEX.test(requestedModel)
   const modelWithoutQuota = requestedModel.replace(QUOTA_PREFIX_REGEX, '')
 
-  // Keep the fourth effort specific to Hydrogen; older families retain their tiers.
-  if (isGeminiHydrogenModel(modelWithoutQuota)) {
-    const tier = modelWithoutQuota
-      .toLowerCase()
-      .match(HYDROGEN_TIER_REGEX)?.[1] as ThinkingTier | undefined
+  if (supportsGeminiXHigh(modelWithoutQuota)) {
+    const tier = modelWithoutQuota.toLowerCase().match(XHIGH_TIER_REGEX)?.[1] as
+      | ThinkingTier
+      | undefined
     return {
-      actualModel: getGeminiHydrogenAntigravityModel(tier),
+      actualModel: isGeminiNeonModel(modelWithoutQuota)
+        ? getGeminiNeonAntigravityModel(tier)
+        : getGeminiHydrogenAntigravityModel(tier),
       thinkingLevel: tier ?? 'high',
       tier: tier ?? 'high',
       isThinkingModel: true,
@@ -477,14 +480,12 @@ export function resolveModelWithVariant(
   if (
     isGeminiArgonModel(base.actualModel) ||
     isGeminiCarbonModel(base.actualModel) ||
-    isGeminiHydrogenModel(base.actualModel) ||
+    supportsGeminiXHigh(base.actualModel) ||
     getAgyNativeModel(base.actualModel)?.supportsAdaptiveThinking
   ) {
     if (!variantConfig.thinkingLevel) return base
     const family = base.actualModel.replace(
-      isGeminiHydrogenModel(base.actualModel)
-        ? HYDROGEN_TIER_REGEX
-        : TIER_REGEX,
+      supportsGeminiXHigh(base.actualModel) ? XHIGH_TIER_REGEX : TIER_REGEX,
       '',
     )
     return {

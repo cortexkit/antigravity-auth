@@ -38,6 +38,7 @@ import {
   signature,
   toolNames,
 } from '../../../test-fixtures/agy-cli-1.5.8/assert-identity.test'
+import neon from '../../../test-fixtures/agy-cli-1.5.9/neon-evidence.json'
 import stockPiPrompt from '../../../test-fixtures/pi-1.5.2-system-prompt.json'
 import { outageVault } from '../../core/src/__fixtures__/vault-outage.ts'
 import { expectNoOpenCodeRetryHints } from '../../opencode/src/plugin/__fixtures__/opencode-retry-hints.test.ts'
@@ -1025,6 +1026,49 @@ describe('resolvePiAntigravityModel', () => {
         expect(body.request.labels.model_enum).toBe(modelEnum)
         expect(body.request).not.toHaveProperty('toolConfig')
         expect(Object.keys(body)).toEqual(carbonLow.envelope_keys)
+      }
+    }
+  })
+
+  it('sends Neon with high default and all four captured generation configs', async () => {
+    for (const effort of [
+      undefined,
+      'low',
+      'medium',
+      'high',
+      'xhigh',
+    ] as const) {
+      const tier = effort ?? 'high'
+      const wire = `gemini-4-neon-${tier}` as const
+      for (const cap of [undefined, 2048]) {
+        fetchWithAgyCliTransportMock.mockImplementationOnce(async () =>
+          sseResponse([
+            'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}}\n\n',
+          ]),
+        )
+        const model = {
+          ...fakeModel('antigravity-gemini-4-neon'),
+          reasoning: true,
+        }
+        const result = await collectStream(
+          streamCortexKitAntigravity(model, userContext(), {
+            apiKey: 'test-token',
+            reasoning: effort,
+            maxTokens: cap,
+            sessionId: `neon-${effort}-${cap}`,
+          }),
+        )
+        expect(result.result.stopReason).toBe('stop')
+        const call = fetchWithAgyCliTransportMock.mock.calls.at(-1)
+        const body = JSON.parse(String(call?.[1]?.body))
+        const captured = neon[`native_generation_config_${tier}`]
+        expect(body.model).toBe(wire)
+        expect(body.request.labels.model_enum).toBe(neon.routes[wire].model)
+        expect(body.request.generationConfig).toEqual({
+          ...captured,
+          maxOutputTokens: cap ?? captured.maxOutputTokens,
+        })
+        expect(body.request).not.toHaveProperty('toolConfig')
       }
     }
   })

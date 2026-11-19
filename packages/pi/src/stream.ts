@@ -13,7 +13,6 @@ import {
   hostFailure,
   isGeminiArgonModel,
   isGeminiCarbonModel,
-  isGeminiHydrogenModel,
   isRetiredAgyModel,
   isUpstreamFailure,
   markUpstreamFailure,
@@ -26,6 +25,7 @@ import {
   redactCredentialError,
   redactCredentialText,
   resolveAntigravityModel,
+  supportsGeminiXHigh,
   UNCONFIRMED_RATE_LIMIT_MESSAGE,
 } from '@cortexkit/antigravity-auth-core'
 import {
@@ -348,7 +348,7 @@ export function resolvePiAntigravityModel(
     model.reasoning &&
     (isGeminiArgonModel(lower) ||
       isGeminiCarbonModel(lower) ||
-      isGeminiHydrogenModel(lower) ||
+      supportsGeminiXHigh(lower) ||
       lower.includes('gemini-3') ||
       (lower.includes('claude') &&
         (lower.includes('thinking') || /claude-(opus|sonnet)-5-5/.test(lower))))
@@ -360,7 +360,7 @@ export function resolvePiAntigravityModel(
   const tier =
     reasoning === 'minimal'
       ? 'low'
-      : reasoning === 'xhigh' && !isGeminiHydrogenModel(lower)
+      : reasoning === 'xhigh' && !supportsGeminiXHigh(lower)
         ? 'high'
         : reasoning
   const baseModel = model.id.replace(/-(minimal|low|medium|high|xhigh)$/i, '')

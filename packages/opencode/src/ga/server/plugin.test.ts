@@ -697,17 +697,16 @@ describe('hook bodies', () => {
     expect(senderCalls).toHaveLength(0)
   })
 
-  it('owns Hydrogen requests and forwards all four selected variants to Antigravity', async () => {
+  it.each([
+    'hydrogen',
+    'neon',
+  ])('owns %s requests and forwards all four selected variants to Antigravity', async (family) => {
+    const id = `antigravity-gemini-4-${family}`
     const execute = mock(async (_job: GaBridgeJob) => new Response('{}'))
     const active = await startBridge(execute)
     const catalog = server.gaCatalogModels()
     for (const variant of [undefined, 'low', 'medium', 'high', 'xhigh']) {
-      const event = requestEvent(
-        'primary',
-        'antigravity-gemini-4-hydrogen',
-        undefined,
-        variant,
-      )
+      const event = requestEvent('primary', id, undefined, variant)
       const original = event.request
       await server.rewriteGaHttpRequest(event, {
         bridge: active,
@@ -720,7 +719,7 @@ describe('hook bodies', () => {
       expect(event.request.url.startsWith(`${active.origin}/agy/`)).toBe(true)
       await (await fetch(event.request)).text()
       expect(execute.mock.calls.at(-1)?.[0]).toMatchObject({
-        modelID: 'antigravity-gemini-4-hydrogen',
+        modelID: id,
         variant: variant ?? null,
       })
     }
@@ -2078,15 +2077,17 @@ describe('setup against a host context', () => {
 describe('model registration', () => {
   const catalog = server.gaCatalogModels()
 
-  it('registers Hydrogen on OpenCode 2 with all four effort variants and its output limit', () => {
-    expect(catalog.get('antigravity-gemini-4-hydrogen')).toMatchObject({
-      name: 'Gemini 4 Hydrogen (Antigravity)',
+  it.each([
+    'Hydrogen',
+    'Neon',
+  ])('registers %s on OpenCode 2 with all four effort variants and its output limit', (family) => {
+    const id = `antigravity-gemini-4-${family.toLowerCase()}`
+    expect(catalog.get(id)).toMatchObject({
+      name: `Gemini 4 ${family} (Antigravity)`,
       limit: { context: 1048576, output: 262144 },
     })
     expect(
-      catalog
-        .get('antigravity-gemini-4-hydrogen')
-        ?.variants.map((variant) => String(variant.id)),
+      catalog.get(id)?.variants.map((variant) => String(variant.id)),
     ).toEqual(['low', 'medium', 'high', 'xhigh'])
   })
 

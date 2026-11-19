@@ -449,19 +449,25 @@ describe('createAntigravityPlugin (plugin entry surface)', () => {
     )
     expect([...serializedProvider.whitelist].sort()).toEqual(RELEASE_MODEL_IDS)
 
-    // Each model definition matches the core registry values, except that
-    // OpenCode 1 offers Hydrogen without xhigh (its Google SDK can't carry it).
     for (const id of expectedModelIds) {
-      if (id === 'antigravity-gemini-4-hydrogen') continue
-      expect(provider?.models[id]).toBe(OPENCODE_MODEL_DEFINITIONS[id])
+      const definition = OPENCODE_MODEL_DEFINITIONS[id]!
+      // OpenCode 1's Google SDK cannot carry XHigh for Hydrogen or Neon.
+      if (
+        id === 'antigravity-gemini-4-hydrogen' ||
+        id === 'antigravity-gemini-4-neon'
+      ) {
+        expect(provider?.models[id]).toEqual({
+          ...definition,
+          variants: {
+            low: { thinkingLevel: 'low' },
+            medium: { thinkingLevel: 'medium' },
+            high: { thinkingLevel: 'high' },
+          },
+        })
+      } else {
+        expect(provider?.models[id]).toBe(definition)
+      }
     }
-    const hydrogen =
-      OPENCODE_MODEL_DEFINITIONS['antigravity-gemini-4-hydrogen']!
-    const { xhigh: _xhigh, ...opencode1Variants } = hydrogen.variants ?? {}
-    expect(provider?.models['antigravity-gemini-4-hydrogen']).toEqual({
-      ...hydrogen,
-      variants: opencode1Variants,
-    })
 
     // Existing providers and commands are preserved alongside the additions.
     const finalConfig = opencodeConfig as unknown as {

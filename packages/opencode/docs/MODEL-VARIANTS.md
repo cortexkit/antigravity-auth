@@ -8,6 +8,7 @@ The table lists the public picker models from the canonical [model registry](../
 
 | Model ID (under `google/`) | Variants | Quota |
 | --- | --- | --- |
+| `antigravity-gemini-4-neon` | `low`, `medium`, `high` (default), `xhigh` | Gemini pool |
 | `antigravity-gemini-4-hydrogen` | `low`, `medium`, `high` (default), `xhigh` | Gemini pool pending bucket evidence |
 | `antigravity-gemini-4-carbon` | `low`, `medium` (default), `high` | Gemini pool until a Carbon quota bucket is observed |
 | `antigravity-gemini-4-argon` | `low`, `medium` (default), `high` | Per-model readings; whether usage shares a weekly quota allowance with other models, and which allowance, is unverified |
@@ -52,6 +53,13 @@ Update saved model selections explicitly; old `max` or custom thinking-budget
 examples do not define a supported Claude 5.5 effort.
 
 ## Gemini
+
+Gemini 4 Neon offers low, medium, high (default) and xhigh on OpenCode 2 and Pi.
+OpenCode 1 omits xhigh for the same Google library limitation as Hydrogen.
+Neon uses the ordinary Gemini quota pool and advertises 1,048,576 context tokens
+and 262,144 output tokens. The [CLI 1.5.9 capture projection](../../../test-fixtures/agy-cli-1.5.9/neon-evidence.json)
+records all four accepted levels: `"LOW"`, `"MEDIUM"`, `"HIGH"` and the JSON
+number `100` for XHigh.
 
 Gemini 4 Hydrogen requires Pro or Ultra in Google Antigravity and exposes low,
 medium and high (default) on OpenCode 1, and low, medium, high (default) and xhigh

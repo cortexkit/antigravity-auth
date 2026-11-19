@@ -5,12 +5,15 @@ import {
 } from '@cortexkit/antigravity-auth-core/settings'
 
 describe('model access', () => {
-  it('canonicalizes all Hydrogen efforts and applies one allowlist entry to all four', () => {
-    const policy = compileModelAccess({ local: ['gemini-4-hydrogen-xhigh'] })
+  it.each([
+    'hydrogen',
+    'neon',
+  ])('canonicalizes all %s efforts and applies one allowlist entry to all four', (model) => {
+    const policy = compileModelAccess({ local: [`gemini-4-${model}-xhigh`] })
     expect(policy.valid).toBe(true)
     for (const tier of ['', '-low', '-medium', '-high', '-xhigh']) {
-      const id = `antigravity-gemini-4-hydrogen${tier}`
-      expect(canonicalModelId(id)).toBe('gemini-4-hydrogen')
+      const id = `antigravity-gemini-4-${model}${tier}`
+      expect(canonicalModelId(id)).toBe(`gemini-4-${model}`)
       expect(policy.allows('local', id)).toBe(true)
     }
     expect(policy.allows('local', 'gemini-4-carbon')).toBe(false)
