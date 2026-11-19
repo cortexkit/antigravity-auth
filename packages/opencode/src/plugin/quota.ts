@@ -27,6 +27,7 @@ import {
   aggregateQuotaSummary,
   type AccountManager as CoreAccountManager,
   type ManagedAccount as CoreManagedAccount,
+  type QuotaManager as CoreQuotaManager,
   createQuotaManager,
   defaultKeyOf,
   type FetchAccountQuota,
@@ -36,7 +37,6 @@ import {
   fetchWithActiveTimeout,
   getHealthTracker,
   type QuotaCheckPurpose,
-  type QuotaManager,
   type QuotaSummary,
   type RowRef,
   rowRefKey,
@@ -83,10 +83,23 @@ export type {
   PerModelQuotaEntry,
   QuotaGroup,
   QuotaGroupSummary,
-  QuotaManager,
   QuotaManagerOptions,
   QuotaSummary,
 } from '@cortexkit/antigravity-auth-core'
+
+type BatchRefreshOptions = Parameters<
+  CoreQuotaManager['refreshAccounts']
+>[1] & {
+  /** Let the poller publish once it confirms it still runs in local mode and applies the results. */
+  publishSidebar?: boolean
+}
+
+export interface QuotaManager extends CoreQuotaManager {
+  refreshAccounts(
+    accounts: AccountMetadataV3[],
+    options: BatchRefreshOptions,
+  ): Promise<AccountQuotaResult[]>
+}
 export {
   classifyQuotaGroup,
   createQuotaManager,
@@ -342,11 +355,13 @@ function withSidebarPushAfterRefresh(
             accounts,
             refreshOptions,
           )
-          // Push one snapshot per batch — the AccountManager's view is updated
-          // by the caller (oauth-methods / fetch-interceptor) BEFORE we read
-          // here, so a single post-batch snapshot captures the full diff.
           const lastAccount = accounts[accounts.length - 1]
-          if (shouldPush && lastAccount) await pushAfterRefresh(lastAccount)
+          if (
+            shouldPush &&
+            refreshOptions.publishSidebar !== false &&
+            lastAccount
+          )
+            await pushAfterRefresh(lastAccount)
           return results
         })(),
       )

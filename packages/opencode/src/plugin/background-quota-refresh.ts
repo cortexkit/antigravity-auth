@@ -401,6 +401,7 @@ export class BackgroundQuotaRefresh {
       )
       results = await this.quotaManager.refreshAccounts(accounts, {
         indexFor: (account) => indexes.get(account)!,
+        publishSidebar: false,
         // Do not force: the quota manager's per-account dedup and backoff
         // apply — an account that already refreshed recently is skipped.
         force: false,

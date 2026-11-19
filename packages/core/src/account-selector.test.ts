@@ -222,7 +222,11 @@ describe('issue69 dated quota evidence', () => {
     const argon = 'gemini-4-argon-medium'
     row.cachedQuota = {
       gemini: { remainingFraction: 1, modelCount: 1 },
-      'gemini-argon': { remainingFraction: 0, modelCount: 1 },
+      'gemini-argon': {
+        remainingFraction: 0,
+        modelCount: 1,
+        resetTime: new Date(start + long).toISOString(),
+      },
     }
     expect(
       pool.markRateLimitedWithReason(

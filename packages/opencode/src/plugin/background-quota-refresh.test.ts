@@ -1828,7 +1828,7 @@ describe('BackgroundQuotaRefresh', () => {
       getAccountsForQuotaCheck: () => [
         { refreshToken, enabled: true, addedAt: 0, lastUsed: 0 },
       ],
-      updateQuotaCache: mock(() => {}),
+      updateQuotaCache: mock(() => true),
       applyUpdatedAccount: mock(() => {}),
       requestSaveToDisk: mock(() => {}),
       getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
@@ -1892,7 +1892,7 @@ describe('BackgroundQuotaRefresh', () => {
       getAccountsForQuotaCheck: () => [
         { refreshToken, enabled: true, addedAt: 0, lastUsed: 0 },
       ],
-      updateQuotaCache: mock(() => {}),
+      updateQuotaCache: mock(() => true),
       applyUpdatedAccount: mock((_index, patch) => {
         Object.assign(accounts[0]!, patch)
       }),
@@ -1941,7 +1941,7 @@ describe('BackgroundQuotaRefresh', () => {
       getAccountsForQuotaCheck: () => [
         { refreshToken, enabled: true, addedAt: 0, lastUsed: 0 },
       ],
-      updateQuotaCache: mock(() => {}),
+      updateQuotaCache: mock(() => true),
       applyUpdatedAccount: mock((_index, patch) => {
         Object.assign(accounts[0]!, patch)
       }),
@@ -1997,7 +1997,7 @@ describe('BackgroundQuotaRefresh', () => {
       getAccountsForQuotaCheck: () => [
         { refreshToken, enabled: true, addedAt: 0, lastUsed: 0 },
       ],
-      updateQuotaCache: mock(() => {}),
+      updateQuotaCache: mock(() => true),
       applyUpdatedAccount: mock(() => {}),
       requestSaveToDisk: mock(() => {}),
       getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
@@ -2054,7 +2054,7 @@ describe('BackgroundQuotaRefresh', () => {
       getAccountsForQuotaCheck: () => [
         { refreshToken, enabled: true, addedAt: 0, lastUsed: 0 },
       ],
-      updateQuotaCache: mock(() => {}),
+      updateQuotaCache: mock(() => true),
       applyUpdatedAccount: mock(() => {}),
       requestSaveToDisk: mock(() => {}),
       getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),

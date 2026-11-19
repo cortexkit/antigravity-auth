@@ -491,6 +491,12 @@ describe('OpenCode 2 location without a sidebar file', () => {
     await runtime.quotaManager.refreshAccounts([ACCOUNT], {
       indexFor: () => 0,
       force: true,
+      publishSidebar: false,
+    })
+    expect(snapshots.latest()).toBeNull()
+    await runtime.quotaManager.refreshAccounts([ACCOUNT], {
+      indexFor: () => 0,
+      force: true,
     })
     const latest = snapshots.latest()
     expect(latest?.checkedAt).toBe(1_700_000_000_000)

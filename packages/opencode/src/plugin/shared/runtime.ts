@@ -489,6 +489,7 @@ async function buildLocationRuntime(
       enabled: entry.enabled,
       coolingDownUntil: entry.coolingDownUntil,
       cachedQuota: entry.cachedQuota,
+      cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
       cachedQuotaAccountId: entry.cachedQuotaAccountId,
       ...(identity
         ? { currentQuotaAccountId: identity(entry.parts.refreshToken) }
