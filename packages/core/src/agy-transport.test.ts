@@ -5,7 +5,9 @@ import * as tls from 'node:tls'
 import identityProjection from '../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
 
 import {
+  type AgyResponseFraming,
   buildAgyCliHeaderPairs,
+  buildResponseStream,
   ContentLengthStream,
   DEFAULT_AGY_IDLE_TIMEOUT_MS,
   DEFAULT_AGY_RESPONSE_HEADER_TIMEOUT_MS,
@@ -127,6 +129,65 @@ async function collect(
   stream.end()
   await done
   return Buffer.concat(chunks)
+}
+
+// Resolves to what a promise settled with, or reports it still pending; a
+// body that never settles is the failure these transport tests look for.
+async function settledWithin(
+  pending: Promise<unknown>,
+  ms = 500,
+): Promise<{ value: unknown } | { error: string } | 'pending'> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      pending.then(
+        (value) => ({ value }),
+        (error: unknown) => ({
+          error: error instanceof Error ? error.name : String(error),
+        }),
+      ),
+      new Promise<'pending'>((resolve) => {
+        timer = setTimeout(() => resolve('pending'), ms)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+// A loopback peer that writes `wire` as the response body, then either ends
+// the connection or keeps it open like a keep-alive server.
+async function withBodyPeer(
+  wire: string,
+  end: boolean,
+  check: (peer: {
+    client: net.Socket
+    peerClosed: Promise<void>
+  }) => Promise<void>,
+): Promise<void> {
+  let markClosed!: () => void
+  const peerClosed = new Promise<void>((resolve) => {
+    markClosed = resolve
+  })
+  let peer: net.Socket | undefined
+  const server = net.createServer((socket) => {
+    peer = socket
+    socket.on('error', () => {})
+    socket.once('close', () => markClosed())
+    if (end) socket.end(wire)
+    else if (wire) socket.write(wire)
+  })
+  const port = await listen(server, '127.0.0.1')
+  const client = net.connect({ host: '127.0.0.1', port })
+  client.on('error', () => {})
+  await new Promise<void>((resolve) => client.once('connect', resolve))
+  try {
+    await check({ client, peerClosed })
+  } finally {
+    client.destroy()
+    peer?.destroy()
+    await closeServer(server)
+  }
 }
 
 describe('agy transport', () => {
@@ -366,6 +427,156 @@ describe('agy transport', () => {
         Buffer.from('baz'),
       ])
       expect(out.toString()).toBe('foobar')
+    })
+  })
+
+  describe('ContentLengthStream framing', () => {
+    it('rejects a body that ends before its declared length', async () => {
+      const stream = new ContentLengthStream(9)
+      const failed = new Promise<Error>((resolve) =>
+        stream.on('error', resolve),
+      )
+      stream.on('data', () => {})
+      stream.write(Buffer.from('abc'))
+      stream.end()
+      expect((await failed).message).toBe(
+        'Antigravity response ended before its declared length',
+      )
+    })
+
+    it('ends an empty body without waiting for more input', async () => {
+      const stream = new ContentLengthStream(0)
+      const ended = new Promise<void>((resolve) => stream.on('end', resolve))
+      stream.resume()
+      expect(await settledWithin(ended)).toEqual({ value: undefined })
+    })
+  })
+
+  describe('response body lifetime', () => {
+    const chunked: AgyResponseFraming = { chunked: true, gzip: false }
+    const length = (contentLength: number): AgyResponseFraming => ({
+      chunked: false,
+      gzip: false,
+      contentLength,
+    })
+
+    it('caller abort rejects a pending read and closes the peer', async () => {
+      await withBodyPeer('', false, async ({ client, peerClosed }) => {
+        const caller = new AbortController()
+        const body = buildResponseStream(
+          client,
+          Buffer.alloc(0),
+          chunked,
+          caller.signal,
+          30_000,
+        )
+        const read = settledWithin(new Response(body).text())
+        caller.abort()
+        expect(await settledWithin(peerClosed)).toEqual({ value: undefined })
+        expect(await read).toEqual({ error: 'AbortError' })
+      })
+    })
+
+    it('the idle watchdog rejects a pending read and closes the peer', async () => {
+      await withBodyPeer('', false, async ({ client, peerClosed }) => {
+        const body = buildResponseStream(
+          client,
+          Buffer.alloc(0),
+          chunked,
+          undefined,
+          40,
+        )
+        const read = settledWithin(new Response(body).text())
+        expect(await settledWithin(peerClosed)).toEqual({ value: undefined })
+        expect(await read).toEqual({ error: 'Error' })
+      })
+    })
+
+    for (const [label, wire, framing] of [
+      ['a short fixed-length body', 'abc', length(9)],
+      ['a chunked body without its last chunk', '3\r\nabc\r\n', chunked],
+      ['a chunked body cut inside a chunk', '9\r\nabc', chunked],
+    ] as const) {
+      it(`rejects ${label} at EOF`, async () => {
+        await withBodyPeer(wire, true, async ({ client }) => {
+          const body = buildResponseStream(client, Buffer.alloc(0), framing)
+          expect(await settledWithin(new Response(body).text())).toEqual({
+            error: 'Error',
+          })
+        })
+      })
+    }
+
+    for (const [label, wire, framing] of [
+      ['fixed length', 'abc', length(3)],
+      ['chunked', '3\r\nabc\r\n0\r\n\r\n', chunked],
+      [
+        'chunked with a trailer',
+        '3\r\nabc\r\n0\r\nX-Trailer: y\r\n\r\n',
+        chunked,
+      ],
+    ] as const) {
+      it(`completes a ${label} body on a keep-alive peer and closes it`, async () => {
+        await withBodyPeer(wire, false, async ({ client, peerClosed }) => {
+          const body = buildResponseStream(
+            client,
+            Buffer.alloc(0),
+            framing,
+            undefined,
+            30_000,
+          )
+          expect(await settledWithin(new Response(body).text())).toEqual({
+            value: 'abc',
+          })
+          expect(await settledWithin(peerClosed)).toEqual({ value: undefined })
+        })
+      })
+    }
+
+    it('ends a zero content-length body without waiting for bytes', async () => {
+      await withBodyPeer('', false, async ({ client }) => {
+        const body = buildResponseStream(
+          client,
+          Buffer.alloc(0),
+          length(0),
+          undefined,
+          30_000,
+        )
+        expect(await settledWithin(new Response(body).text())).toEqual({
+          value: '',
+        })
+      })
+    })
+
+    it('a cancelled Web body closes the peer', async () => {
+      await withBodyPeer('', false, async ({ client, peerClosed }) => {
+        const body = buildResponseStream(
+          client,
+          Buffer.alloc(0),
+          chunked,
+          undefined,
+          30_000,
+        )
+        expect(await settledWithin(body.cancel())).toEqual({ value: undefined })
+        expect(await settledWithin(peerClosed)).toEqual({ value: undefined })
+      })
+    })
+
+    it('a decoder error before gunzip rejects the read instead of escaping', async () => {
+      await withBodyPeer(
+        'zz\r\nabc\r\n',
+        false,
+        async ({ client, peerClosed }) => {
+          const body = buildResponseStream(client, Buffer.alloc(0), {
+            chunked: true,
+            gzip: true,
+          })
+          expect(await settledWithin(new Response(body).text())).toEqual({
+            error: 'Error',
+          })
+          expect(await settledWithin(peerClosed)).toEqual({ value: undefined })
+        },
+      )
     })
   })
 })
