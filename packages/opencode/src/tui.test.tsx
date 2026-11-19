@@ -14,9 +14,13 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
+  statSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs'
+import * as fs from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -31,6 +35,7 @@ import {
 } from './sidebar-state'
 import { SidebarPanel, startRpcNotificationPolling } from './tui'
 import type { TuiLogger } from './tui/file-logger'
+import * as sidebarFrame from './tui/sidebar-frame'
 import * as tuiPrefs from './tui-preferences'
 import {
   type AntigravityAuthTuiPrefs,
@@ -153,6 +158,31 @@ function writeState(state: Partial<SidebarStateV1>): SidebarStateV1 {
   return merged
 }
 
+async function testRenderSidebar(...args: Parameters<typeof testRender>) {
+  const firstRead = Promise.withResolvers<void>()
+  const createReader = sidebarState.createSidebarStateReader
+  const reader = spyOn(
+    sidebarState,
+    'createSidebarStateReader',
+  ).mockImplementation(() => {
+    const read = createReader()
+    return async (path) => {
+      try {
+        return await read(path)
+      } finally {
+        firstRead.resolve()
+      }
+    }
+  })
+  try {
+    const setup = await testRender(...args)
+    await firstRead.promise
+    return setup
+  } finally {
+    reader.mockRestore()
+  }
+}
+
 async function settle(): Promise<void> {
   // Two microtask flushes + a short timer to let the polling interval and
   // reactive render complete before snapshotting.
@@ -197,7 +227,7 @@ describe('SidebarPanel', () => {
       )
       const { createSidebarController } = await import('./tui')
       const controller = createSidebarController(prefs)
-      const setup = await testRender(
+      const setup = await testRenderSidebar(
         () => (
           <SidebarPanel
             controller={controller}
@@ -226,10 +256,13 @@ describe('SidebarPanel', () => {
 
   it('renders the awaiting-state fallback when no state file exists', async () => {
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(() => <SidebarPanel logger={logger} />, {
-      width: 60,
-      height: 12,
-    })
+    const testSetup = await testRenderSidebar(
+      () => <SidebarPanel logger={logger} />,
+      {
+        width: 60,
+        height: 12,
+      },
+    )
     await testSetup.flush()
     const frame = testSetup.captureCharFrame()
     // Fleet parity: when no data has loaded, the sidebar shows the
@@ -263,7 +296,7 @@ describe('SidebarPanel', () => {
     })
     writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf8')
     const logger = makeCapturingLogger()
-    const setup = await testRender(
+    const setup = await testRenderSidebar(
       () => <SidebarPanel logger={logger} stateFile={fixture.statePath} />,
       { width: 80, height: 24 },
     )
@@ -315,7 +348,7 @@ describe('SidebarPanel', () => {
     writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => <SidebarPanel logger={logger} stateFile={fixture.statePath} />,
       {
         width: 60,
@@ -369,7 +402,7 @@ describe('SidebarPanel', () => {
     writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           logger={logger}
@@ -411,7 +444,7 @@ describe('SidebarPanel', () => {
     writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => <SidebarPanel logger={logger} stateFile={fixture.statePath} />,
       {
         width: 80,
@@ -446,7 +479,7 @@ describe('SidebarPanel', () => {
     writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => <SidebarPanel logger={logger} stateFile={fixture.statePath} />,
       {
         width: 38,
@@ -463,31 +496,41 @@ describe('SidebarPanel', () => {
     testSetup.renderer.destroy()
   })
 
-  it('clears the polling timer on unmount (no leaked intervals)', async () => {
+  it('polls without reparsing or publishing unchanged snapshots and stops on unmount', async () => {
+    let clock = Date.now()
     const payload = writeState({
-      checkedAt: Date.now(),
+      checkedAt: clock,
       routingAuthoritative: true,
       accounts: [
         {
           id: 'acc-1',
-          label: 'Before polling',
+          label: 'Account 1',
           enabled: true,
           health: 100,
           current: true,
+          cooldownUntil: clock + 120_000,
           quota: {},
         },
       ],
     })
-    mkdirSync(join(fixture.statePath, '..'), { recursive: true })
-    writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
+    const original = JSON.stringify(payload)
+    const fileTime = 1_700_000_000
+    const replace = (text: string) => {
+      const staged = `${fixture.statePath}.new`
+      writeFileSync(staged, text, 'utf-8')
+      utimesSync(staged, fileTime, fileTime)
+      renameSync(staged, fixture.statePath)
+    }
+    replace(original)
+    const before = statSync(fixture.statePath)
     const realSet = globalThis.setInterval
     const realClear = globalThis.clearInterval
     const handle = { unref() {} } as unknown as ReturnType<typeof setInterval>
     let active = false
-    let tick: (() => void) | undefined
+    let tick: (() => void | Promise<void>) | undefined
     let registrations = 0
     const intervals = spyOn(globalThis, 'setInterval').mockImplementation(((
-      callback: () => void,
+      callback: () => void | Promise<void>,
       ms?: number,
       ...args: unknown[]
     ) => {
@@ -503,7 +546,39 @@ describe('SidebarPanel', () => {
         else realClear(timer as Parameters<typeof realClear>[0])
       },
     )
-    const reads = spyOn(sidebarState, 'readSidebarState')
+    const visible = Promise.withResolvers<void>()
+    const updates: (readonly sidebarFrame.FrameAccount[])[] = []
+    let accounts: (() => readonly sidebarFrame.FrameAccount[]) | undefined
+    let lastError: (() => string | undefined | null) | undefined
+    const realFrame = sidebarFrame.AntigravitySidebar
+    const frame = spyOn(sidebarFrame, 'AntigravitySidebar').mockImplementation(
+      (props) => {
+        accounts = props.accounts
+        lastError = props.lastError
+        createEffect(() => {
+          const next = props.accounts()
+          updates.push(next)
+          if (next.length) visible.resolve()
+        })
+        return realFrame(props)
+      },
+    )
+    const parses = spyOn(JSON, 'parse')
+    const stat = fs.stat
+    // Isolate the inode check: replacement normally changes ctime as well.
+    const stats = spyOn(fs, 'stat').mockImplementation((async (
+      path,
+      options,
+    ) => {
+      const current = await stat(path, options)
+      if (path === fixture.statePath && current) {
+        Object.defineProperty(current, 'ctimeNs', { value: 0n })
+      }
+      return current
+    }) as typeof fs.stat)
+    const allowRead = Promise.withResolvers<void>()
+    let blockedTick: Promise<void> | undefined
+    let reads: ReturnType<typeof spyOn<typeof fs, 'readFile'>> | undefined
     let setup: Awaited<ReturnType<typeof testRender>> | undefined
     try {
       setup = await testRender(
@@ -512,31 +587,82 @@ describe('SidebarPanel', () => {
             logger={makeCapturingLogger()}
             stateFile={fixture.statePath}
             pollIntervalMs={50}
+            now={() => clock}
           />
         ),
-        { width: 40, height: 10 },
+        { width: 40, height: 16 },
       )
+      await visible.promise
       await setup.flush()
       expect(registrations).toBe(1)
-      expect(reads.mock.calls.length).toBeGreaterThan(0)
-      expect(setup.captureCharFrame()).toContain('Before polling')
-      const beforeTick = reads.mock.calls.length
-      payload.accounts[0]!.label = 'After polling'
-      writeFileSync(fixture.statePath, JSON.stringify(payload), 'utf-8')
-      if (active) tick!()
+      expect(setup.captureCharFrame()).toContain('Account 1')
+      expect(setup.captureCharFrame()).toContain('cooling 2m')
+      const initialUpdates = updates.length
+      clock += 60_000
+      for (let count = 0; count < 10; count++) await tick!()
+      expect(
+        parses.mock.calls.filter(([text]) => text === original),
+      ).toHaveLength(1)
+      expect(updates).toHaveLength(initialUpdates)
       await setup.flush()
-      expect(reads.mock.calls.length).toBeGreaterThan(beforeTick)
-      expect(setup.captureCharFrame()).toContain('After polling')
-      expect(setup.captureCharFrame()).not.toContain('Before polling')
+      expect(setup.captureCharFrame()).toContain('cooling 1m')
+
+      payload.accounts[0]!.label = 'Account 2'
+      replace(JSON.stringify(payload))
+      const after = statSync(fixture.statePath)
+      expect(after.size).toBe(before.size)
+      expect(after.mtimeMs).toBe(before.mtimeMs)
+      expect(after.ino).not.toBe(before.ino)
+      await tick!()
+      await setup.flush()
+      expect(setup.captureCharFrame()).toContain('Account 2')
+
+      replace('{not-valid-json')
+      await tick!()
+      expect(lastError?.()).toBe('malformed-json')
+      expect(accounts?.()).toEqual([])
+      rmSync(fixture.statePath)
+      await tick!()
+      expect(lastError?.()).toBeUndefined()
+      expect(accounts?.()).toEqual([])
+
+      const enteredRead = Promise.withResolvers<void>()
+      const readFile = fs.readFile
+      reads = spyOn(fs, 'readFile').mockImplementation((async (
+        path,
+        options,
+      ) => {
+        if (path === fixture.statePath) {
+          enteredRead.resolve()
+          await allowRead.promise
+        }
+        return readFile(path, options)
+      }) as typeof fs.readFile)
+      replace(original)
+      blockedTick = Promise.resolve(tick!())
+      expect(
+        await Promise.race([
+          enteredRead.promise.then(() => 'reading'),
+          blockedTick.then(() => 'finished'),
+        ]),
+      ).toBe('reading')
       setup.renderer.destroy()
       expect(cancellations).toHaveBeenCalledWith(handle)
       expect(active).toBe(false)
-      const afterDestroy = reads.mock.calls.length
-      if (active) tick!()
-      expect(reads.mock.calls.length).toBe(afterDestroy)
+      allowRead.resolve()
+      await blockedTick
+      expect(accounts?.()).toEqual([])
+      const afterDestroy = stats.mock.calls.length
+      await tick!()
+      expect(stats.mock.calls.length).toBe(afterDestroy)
     } finally {
+      allowRead.resolve()
+      await blockedTick
       setup?.renderer.destroy()
-      reads.mockRestore()
+      reads?.mockRestore()
+      frame.mockRestore()
+      parses.mockRestore()
+      stats.mockRestore()
       cancellations.mockRestore()
       intervals.mockRestore()
     }
@@ -546,7 +672,7 @@ describe('SidebarPanel', () => {
     mkdirSync(join(fixture.statePath, '..'), { recursive: true })
     writeFileSync(fixture.statePath, '{not-valid-json', 'utf-8')
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => <SidebarPanel logger={logger} stateFile={fixture.statePath} />,
       {
         width: 38,
@@ -826,7 +952,7 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     const controller = createSidebarController(prefs)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}
@@ -922,7 +1048,7 @@ describe('SidebarPanel collapse/expand + compact row', () => {
 
     const logger = makeCapturingLogger()
     const collapsed = Promise.withResolvers<void>()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => {
         createEffect(() => {
           if (controller.collapsed()) collapsed.resolve()
@@ -996,7 +1122,7 @@ describe('SidebarPanel collapse/expand + compact row', () => {
     const controller = createSidebarController(prefs)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}
@@ -1060,7 +1186,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const controller = createSidebarController(DEFAULT_PREFS)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}
@@ -1113,7 +1239,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const controller = createSidebarController(prefs)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}
@@ -1160,7 +1286,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const controller = createSidebarController(prefs)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}
@@ -1220,7 +1346,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const controller = createSidebarController(prefs)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}
@@ -1268,7 +1394,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const controller = createSidebarController(prefs)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}
@@ -1333,7 +1459,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const controller = createSidebarController(prefs)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}
@@ -1393,7 +1519,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const controller = createSidebarController(prefs)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}
@@ -1448,7 +1574,7 @@ describe('SidebarPanel sections + themed border (T6)', () => {
     const controller = createSidebarController(DEFAULT_PREFS)
 
     const logger = makeCapturingLogger()
-    const testSetup = await testRender(
+    const testSetup = await testRenderSidebar(
       () => (
         <SidebarPanel
           controller={controller}

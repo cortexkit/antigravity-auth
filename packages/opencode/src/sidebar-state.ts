@@ -40,6 +40,7 @@
  */
 
 import { chmodSync, mkdirSync, readFileSync } from 'node:fs'
+import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 // Subpath imports (not the barrel): this file ships into the TUI's
@@ -230,13 +231,7 @@ export function getSidebarStateFile(): string {
 
 /**
  * Read and normalize the sidebar state file. Returns the default state when
- * the file is missing, unreadable, malformed, or schema-incompatible — the TUI
- * must never throw out of `readSidebarState()`, the panel just shows
- * "Awaiting Antigravity state" and the next poll retries.
- *
- * The read is sync on purpose: the TUI polls on a 2-second timer and the file
- * is tiny (a handful of accounts); an async read here would just add race
- * surface area against Solid's reactive render cycle.
+ * the file is missing, unreadable, malformed, or schema-incompatible.
  */
 export function readSidebarState(
   path: string = getSidebarStateFile(),
@@ -247,6 +242,42 @@ export function readSidebarState(
   } catch {
     return { ...DEFAULT_SIDEBAR_STATE }
   }
+  return parseSidebarState(raw)
+}
+
+/** Create a reader for one polling consumer. Polls must not overlap. */
+export function createSidebarStateReader(): (
+  path?: string,
+) => Promise<SidebarStateV1 | undefined> {
+  let previousPath: string | undefined
+  let previousSignature: string | null = null
+
+  return async (path = getSidebarStateFile()) => {
+    let raw: string
+    let signature: string
+    try {
+      const info = await stat(path, { bigint: true })
+      // Atomic replacement can leave size and mtime unchanged; inode identifies
+      // the new file, and ctime invalidates the read on permission changes.
+      signature = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`
+      if (path === previousPath && signature === previousSignature) return
+      raw = await readFile(path, 'utf-8')
+    } catch {
+      const alreadyUnavailable =
+        path === previousPath && previousSignature === null
+      previousPath = path
+      previousSignature = null
+      return alreadyUnavailable ? undefined : { ...DEFAULT_SIDEBAR_STATE }
+    }
+
+    const loaded = parseSidebarState(raw)
+    previousPath = path
+    previousSignature = signature
+    return loaded
+  }
+}
+
+function parseSidebarState(raw: string): SidebarStateV1 {
   let parsed: unknown
   try {
     parsed = JSON.parse(raw)

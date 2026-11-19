@@ -1089,6 +1089,27 @@ describe('process-shared signature cache', () => {
     expect(memoryOnly.signatureStore.get('session-m')?.signature).toBe('sig-m')
   })
 
+  it('preserves cold signatures for an owner joining during the final write', async () => {
+    const state = newState()
+    const first = acquire(state, { keepThinking: true, cache: LONG_CACHE })
+    first.cacheSignature('session-a', 'a thought', 'sig-a')
+    const closing = first.dispose()
+    const second = acquire(state, { keepThinking: true, cache: LONG_CACHE })
+    state.clearHot()
+    expect(second.getCachedSignature('session-a', 'a thought')).toBe('sig-a')
+    await closing
+    second.cacheSignature('session-b', 'b thought', 'sig-b')
+    await second.dispose()
+
+    const path = join(root, 'signature-cache.json')
+    expect(state.diskCacheFor(path)).toBeNull()
+    expect(
+      Object.values(diskEntries(path))
+        .map((entry) => entry.value)
+        .sort(),
+    ).toEqual(['sig-a', 'sig-b'])
+  })
+
   for (const order of ['enabled-first', 'false-first'] as const) {
     it(`lets a keep_thinking=false location read the running cache cold without owning it (${order})`, async () => {
       const path = join(root, 'signature-cache.json')

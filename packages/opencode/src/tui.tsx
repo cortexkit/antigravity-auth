@@ -53,7 +53,7 @@ import { createSlot } from '@opentui/solid'
 import { createSignal, type JSX, onCleanup, onMount } from 'solid-js'
 
 import { getRpcDir } from './rpc/rpc-dir'
-import { readSidebarState, type SidebarStateV1 } from './sidebar-state'
+import { createSidebarStateReader, type SidebarStateV1 } from './sidebar-state'
 import { createTuiFileLogger, type TuiLogger } from './tui/file-logger'
 import {
   createV1MenuTransport,
@@ -219,7 +219,6 @@ export interface SidebarController {
 
 interface InternalState {
   loaded: SidebarStateV1
-  lastReadAt: number
   lastError: string | null
 }
 
@@ -347,7 +346,8 @@ function formatError(value: unknown): string {
 
 export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
   const logger = resolveLogger(props.logger)
-  const now = props.now ?? (() => Date.now())
+  const clock = props.now ?? Date.now
+  const [now, setNow] = createSignal(clock())
   const pollMs = props.pollIntervalMs ?? POLL_INTERVAL_MS
   const controller = props.controller ?? getSidebarController()
   const collapsed = controller.collapsed
@@ -359,32 +359,40 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
 
   const [state, setState] = createSignal<InternalState>({
     loaded: EMPTY_STATE,
-    lastReadAt: 0,
     lastError: null,
   })
 
-  const refresh = (): void => {
-    try {
-      const loaded = readSidebarState(props.stateFile)
-      setState({
-        loaded,
-        lastReadAt: now(),
-        lastError: null,
-      })
-    } catch (error) {
-      logger.warn('sidebar-poll-failed', { error: formatError(error) })
-      setState((prev) => ({
-        ...prev,
-        lastReadAt: now(),
-        lastError: formatError(error),
-      }))
-    }
-  }
-
   onMount(() => {
-    refresh()
+    const readChanged = createSidebarStateReader()
+    let mounted = true
+    let reading = false
+    const refresh = async (): Promise<void> => {
+      if (!mounted) return
+      setNow(clock())
+      if (reading) return
+      reading = true
+      try {
+        const loaded = await readChanged(props.stateFile)
+        if (!mounted) return
+        if (loaded) setState({ loaded, lastError: null })
+        else if (state().lastError !== null) {
+          setState((prev) => ({ ...prev, lastError: null }))
+        }
+      } catch (error) {
+        if (!mounted) return
+        const message = formatError(error)
+        logger.warn('sidebar-poll-failed', { error: message })
+        setState((prev) => ({ ...prev, lastError: message }))
+      } finally {
+        reading = false
+      }
+    }
+    void refresh()
     const interval = setInterval(refresh, pollMs)
-    onCleanup(() => clearInterval(interval))
+    onCleanup(() => {
+      mounted = false
+      clearInterval(interval)
+    })
   })
 
   const lastError = () => state().lastError ?? state().loaded.lastError

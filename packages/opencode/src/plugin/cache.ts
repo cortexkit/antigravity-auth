@@ -149,6 +149,7 @@ interface SharedDiskCache {
   path: string
   cache: SignatureCache
   owners: Set<DiskConsumer>
+  finalWrite?: Promise<boolean>
 }
 
 /**
@@ -337,13 +338,20 @@ export function createSignatureProcessState(
       updateRetention(shared.path)
       return
     }
-    // Last enabled owner: unregister first so a new owner starts a fresh
-    // instance from the file this flush writes.
-    if (disks.get(shared.path) === shared) disks.delete(shared.path)
+    // An owner joining during the final write must see the live entries, not
+    // reload a file that might not have been written yet.
+    const finalWrite = shared.cache.flush()
+    shared.finalWrite = finalWrite
     try {
-      await shared.cache.flush()
+      await finalWrite
     } finally {
-      shared.cache.shutdown()
+      if (shared.finalWrite === finalWrite) {
+        shared.finalWrite = undefined
+        if (shared.owners.size === 0) {
+          disks.delete(shared.path)
+          shared.cache.shutdown()
+        }
+      }
     }
   }
 
@@ -379,8 +387,10 @@ export function createSignatureProcessState(
       }
       // An owner reads its own instance; a reader looks up whichever instance
       // an owner is currently running for the file, if any.
-      const readableCache = (): SignatureCache | undefined =>
-        shared?.cache ?? (path ? disks.get(path)?.cache : undefined)
+      const readableCache = (): SignatureCache | undefined => {
+        const current = shared ?? (path ? disks.get(path) : undefined)
+        if (current?.owners.size) return current.cache
+      }
       const signatureStore = createSignatureStore()
       let disposed = false
 

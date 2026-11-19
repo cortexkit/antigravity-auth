@@ -59,6 +59,10 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Atomic port-file publication, secure modes, and stale-entry cleanup.',
   'packages/opencode/src/sidebar-state.test.ts':
     'Lock contention, takeover between merge and rename, and private modes.',
+  'packages/opencode/src/tui.test.tsx':
+    'Sidebar polling follows an atomic replacement with a different inode.',
+  'packages/opencode/src/plugin/cache/signature-cache.test.ts':
+    'Pauses an atomic cache write before rename and checks the old on-disk file.',
   'packages/opencode/src/plugin/config/writer.test.ts':
     'Atomic fenced-lock config writes and failed-write temporary-file cleanup.',
   'packages/opencode/src/plugin/operator-settings.test.ts':
