@@ -1,29 +1,10 @@
 /**
  * Background quota poller.
  *
- * Runs a jittered, `unref()`'d timer that periodically refreshes quota for
- * all accounts and pushes ONE snapshot per tick to its snapshot store (the
- * sidebar state file for OpenCode 1, memory for an OpenCode 2 location).
- * Three-layer cross-process dedup:
- *
- *   1. Freshness gate — the only hard correctness bound for quota snapshots.
- *      Reads `checkedAt` from the snapshot store; skips quota work when
- *      it is fresher than
- *      `max(intervalMs − 60_000, floor(intervalMs / 2))`. The /2 floor
- *      ensures the gate still fires at the 1-minute minimum interval.
- *
- *   2. Advisory fenced lock — an optimization that lets a single process do
- *      the network work when several wake up simultaneously. Held → skip.
- *      A store without a lock path skips this layer.
- *
- *   3. Lock throws → FAIL CLOSED (skip this tick, add jitter to next). A
- *      fallback mutex is NOT used here. The correct reasoning is: the
- *      freshness gate (layer 1) already bounds how many refreshes can land;
- *      a secondary "claim marker" file is just a worse re-implementation of
- *      the fenced lock we just failed to acquire — it replicates the same
- *      ownership problem without the protocol guarantees, and any transient
- *      I/O error that made the lock throw will likely affect a claim file
- *      too.
+ * A jittered, unref'd timer pulls quota only for accounts with stale or
+ * missing readings. It decides under the advisory poll lock so another
+ * process's completed pull is visible, without treating sidebar publication
+ * as a quota observation. A contended or unavailable lock skips the tick.
  */
 
 import { createHash } from 'node:crypto'
@@ -59,6 +40,7 @@ export interface PollerAccountView {
     enabled?: boolean
     parts: { refreshToken: string }
     cachedQuota?: Partial<Record<QuotaGroup, QuotaGroupSummary>>
+    cachedQuotaUpdatedAt?: number
     cachedQuotaAccountId?: string
     coolingDownUntil?: number
     /** Captured plan tier ID (raw upstream string). */
@@ -73,11 +55,14 @@ export interface PollerAccountView {
   /** Must return the full AccountMetadataV3 shape so the quota manager
    *  can use token-refresh and project-context fields inside each fetch. */
   getAccountsForQuotaCheck(): AccountMetadataV3[]
+  /** Reads the store's current per-account observation times for polling. */
+  readAccountsForQuotaPoll?(): Promise<AccountMetadataV3[]>
   updateQuotaCache(
     accountIndex: number,
     quotaGroups: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
     expectedRefreshToken?: string,
-  ): void
+    checkedAt?: number,
+  ): boolean
   /**
    * Apply a subset of quota-result fields (e.g. captured tier) onto the
    * in-memory account record without touching the quota cache itself.
@@ -93,6 +78,7 @@ export interface PollerAccountView {
     expectedRefreshToken?: string,
   ): void
   requestSaveToDisk(): void
+  saveToDisk?(): Promise<void>
   /**
    * Returns the active account index per model family so the sidebar
    * snapshot can stamp the `current` flag on the right account.
@@ -325,28 +311,10 @@ export class BackgroundQuotaRefresh {
   }
 
   private async runTick(): Promise<void> {
-    if (this.mayRun && !(await this.mayRun())) {
+    if (!(await this.canRun())) {
       if (!this.disposed) this.scheduleNext(this.jitteredInterval())
       return
     }
-    if (this.disposed) return
-    // ── 1. Quota freshness gate ──────────────────────────────────────────
-    //
-    // Bound: `max(intervalMs − 60_000, floor(intervalMs / 2))`.
-    //
-    // - intervalMs − 60_000: at 5-minute intervals this is 240 s — tight
-    //   enough to prevent double refreshes while allowing drift.
-    // - floor(intervalMs / 2): the fallback that keeps the gate non-trivial
-    //   at the 1-minute minimum (floor(60000/2) = 30 000 ms, i.e. 30 s).
-    const freshnessThresholdMs = Math.max(
-      this.intervalMs - MIN_INTERVAL_MS,
-      Math.floor(this.intervalMs / 2),
-    )
-    const ageMs = this.now() - this.snapshots.lastCheckedAt()
-
-    // ── 2. Advisory fenced lock ──────────────────────────────────────────
-    // A store without a lock path polls on its own schedule; its tick takes
-    // no lock and always proceeds to the freshness decision.
     const lockPath = this.snapshots.pollLockPath
     let lock: Pick<FencedFileLock, 'release'> | null = null
     try {
@@ -374,9 +342,7 @@ export class BackgroundQuotaRefresh {
     }
 
     try {
-      if (this.disposed || (this.mayRun && !(await this.mayRun()))) return
-      if (ageMs >= freshnessThresholdMs) await this.refresh()
-      else await this.refreshTierSlot()
+      if (await this.canRun()) await this.refresh()
     } finally {
       await lock.release().catch(() => {
         // Release is best-effort; the TTL expires it if we can't reach it.
@@ -388,20 +354,41 @@ export class BackgroundQuotaRefresh {
     }
   }
 
+  private async canRun(): Promise<boolean> {
+    return (
+      !this.disposed &&
+      (!this.mayRun || (await this.mayRun())) &&
+      !this.disposed
+    )
+  }
+
   private async refresh(): Promise<void> {
     const refreshedQuota = await this.refreshQuota()
-    if (!this.disposed && (!this.mayRun || (await this.mayRun())))
-      await this.refreshTierSlot()
-    if (refreshedQuota) await this.pushSnapshot()
+    if (await this.canRun()) await this.refreshTierSlot()
+    if (refreshedQuota && (await this.canRun())) await this.pushSnapshot()
   }
 
   private async refreshQuota(): Promise<boolean> {
-    if (this.disposed || (this.mayRun && !(await this.mayRun()))) return false
-
     const manager = this.getAccountManager()
     if (!manager) return false
 
-    const accounts = manager.getAccountsForQuotaCheck()
+    const observed = await (manager.readAccountsForQuotaPoll?.() ??
+      this.localObservations(manager))
+    if (!(await this.canRun())) return false
+    const now = this.now()
+    const freshnessThresholdMs = Math.max(
+      this.intervalMs - MIN_INTERVAL_MS,
+      Math.floor(this.intervalMs / 2),
+    )
+    const accounts = observed.filter(
+      ({ enabled, cachedQuotaUpdatedAt: at }) =>
+        enabled !== false &&
+        (at === undefined ||
+          !Number.isFinite(at) ||
+          at <= 0 ||
+          at > now ||
+          now - at >= freshnessThresholdMs),
+    )
     if (accounts.length === 0) return false
 
     // Refresh all accounts, then stamp the live manager once per result.
@@ -409,8 +396,11 @@ export class BackgroundQuotaRefresh {
     // any concurrent modal or fetch-interceptor refresh.
     let results: Awaited<ReturnType<typeof this.quotaManager.refreshAccounts>>
     try {
+      const indexes = new Map(
+        accounts.map((account, index) => [account, index]),
+      )
       results = await this.quotaManager.refreshAccounts(accounts, {
-        indexFor: (account) => accounts.indexOf(account),
+        indexFor: (account) => indexes.get(account)!,
         // Do not force: the quota manager's per-account dedup and backoff
         // apply — an account that already refreshed recently is skipped.
         force: false,
@@ -419,7 +409,7 @@ export class BackgroundQuotaRefresh {
       return false
     }
 
-    if (this.disposed) return false
+    if (!(await this.canRun())) return false
 
     // Re-resolve live indices after the await: a concurrent add/remove may
     // have shifted positions.
@@ -432,7 +422,12 @@ export class BackgroundQuotaRefresh {
     let anyUpdated = false
     for (let i = 0; i < results.length; i++) {
       const result = results[i]
-      if (result?.status !== 'ok' || !result.quota?.groups) continue
+      if (
+        result?.status !== 'ok' ||
+        !result.quota?.groups ||
+        result.checkedAt === undefined
+      )
+        continue
       const candidateTokens = [
         result.updatedAccount?.refreshToken,
         accounts[i]?.refreshToken,
@@ -443,7 +438,15 @@ export class BackgroundQuotaRefresh {
       if (liveIndex === undefined) continue
       const liveToken = liveAccounts[liveIndex]?.parts.refreshToken
       if (!liveToken) continue
-      manager.updateQuotaCache(liveIndex, result.quota.groups, liveToken)
+      if (
+        manager.updateQuotaCache(
+          liveIndex,
+          result.quota.groups,
+          liveToken,
+          result.checkedAt,
+        ) === false
+      )
+        continue
       // Persist tier captured during ensureProjectContext (same tick, no extra
       // network call) so the sidebar snapshot carries it after every poll.
       const uaTier = toCapturedTier(result.updatedAccount ?? {})
@@ -463,9 +466,26 @@ export class BackgroundQuotaRefresh {
       }
       anyUpdated = true
     }
-    if (anyUpdated) manager.requestSaveToDisk()
+    if (anyUpdated && (await this.canRun())) {
+      // Keep the poll lease until a second process can see the new reading.
+      if (manager.saveToDisk) await manager.saveToDisk()
+      else manager.requestSaveToDisk()
+    }
 
     return true
+  }
+
+  private localObservations(manager: PollerAccountView): AccountMetadataV3[] {
+    const accounts = new Map(
+      manager.getAccounts().map((row) => [row.parts.refreshToken, row]),
+    )
+    return manager.getAccountsForQuotaCheck().map((target) => {
+      const row = accounts.get(target.refreshToken)
+      return {
+        ...target,
+        cachedQuotaUpdatedAt: row?.cachedQuota && row.cachedQuotaUpdatedAt,
+      }
+    })
   }
 
   private async refreshTierSlot(): Promise<void> {
@@ -506,7 +526,7 @@ export class BackgroundQuotaRefresh {
 
     try {
       const tier = await this.loadAccountTier(accountForTier)
-      if (tier === null || this.disposed) return
+      if (tier === null || !(await this.canRun())) return
       const liveEntry = manager
         .getAccounts()
         .find((entry) => entry.parts.refreshToken === refreshToken)
@@ -534,10 +554,7 @@ export class BackgroundQuotaRefresh {
       await this.publishSidebar()
       return
     }
-    // ONE snapshot write per poll. `pushSidebarQuotaSnapshot` reads the live
-    // account view (with the just-updated cached values) and writes it to
-    // the same store whose `checkedAt` the freshness check reads, so each
-    // location's poller writes only its own store.
+    // Each location's poller publishes its own live account view.
     const getAccounts = () => {
       const m = this.getAccountManager()
       return m ? m.getAccounts() : null
@@ -553,6 +570,7 @@ export class BackgroundQuotaRefresh {
           enabled: entry.enabled,
           coolingDownUntil: entry.coolingDownUntil,
           cachedQuota: entry.cachedQuota,
+          cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
           cachedQuotaAccountId: entry.cachedQuotaAccountId,
           // An account reorder changes which cached reading occupies an index.
           // Use a refresh-token-derived account ID to detect that mismatch

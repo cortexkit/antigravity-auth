@@ -306,20 +306,30 @@ export function createAuthLoader({
     getLogFilePath: dependencies?.getLogFilePath ?? getLogFilePath,
     openAccountStore: dependencies?.openAccountStore ?? openDefaultAccountStore,
   }
-  // The account store is opened once per plugin; reloads read the same
-  // repository again, and it is closed with the plugin.
+  // Share the in-flight opening and keep a ready repository until disposal.
+  // Contention is temporary; the next operation must repeat admission.
   let storeOpening: Promise<AccountStoreOpening> | null = null
   const openStore = (): Promise<AccountStoreOpening> => {
-    storeOpening ??= deps.openAccountStore().then((opening) => {
-      if (opening.status === 'ready') {
-        lifecycle.register({
-          async dispose() {
-            await opening.repository.dispose()
-          },
-        })
-      }
-      return opening
-    })
+    if (!storeOpening) {
+      const attempt = deps.openAccountStore().then((opening) => {
+        if (opening.status === 'ready') {
+          lifecycle.register({
+            async dispose() {
+              await opening.repository.dispose()
+            },
+          })
+        } else if (
+          opening.status === 'refused' &&
+          opening.admission.status === 'busy' &&
+          opening.admission.retryable &&
+          storeOpening === attempt
+        ) {
+          storeOpening = null
+        }
+        return opening
+      })
+      storeOpening = attempt
+    }
     return storeOpening
   }
   const initializeFreshStore = async (): Promise<AccountStoreOpening> => {

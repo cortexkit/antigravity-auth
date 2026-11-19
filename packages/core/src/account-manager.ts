@@ -234,6 +234,7 @@ function applyPendingRowWrite(
   metadata: ProviderMetadata,
   pending: PendingRowWrite,
   now: number,
+  storedReadingAt: number | null | undefined,
 ): ProviderMetadata {
   let next = metadata
   const resets: Record<string, number> = {}
@@ -252,7 +253,12 @@ function applyPendingRowWrite(
     for (const key of cleared) delete written[key]
     next = { ...next, rateLimitResetTimes: rates, rateLimitWrittenAt: written }
   }
-  if (pending.readingUpdate)
+  // A pending mark can arrive after the quota write. Do not reconcile it
+  // with a reading that was refused or has since been replaced on disk.
+  if (
+    storedReadingAt != null &&
+    pending.readingUpdate?.checkedAt === storedReadingAt
+  )
     next = applyRateLimitReadingUpdate(next, pending.readingUpdate, now)
   if (pending.cooldown !== undefined) {
     next = applyCooldownObservation(next, pending.cooldown.value)
@@ -1241,6 +1247,9 @@ export class AccountManager {
             current ?? { addedAt: row.storeAddedAt ?? this.now(), lastUsed: 0 },
             pending,
             this.now(),
+            row.quota.status === 'present'
+              ? row.quota.quota.cachedQuotaUpdatedAt
+              : undefined,
           ),
         }))
         .catch((error: unknown) => {
@@ -2007,14 +2016,18 @@ export class AccountManager {
     accountIndex: number,
     quotaGroups: Partial<Record<QuotaGroup, QuotaGroupSummary>>,
     expectedRefreshToken?: string,
-  ): void {
+    checkedAt = this.now(),
+  ): boolean {
     const account = this.accounts[accountIndex]
     if (
       !account ||
       (account.parts.refreshToken !== expectedRefreshToken &&
-        expectedRefreshToken !== undefined)
+        expectedRefreshToken !== undefined) ||
+      !Number.isFinite(checkedAt) ||
+      (account.cachedQuotaUpdatedAt !== undefined &&
+        checkedAt < account.cachedQuotaUpdatedAt)
     )
-      return
+      return false
     account.cachedQuota = quotaGroups
     // Stamp the cached quota with an opaque identity derived from the refresh
     // token so a later projection can detect a stale snapshot captured for
@@ -2022,7 +2035,7 @@ export class AccountManager {
     account.cachedQuotaAccountId = quotaAccountIdentity(
       account.parts.refreshToken,
     )
-    account.cachedQuotaUpdatedAt = this.now()
+    account.cachedQuotaUpdatedAt = checkedAt
     // recordQuota reconciles repository metadata under its lock; do not queue a
     // second write. Without a repository, the selector must request a file save.
     this.selection.reconcileQuotaReading(account, this.repository === undefined)
@@ -2048,6 +2061,7 @@ export class AccountManager {
     this.dispatch(account, 'quota reading', (repository, ref) =>
       repository.recordQuota(ref, reading),
     )
+    return true
   }
 
   /**
@@ -2232,6 +2246,45 @@ export class AccountManager {
       }
     }
     return targets
+  }
+
+  /** Fresh durable observations for poll admission, without flushing local writes. */
+  async readAccountsForQuotaPoll(): Promise<AccountQuotaTarget[]> {
+    if (!this.repository) {
+      const accounts = new Map(
+        this.accounts.map((a) => [a.parts.refreshToken, a]),
+      )
+      return this.getAccountsForQuotaCheck().map((target) => {
+        const account = accounts.get(target.refreshToken)
+        return {
+          ...target,
+          cachedQuotaUpdatedAt:
+            account?.cachedQuota && account.cachedQuotaUpdatedAt,
+        }
+      })
+    }
+    const read = await this.repository.read()
+    if (read.status !== 'ready')
+      throw new Error('The account store is not ready for quota polling')
+    const rows = new Map(
+      read.rows
+        .filter((row) => row.usable && row.enabled)
+        .map((row) => [rowRefKey(row.ref), row]),
+    )
+    return this.getAccountsForQuotaCheck().flatMap((target) => {
+      const row = target.rowRef && rows.get(rowRefKey(target.rowRef))
+      if (!row) return []
+      const quota = row.quota.status === 'present' ? row.quota.quota : undefined
+      return [
+        {
+          ...target,
+          cachedQuotaUpdatedAt:
+            quota?.cachedQuota == null
+              ? undefined
+              : (quota.cachedQuotaUpdatedAt ?? undefined),
+        },
+      ]
+    })
   }
 
   getOldestQuotaCacheAge(): number | null {

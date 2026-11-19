@@ -249,18 +249,20 @@ export class BackgroundVaultQuotaRefresh {
         outcome.reason = 'no-rows'
         return
       }
-      const due = pool.selector.rows.some((row) => {
-        const quota = quotaReadingForVaultRoute(row.route, state)
-        const at = quota?.cachedQuotaUpdatedAt
-        return (
-          quota?.cachedQuota == null ||
-          typeof at !== 'number' ||
-          !Number.isFinite(at) ||
-          at < 0 ||
-          now - at >= threshold
-        )
-      })
-      if (!due) {
+      const dueRoutes = pool.selector.rows
+        .filter((row) => {
+          const quota = quotaReadingForVaultRoute(row.route, state)
+          const at = quota?.cachedQuotaUpdatedAt
+          return (
+            quota?.cachedQuota == null ||
+            typeof at !== 'number' ||
+            !Number.isFinite(at) ||
+            at < 0 ||
+            now - at >= threshold
+          )
+        })
+        .map((row) => row.route)
+      if (dueRoutes.length === 0) {
         outcome.reason = 'fresh'
         return
       }
@@ -269,6 +271,7 @@ export class BackgroundVaultQuotaRefresh {
       const report = await checkAndPublishVaultQuota(
         {
           pool,
+          routes: dueRoutes,
           signal: controller.signal,
           now: this.now,
           onStage: (stage) => {

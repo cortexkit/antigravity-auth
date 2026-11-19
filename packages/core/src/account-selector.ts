@@ -388,7 +388,7 @@ export function reconcileRateLimitsFromReading(
   return cleared
 }
 
-/** Only a dated empty pool supports an upstream reset beyond the failure ladder. */
+/** Only a dated empty window that has not reset can support a long backoff. */
 export function quotaRetryAfter(
   account: Pick<SelectableAccount, 'cachedQuota' | 'cachedQuotaUpdatedAt'>,
   family: ModelFamily,
@@ -402,13 +402,7 @@ export function quotaRetryAfter(
     !(retryAfterMs && retryAfterMs > MAX_QUOTA_EXHAUSTED_BACKOFF_MS)
   )
     return retryAfterMs
-  const at = account.cachedQuotaUpdatedAt
-  const group = resolveQuotaGroup(family, model, account.cachedQuota)
-  return at !== undefined &&
-    Number.isFinite(at) &&
-    at > 0 &&
-    at <= now &&
-    account.cachedQuota?.[group]?.remainingFraction === 0
+  return quotaExhaustedUntil(account, family, model, now) > now
     ? retryAfterMs
     : undefined
 }

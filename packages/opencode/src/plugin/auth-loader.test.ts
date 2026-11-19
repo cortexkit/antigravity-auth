@@ -41,7 +41,11 @@ import {
   type ProactiveRefreshDependencies,
   ProactiveRefreshQueue,
 } from './refresh-queue'
-import { type AccountStorageV4, openAccountStore } from './storage'
+import {
+  type AccountStorageV4,
+  type AccountStoreOpening,
+  openAccountStore,
+} from './storage'
 import type { GetAuth, Provider } from './types'
 import { createV1VaultActivationMethod } from './vault-activation'
 import { createOpenCodeVaultCustody } from './vault-custody'
@@ -1539,6 +1543,38 @@ describe('createAuthLoader on the account store', () => {
     expect(upstream).not.toHaveBeenCalled()
     expect(loadAccounts).not.toHaveBeenCalled()
     expect(replacements).toEqual([])
+  })
+
+  it('reopens a busy account store after coalescing concurrent callers', async () => {
+    const { lifecycle } = createLifecycle()
+    const busy = Promise.withResolvers<AccountStoreOpening>()
+    const openAccountStore = mock(
+      (): Promise<AccountStoreOpening> => busy.promise,
+    )
+    const loader = createAuthLoader({
+      client: { tui: { showToast: mock(async () => {}) } } as never,
+      providerId: 'google',
+      config: DEFAULT_CONFIG,
+      lifecycle,
+      createFetch: mock(() => {
+        throw new Error('unexpected fetch runtime')
+      }),
+      dependencies: { openAccountStore },
+    })
+    const first = loader.accountStore()
+    expect(loader.accountStore()).toBe(first)
+    busy.resolve({
+      status: 'refused',
+      admission: { status: 'busy', retryable: true },
+      message: 'Account store busy',
+    })
+    expect(await first).toMatchObject({ status: 'refused' })
+    expect(openAccountStore).toHaveBeenCalledTimes(1)
+    openAccountStore.mockResolvedValue({ status: 'initialization-required' })
+    expect(await loader.accountStore()).toEqual({
+      status: 'initialization-required',
+    })
+    expect(openAccountStore).toHaveBeenCalledTimes(2)
   })
 
   it('refuses to start while a migration is pending, without falling back to the pool file', async () => {

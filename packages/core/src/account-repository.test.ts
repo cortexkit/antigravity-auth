@@ -92,6 +92,43 @@ function fingerprint(seed: string): StoredFingerprint {
 
 describe('issue69 locked reading clears', () => {
   it(
+    'discards an older quota observation from a second repository without clearing marks',
+    async () => {
+      await withPool(async (pool) => {
+        const repository = pool.open()
+        const lateWriter = pool.open()
+        const at = Date.now() - 10_000
+        const reset = at + 60_000
+        const { ref } = await repository.login(
+          login('ordered', 'ordered-refresh', {
+            rateLimitResetTimes: { gemini: reset },
+            rateLimitWrittenAt: { gemini: at },
+          }),
+        )
+        const newer = {
+          schemaVersion: 1 as const,
+          cachedQuotaUpdatedAt: at + 2,
+          cachedQuota: { gemini: { remainingFraction: 0, modelCount: 1 } },
+        }
+        await repository.recordQuota(ref, newer)
+        await lateWriter.recordQuota(ref, {
+          ...newer,
+          cachedQuotaUpdatedAt: at + 1,
+          cachedQuota: { gemini: { remainingFraction: 0.8, modelCount: 1 } },
+        })
+        expect((await rowOf(repository, 'ordered')).quota).toEqual({
+          status: 'present',
+          quota: newer,
+        })
+        expect(
+          (await metadataOf(repository, 'ordered')).rateLimitResetTimes?.gemini,
+        ).toBe(reset)
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
     'issue69 removes a postdated mark but retains concurrent newer marks',
     async () => {
       await withPool(async (pool) => {

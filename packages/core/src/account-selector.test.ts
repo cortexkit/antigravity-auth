@@ -151,6 +151,38 @@ describe('issue69 dated quota evidence', () => {
     expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
   })
 
+  it('uses the ordinary ladder when a dated empty quota window has reset', () => {
+    const { pool, row, advance } = manager(0)
+    advance(long)
+    expect(
+      pool.markRateLimitedWithReason(
+        row,
+        'gemini',
+        model,
+        'QUOTA_EXHAUSTED',
+        long,
+      ),
+    ).toBe(60_000)
+    expect(row.rateLimitResetTimes[key]).toBe(start + long + 60_000)
+  })
+
+  it('keeps the reading time and refuses older quota without clearing a newer mark', () => {
+    const { pool, row, advance } = manager()
+    advance(3_000)
+    const empty = { gemini: { remainingFraction: 0, modelCount: 1 } }
+    const positive = { gemini: { remainingFraction: 0.8, modelCount: 1 } }
+    pool.markRateLimited(row, 60_000, 'gemini', model)
+    pool.updateQuotaCache(0, empty, undefined, start + 2_000)
+    expect(row.cachedQuotaUpdatedAt).toBe(start + 2_000)
+    advance(1_000)
+    expect(pool.updateQuotaCache(0, positive, undefined, start + 1_000)).toBe(
+      false,
+    )
+    expect(row.cachedQuota).toEqual(empty)
+    expect(row.cachedQuotaUpdatedAt).toBe(start + 2_000)
+    expect(row.rateLimitResetTimes[key]).toBe(start + 63_000)
+  })
+
   for (const legacy of [false, true]) {
     it(`issue69 a newer positive reading clears ${legacy ? 'a legacy' : 'a current'} mark immediately`, () => {
       const { pool, row, advance } = manager(undefined, true, legacy)

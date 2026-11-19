@@ -69,6 +69,14 @@ function makeStubAccount(refreshToken = 'tok-abc'): StubAccount {
   }
 }
 
+function observedAccount(checkedAt: number, token?: string): StubAccount {
+  return {
+    ...makeStubAccount(token),
+    cachedQuota: { gemini: { modelCount: 1 } },
+    cachedQuotaUpdatedAt: checkedAt,
+  }
+}
+
 function makeAccountManager(
   accounts: StubAccount[] = [makeStubAccount()],
   activeByFamily: { claude: number; gemini: number } = { claude: 0, gemini: 0 },
@@ -82,7 +90,7 @@ function makeAccountManager(
         addedAt: 0,
         lastUsed: 0,
       })),
-    updateQuotaCache: mock(() => {}),
+    updateQuotaCache: mock(() => true),
     applyUpdatedAccount: mock(() => {}),
     requestSaveToDisk: mock(() => {}),
     getActiveIndexByFamily: () => activeByFamily,
@@ -107,6 +115,7 @@ function makeQuotaManager(
         return accounts.map((_, i) => ({
           index: i,
           status: 'ok' as const,
+          checkedAt: Date.now(),
           quota: {
             groups: {
               'non-gemini': { remainingFraction: 0.5, modelCount: 1 },
@@ -141,7 +150,7 @@ function makeTierManager(account: TierStubAccount): PollerAccountView {
         lastUsed: 0,
       },
     ],
-    updateQuotaCache: mock(() => {}),
+    updateQuotaCache: mock(() => true),
     applyUpdatedAccount: mock((_index, patch) => Object.assign(account, patch)),
     requestSaveToDisk: mock(() => {}),
     getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),
@@ -336,6 +345,146 @@ describe('BackgroundQuotaRefresh', () => {
     }
   })
 
+  it('reschedules after losing local authority while acquiring the poll lock', async () => {
+    let local = true
+    const release = mock(async () => {})
+    const quota = makeQuotaManager()
+    const poller = new BackgroundQuotaRefresh({
+      intervalMs: 300_000,
+      sidebarStateFile: stateFile,
+      getAccountManager: () => makeAccountManager(),
+      quotaManager: quota as unknown as import('./quota').QuotaManager,
+      mayRun: async () => local,
+      acquireLock: async () => {
+        local = false
+        return { release } as never
+      },
+      random: () => 0,
+    })
+    const tick = poller as unknown as TickablePoller & {
+      scheduleNext: (delay: number) => void
+    }
+    const scheduleNext = mock((_delay: number) => {})
+    tick.scheduleNext = scheduleNext
+    try {
+      await tick.runTick()
+      expect(release).toHaveBeenCalledTimes(1)
+      expect(quota.refreshAccounts).not.toHaveBeenCalled()
+      expect(scheduleNext).toHaveBeenCalledWith(300_000)
+    } finally {
+      await poller.dispose()
+    }
+  })
+
+  it('only pulls due quota rows read under the lock despite a recent sidebar publication', async () => {
+    const now = 1_800_000_000_000
+    await setSidebarMachineState(
+      { checkedAt: now, accounts: [] },
+      { stateFile },
+    )
+    const accounts = [
+      { ...makeStubAccount('checked-by-another-process'), index: 0 },
+      { ...makeStubAccount('missing-reading'), index: 1 },
+      { ...observedAccount(now - 240_000, 'expired-reading'), index: 2 },
+    ]
+    const manager = makeAccountManager(accounts)
+    let leaseHeld = false
+    const readAccountsForQuotaPoll = mock(async () => {
+      expect(leaseHeld).toBe(true)
+      return manager.getAccountsForQuotaCheck().map((target, index) => ({
+        ...target,
+        cachedQuotaUpdatedAt:
+          index === 0 ? now : accounts[index]?.cachedQuotaUpdatedAt,
+      }))
+    })
+    const quota = makeQuotaManager()
+    const poller = new BackgroundQuotaRefresh({
+      intervalMs: 300_000,
+      sidebarStateFile: stateFile,
+      getAccountManager: () => ({ ...manager, readAccountsForQuotaPoll }),
+      quotaManager: quota as unknown as import('./quota').QuotaManager,
+      now: () => now,
+      acquireLock: async () => {
+        leaseHeld = true
+        return {
+          release: async () => {
+            leaseHeld = false
+          },
+        } as never
+      },
+    })
+    try {
+      await (poller as unknown as TickablePoller).runTick()
+      expect(
+        quota.refreshAccounts.mock.calls[0]?.[0].map((row) => row.refreshToken),
+      ).toEqual(['missing-reading', 'expired-reading'])
+      expect(readAccountsForQuotaPoll).toHaveBeenCalledTimes(1)
+    } finally {
+      await poller.dispose()
+    }
+  })
+
+  it('discards a completed quota pull on transition away from local authority', async () => {
+    let local = true
+    const manager = makeAccountManager()
+    const quota = makeQuotaManager({
+      onRefreshAccounts: () => {
+        local = false
+      },
+    })
+    const publishSidebar = mock(async () => {})
+    const poller = new BackgroundQuotaRefresh({
+      intervalMs: 300_000,
+      sidebarStateFile: stateFile,
+      getAccountManager: () => manager,
+      quotaManager: quota as unknown as import('./quota').QuotaManager,
+      mayRun: async () => local,
+      publishSidebar,
+    })
+    try {
+      await (poller as unknown as TickablePoller).runTick()
+      expect(quota.refreshAccounts).toHaveBeenCalledTimes(1)
+      expect(manager.updateQuotaCache).not.toHaveBeenCalled()
+      expect(manager.requestSaveToDisk).not.toHaveBeenCalled()
+      expect(publishSidebar).not.toHaveBeenCalled()
+    } finally {
+      await poller.dispose()
+    }
+  })
+
+  it('discards a completed tier-only pull on transition away from local authority', async () => {
+    let local = true
+    const now = Date.now()
+    await setSidebarMachineState(
+      { checkedAt: now, accounts: [] },
+      { stateFile },
+    )
+    const manager = makeAccountManager([observedAccount(now)])
+    const quota = makeQuotaManager()
+    const loadAccountTier = mock(async () => {
+      local = false
+      return { id: 'free-tier', capturedAt: now }
+    })
+    const poller = new BackgroundQuotaRefresh({
+      intervalMs: 300_000,
+      sidebarStateFile: stateFile,
+      getAccountManager: () => manager,
+      quotaManager: quota as unknown as import('./quota').QuotaManager,
+      now: () => now,
+      mayRun: async () => local,
+      loadAccountTier,
+    })
+    try {
+      await (poller as unknown as TickablePoller).runTick()
+      expect(loadAccountTier).toHaveBeenCalledTimes(1)
+      expect(quota.refreshAccounts).not.toHaveBeenCalled()
+      expect(manager.applyUpdatedAccount).not.toHaveBeenCalled()
+      expect(manager.requestSaveToDisk).not.toHaveBeenCalled()
+    } finally {
+      await poller.dispose()
+    }
+  })
+
   // ── Error in tick does not kill the timer ─────────────────────────────────
 
   it('an error inside a tick does not prevent subsequent ticks', async () => {
@@ -496,13 +645,8 @@ describe('BackgroundQuotaRefresh', () => {
     // Threshold = max(300000-60000, floor(300000/2)) = max(240000, 150000) = 240 000 ms
     // A checkedAt 239 s ago is still within the threshold → skip.
     const now = Date.now()
-    await setSidebarMachineState(
-      { checkedAt: now - 239_000, accounts: [] },
-      { stateFile },
-    )
-
     const quotaManager = makeQuotaManager()
-    const manager = makeAccountManager()
+    const manager = makeAccountManager([observedAccount(now - 239_000)])
     const poller = new BackgroundQuotaRefresh({
       intervalMs,
       sidebarStateFile: stateFile,
@@ -528,11 +672,6 @@ describe('BackgroundQuotaRefresh', () => {
     })
 
     const now = Date.now()
-    await setSidebarMachineState(
-      { checkedAt: now - 241_000, accounts: [] },
-      { stateFile },
-    )
-
     const quotaManager = {
       refreshAccounts: mock(async () => {
         refreshCalled = true
@@ -541,7 +680,7 @@ describe('BackgroundQuotaRefresh', () => {
       }),
       dispose: mock(async () => {}),
     }
-    const manager = makeAccountManager()
+    const manager = makeAccountManager([observedAccount(now - 241_000)])
     const poller = new BackgroundQuotaRefresh({
       intervalMs,
       sidebarStateFile: stateFile,
@@ -566,13 +705,8 @@ describe('BackgroundQuotaRefresh', () => {
     // Threshold = max(60000-60000, floor(60000/2)) = max(0, 30000) = 30 000 ms
     // checkedAt 29 s ago → skip.
     const now = Date.now()
-    await setSidebarMachineState(
-      { checkedAt: now - 29_000, accounts: [] },
-      { stateFile },
-    )
-
     const quotaManager = makeQuotaManager()
-    const manager = makeAccountManager()
+    const manager = makeAccountManager([observedAccount(now - 29_000)])
     const poller = new BackgroundQuotaRefresh({
       intervalMs,
       sidebarStateFile: stateFile,
@@ -596,11 +730,6 @@ describe('BackgroundQuotaRefresh', () => {
     })
 
     const now = Date.now()
-    await setSidebarMachineState(
-      { checkedAt: now - 31_000, accounts: [] },
-      { stateFile },
-    )
-
     const quotaManager = {
       refreshAccounts: mock(async () => {
         refreshResolve()
@@ -608,7 +737,7 @@ describe('BackgroundQuotaRefresh', () => {
       }),
       dispose: mock(async () => {}),
     }
-    const manager = makeAccountManager()
+    const manager = makeAccountManager([observedAccount(now - 31_000)])
     const poller = new BackgroundQuotaRefresh({
       intervalMs,
       sidebarStateFile: stateFile,
@@ -633,13 +762,8 @@ describe('BackgroundQuotaRefresh', () => {
     // Threshold = max(3600000-60000, floor(3600000/2)) = max(3540000, 1800000) = 3 540 000 ms
     // checkedAt 3 539 s ago → fresh → skip.
     const now = Date.now()
-    await setSidebarMachineState(
-      { checkedAt: now - 3_539_000, accounts: [] },
-      { stateFile },
-    )
-
     const quotaManager = makeQuotaManager()
-    const manager = makeAccountManager()
+    const manager = makeAccountManager([observedAccount(now - 3_539_000)])
     const poller = new BackgroundQuotaRefresh({
       intervalMs,
       sidebarStateFile: stateFile,
@@ -654,7 +778,7 @@ describe('BackgroundQuotaRefresh', () => {
     expect(quotaManager.refreshAccounts).not.toHaveBeenCalled()
   })
 
-  it('two pollers: a fresh snapshot from one writer does not starve the other tier slot', async () => {
+  it('two pollers: fresh quota does not starve the other tier slot', async () => {
     const now = Date.now()
     await setSidebarMachineState({ checkedAt: 0, accounts: [] }, { stateFile })
 
@@ -674,7 +798,9 @@ describe('BackgroundQuotaRefresh', () => {
         capturedTierAt: now,
         capturedTierSchemaVersion: 1,
       }),
-      secondManager: makeTierManager(makeStubAccount('tok-second-stale-tier')),
+      secondManager: makeTierManager(
+        observedAccount(now, 'tok-second-stale-tier'),
+      ),
       firstQuotaManager,
       secondQuotaManager,
       secondLoadAccountTier,
@@ -716,7 +842,7 @@ describe('BackgroundQuotaRefresh', () => {
     expect(loadAccountTier).toHaveBeenCalledTimes(1)
   })
 
-  it('two pollers: both tier slots eventually spend while their shared snapshot stays fresh', async () => {
+  it('two pollers: both tier slots run while quota stays fresh', async () => {
     const now = Date.now()
     await setSidebarMachineState(
       { checkedAt: now - 60_000, accounts: [] },
@@ -734,8 +860,12 @@ describe('BackgroundQuotaRefresh', () => {
     const pair = makeTwoPollers({
       stateFile,
       now,
-      firstManager: makeTierManager(makeStubAccount('tok-first-stale-tier')),
-      secondManager: makeTierManager(makeStubAccount('tok-second-stale-tier')),
+      firstManager: makeTierManager(
+        observedAccount(now, 'tok-first-stale-tier'),
+      ),
+      secondManager: makeTierManager(
+        observedAccount(now, 'tok-second-stale-tier'),
+      ),
       firstLoadAccountTier,
       secondLoadAccountTier,
     })
@@ -1097,6 +1227,7 @@ describe('BackgroundQuotaRefresh', () => {
         return accts.map((_, i) => ({
           index: i,
           status: 'ok' as const,
+          checkedAt: Date.now(),
           quota: { groups: windowData },
         }))
       }),
@@ -1125,6 +1256,7 @@ describe('BackgroundQuotaRefresh', () => {
         // currentQuotaAccountId computed by the poller (same hash) matches.
         accounts[0]!.cachedQuotaAccountId = quotaAccountIdentity('tok-win')
         refreshResolve()
+        return true
       },
       applyUpdatedAccount: mock(() => {}),
       requestSaveToDisk: mock(() => {}),
@@ -1210,6 +1342,7 @@ describe('BackgroundQuotaRefresh', () => {
               'non-gemini': { remainingFraction: 0.8, modelCount: 1 },
             },
           },
+          checkedAt: Date.now(),
         }))
       }),
       dispose: mock(async () => {}),
@@ -1227,6 +1360,7 @@ describe('BackgroundQuotaRefresh', () => {
         // Intentionally DO NOT update cachedQuotaAccountId here: the stamp
         // stays stale so the sidebar projection must detect the mismatch.
         refreshResolve()
+        return true
       },
       applyUpdatedAccount: mock(() => {}),
       requestSaveToDisk: mock(() => {}),
@@ -1285,6 +1419,7 @@ describe('BackgroundQuotaRefresh', () => {
           quota: {
             groups: { 'non-gemini': { remainingFraction: 0.5, modelCount: 1 } },
           },
+          checkedAt: Date.now(),
         }))
       }),
       dispose: mock(async () => {}),
@@ -1302,6 +1437,7 @@ describe('BackgroundQuotaRefresh', () => {
         })),
       updateQuotaCache: (_i, _g, _t) => {
         if (_i === accounts.length - 1) refreshResolve()
+        return true
       },
       applyUpdatedAccount: mock(() => {}),
       requestSaveToDisk: mock(() => {}),
@@ -1367,6 +1503,7 @@ describe('BackgroundQuotaRefresh', () => {
           quota: {
             groups: { 'non-gemini': { remainingFraction: 0.9, modelCount: 1 } },
           },
+          checkedAt: Date.now(),
         }))
       }),
       dispose: mock(async () => {}),
@@ -1385,6 +1522,7 @@ describe('BackgroundQuotaRefresh', () => {
       updateQuotaCache: (_i, _g, _t) => {
         accounts[0]!.cachedQuotaAccountId = quotaAccountIdentity('tok-tier')
         refreshResolve()
+        return true
       },
       applyUpdatedAccount: mock(() => {}),
       requestSaveToDisk: mock(() => {}),
@@ -1431,9 +1569,11 @@ describe('BackgroundQuotaRefresh', () => {
     const quotaGroups = {
       gemini: { remainingFraction: 0.5, modelCount: 1 },
     }
+    const checkedAt = Date.now()
     const cacheUpdated = Promise.withResolvers<void>()
     const updateQuotaCache = mock(() => {
       cacheUpdated.resolve()
+      return true
     })
     const quotaManager = {
       refreshAccounts: mock(async () => {
@@ -1443,6 +1583,7 @@ describe('BackgroundQuotaRefresh', () => {
           {
             index: 0,
             status: 'ok' as const,
+            checkedAt,
             quota: { groups: quotaGroups },
             updatedAccount: {
               refreshToken: 'updated-token',
@@ -1489,6 +1630,7 @@ describe('BackgroundQuotaRefresh', () => {
       0,
       quotaGroups,
       'updated-token',
+      checkedAt,
     )
   })
 
@@ -1510,6 +1652,7 @@ describe('BackgroundQuotaRefresh', () => {
         accts.map((_, i) => ({
           index: i,
           status: 'ok' as const,
+          checkedAt: Date.now(),
           quota: { groups: {} },
         })),
       ),
@@ -1528,6 +1671,7 @@ describe('BackgroundQuotaRefresh', () => {
       ],
       updateQuotaCache: () => {
         refreshResolve()
+        return true
       },
       applyUpdatedAccount: mock(() => {}),
       requestSaveToDisk: mock(() => {}),
@@ -1602,6 +1746,7 @@ describe('BackgroundQuotaRefresh', () => {
       ],
       updateQuotaCache: mock((_i, groups, _t) => {
         accounts[0]!.cachedQuotaAccountId = quotaAccountIdentity(refreshToken)
+        return true
       }),
       applyUpdatedAccount: mock((index, patch) => {
         applyUpdatedAccountCalls.push({ index, patch })

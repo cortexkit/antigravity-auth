@@ -147,7 +147,7 @@ function fakeAccounts(): LocationAccountView {
   return {
     getAccounts: () => [],
     getAccountsForQuotaCheck: () => [],
-    updateQuotaCache: () => undefined,
+    updateQuotaCache: () => true,
     applyUpdatedAccount: () => undefined,
     requestSaveToDisk: () => undefined,
     getActiveIndexByFamily: () => ({ claude: 0, gemini: 0 }),

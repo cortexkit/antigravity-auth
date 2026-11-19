@@ -642,8 +642,9 @@ describe('vault poller fences and lifecycle', () => {
         { stateFile: f.stateFile },
       )
       await f.poller.tick()
-      expect(f.physical).toBe(2)
-      expect(f.writes).toBe(2)
+      expect(f.physical).toBe(1)
+      expect(f.writes).toBe(1)
+      expect(f.accounts['identity-0']?.observed.recordVersion).toBe(42)
     } finally {
       await f.cleanup()
     }
@@ -698,8 +699,9 @@ describe('vault poller fences and lifecycle', () => {
           { stateFile: f.stateFile },
         )
         await f.poller.tick()
-        expect(f.physical).toBe(2)
-        expect(f.writes).toBe(2)
+        expect(f.physical).toBe(1)
+        expect(f.writes).toBe(1)
+        expect(f.accounts['identity-0']?.observed.recordVersion).toBe(42)
       } finally {
         await f.cleanup()
       }

@@ -1765,12 +1765,17 @@ export function createStoreQuotaService(
       target.rowRef === undefined
         ? undefined
         : heldAccount(manager, target.rowRef)
-    if (held === undefined) return { status: 'discarded', result }
-    manager.updateQuotaCache(
-      held.index,
-      result.quota.groups,
-      held.parts.refreshToken,
+    if (
+      held === undefined ||
+      result.checkedAt === undefined ||
+      !manager.updateQuotaCache(
+        held.index,
+        result.quota.groups,
+        held.parts.refreshToken,
+        result.checkedAt,
+      )
     )
+      return { status: 'discarded', result }
     // Captured now: the account's fields may change before the store is
     // read back, and a later reading must not stand in for this one.
     return {

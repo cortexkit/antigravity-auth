@@ -986,18 +986,25 @@ export function createLocalQuotaRefresh(
       })
 
       if (signal?.aborted) return
-      if (result.status === 'ok' && result.quota?.groups) {
+      if (
+        result.status === 'ok' &&
+        result.quota?.groups &&
+        result.checkedAt !== undefined
+      ) {
         // Re-resolve the selected row itself. If it was removed meanwhile,
         // drop the reading rather than writing onto whichever row shifted
         // into its slot.
         const currentIndex = accountManager.getAccounts().indexOf(account)
         if (currentIndex === -1) return
-        accountManager.updateQuotaCache(
-          currentIndex,
-          result.quota.groups,
-          expectedRefreshToken,
+        if (
+          accountManager.updateQuotaCache(
+            currentIndex,
+            result.quota.groups,
+            expectedRefreshToken,
+            result.checkedAt,
+          )
         )
-        accountManager.requestSaveToDisk()
+          accountManager.requestSaveToDisk()
       }
     } catch (err) {
       log.debug(

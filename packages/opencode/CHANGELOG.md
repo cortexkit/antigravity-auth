@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Refresh local account quota based on when each account was last checked, even when the sidebar is active. Background checks skip accounts with fresh quota.
+- Keep newer quota readings and rate-limit decisions when older quota checks finish late.
+- Don't impose a long quota wait based on an empty quota window that has already reset.
+- Skip fresh vault accounts during background quota checks, even if another account has no reading yet.
+
 ## [3.1.10] - 2026-11-19
 
 - Add Gemini 4 Neon with Low, Medium and High (default) on OpenCode 1, plus XHigh on OpenCode 2 and Pi. As with Hydrogen, OpenCode 1's built-in Google library cannot pass XHigh to the plugin. Neon uses the ordinary Gemini quota pool.

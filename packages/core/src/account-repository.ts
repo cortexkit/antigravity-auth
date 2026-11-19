@@ -58,6 +58,7 @@ import {
   encodeQuotaState,
   encodeRoutingSettings,
   QUOTA_CODEC,
+  StaleQuotaObservationError,
 } from './account-repository-codecs.ts'
 import {
   ACCOUNT_STORE_PROVIDER,
@@ -2676,19 +2677,37 @@ class StoreAccountRepository implements AccountRepository {
           },
         )
       }
-      await this.store.recordQuota(ref.id, credentialFenceOf(ref), encoded)
-      await this.updateMetadata(ref, (metadata) =>
-        metadata
-          ? {
-              kind: 'set',
-              metadata: applyRateLimitReadingUpdate(
-                metadata,
-                rateLimitReadingUpdateOf(observation),
-                this.now(),
-              ),
-            }
-          : { kind: 'keep' },
-      )
+      try {
+        await this.store.recordQuota(ref.id, credentialFenceOf(ref), encoded)
+      } catch (error) {
+        if (
+          error instanceof StaleQuotaObservationError ||
+          (error instanceof this.storeFailure &&
+            error.cause instanceof StaleQuotaObservationError)
+        )
+          return
+        throw error
+      }
+      await this.updateMetadata(ref, (metadata, row) => {
+        // A different writer can store a newer observation between the two
+        // writes. Reconcile only while this observation is still current.
+        if (
+          !metadata ||
+          observation.cachedQuotaUpdatedAt == null ||
+          row.quota.status !== 'present' ||
+          row.quota.quota.cachedQuotaUpdatedAt !==
+            observation.cachedQuotaUpdatedAt
+        )
+          return { kind: 'keep' }
+        return {
+          kind: 'set',
+          metadata: applyRateLimitReadingUpdate(
+            metadata,
+            rateLimitReadingUpdateOf(observation),
+            this.now(),
+          ),
+        }
+      })
     })
   }
 

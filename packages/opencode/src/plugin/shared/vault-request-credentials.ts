@@ -1049,7 +1049,8 @@ export function vaultQuotaState(quota: QuotaSummary, at: number): QuotaState {
 }
 
 /**
- * Checks quota for every row of a durable vault pool and, once every row has
+ * Checks quota for the selected routes (all rows for a manual check) and,
+ * once every selected route has
  * been fetched, records the readings through the source's provider-state
  * commit: all in one commit when the source can batch them, otherwise one
  * commit each (see `VaultSelectionState.recordQuotas`). Admission attribution
@@ -1064,6 +1065,8 @@ export function vaultQuotaState(quota: QuotaSummary, at: number): QuotaState {
  */
 export async function checkVaultQuota(input: {
   readonly pool: Pick<VaultAccountPool, 'selector' | 'state'>
+  /** Routes due for a background pull; omitted when checking the whole pool. */
+  readonly routes?: readonly VaultRouteRef[]
   /** One vault account's quota check (the shared vault quota helper). */
   readonly fetchReading: (
     ref: VaultRouteRef,
@@ -1076,7 +1079,8 @@ export async function checkVaultQuota(input: {
   readonly onStage?: (stage: 'fetch' | 'commit') => void
 }): Promise<AntigravityQuotaCheckReport> {
   const state = input.pool.state
-  const rows = [...input.pool.selector.rows]
+  const routes =
+    input.routes ?? input.pool.selector.rows.map((row) => row.route)
   const now = input.now ?? (() => Date.now())
   const reportError = (error: unknown) => {
     try {
@@ -1088,11 +1092,11 @@ export async function checkVaultQuota(input: {
   let checked = 0
   if (state === undefined) input.onOutcome?.('state-invalid')
   const readings: VaultQuotaRecord[] = []
-  for (const row of rows) {
+  for (const route of routes) {
     if (input.signal.aborted || state === undefined) break
     try {
       input.onStage?.('fetch')
-      const answer = await input.fetchReading(row.route, input.signal)
+      const answer = await input.fetchReading(route, input.signal)
       input.signal.throwIfAborted()
       if (answer === undefined) {
         input.onOutcome?.('fetch-failed')
@@ -1116,7 +1120,7 @@ export async function checkVaultQuota(input: {
     }
   }
   if (state === undefined || readings.length === 0 || input.signal.aborted)
-    return { checked, notChecked: rows.length - checked }
+    return { checked, notChecked: routes.length - checked }
 
   let results: VaultProviderStateBatchResult[]
   try {
@@ -1127,8 +1131,11 @@ export async function checkVaultQuota(input: {
     // The whole commit failed, so no reading was written; each reading is
     // reported as it would be had its own commit failed this way.
     for (const _ of readings) reportError(error)
-    return { checked, notChecked: rows.length - checked }
+    return { checked, notChecked: routes.length - checked }
   }
+  const liveByRoute = new Map(
+    input.pool.selector.rows.map((row) => [row.route.routeId, row]),
+  )
   for (const [at, { attribution, quota: reading }] of readings.entries()) {
     const result = results[at]
     if (result === undefined || result.status === 'refused') {
@@ -1148,18 +1155,16 @@ export async function checkVaultQuota(input: {
     }
     checked += 1
     input.onOutcome?.('recorded')
-    const live = input.pool.selector.rows.find(
-      (candidate) =>
-        candidate.route.routeId === attribution.routeId &&
-        candidate.route.credentialId === attribution.credentialId &&
-        candidate.route.accountIdentity === attribution.accountIdentity,
-    )
-    if (live !== undefined) {
+    const live = liveByRoute.get(attribution.routeId)
+    if (
+      live?.route.credentialId === attribution.credentialId &&
+      live.route.accountIdentity === attribution.accountIdentity
+    ) {
       const cached = cachedQuotaOf(reading)
       if (cached !== undefined) live.cachedQuota = cached
       live.cachedQuotaUpdatedAt = reading.cachedQuotaUpdatedAt ?? undefined
       input.pool.selector.reconcileQuotaReading(live)
     }
   }
-  return { checked, notChecked: rows.length - checked }
+  return { checked, notChecked: routes.length - checked }
 }

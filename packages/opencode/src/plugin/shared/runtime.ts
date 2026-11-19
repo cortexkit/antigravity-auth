@@ -193,8 +193,8 @@ export function createRuntimeScope(): RuntimeScope {
 
 /**
  * Where a location's quota snapshots (redacted accounts plus `checkedAt` and
- * backoff) go. The background poller also reads `checkedAt` from it and
- * takes its cross-process lock on `pollLockPath`.
+ * backoff) go. The background poller takes its cross-process lock on
+ * `pollLockPath` but reads freshness from account observations.
  */
 export interface LocationQuotaSnapshots extends PollerSnapshotStore {
   /**
@@ -206,8 +206,7 @@ export interface LocationQuotaSnapshots extends PollerSnapshotStore {
 
 /**
  * The OpenCode 1 sidebar file: snapshots merge into the file the TUI reads,
- * pollers in other processes see its `checkedAt`, and the poll lock sits
- * beside it.
+ * and the poll lock sits beside it.
  */
 export function createSidebarFileQuotaSnapshots(
   stateFile: string,

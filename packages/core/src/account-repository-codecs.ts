@@ -768,8 +768,16 @@ export function isValidQuotaState(raw: unknown): boolean {
   return validates(decodeQuotaState, raw)
 }
 
+/** Signals a normal no-op to the repository without committing a stale merge. */
+export class StaleQuotaObservationError extends Error {
+  constructor() {
+    super('A newer quota observation is already stored')
+  }
+}
+
 /**
- * Combines a stored quota value with a new reading. A reading is complete
+ * Combines a stored quota value with a new reading. An older dated reading
+ * is refused under the write lock. A reading is complete
  * for every field it carries, so each present top-level field (and each
  * unknown key) replaces the stored one wholesale; fields the reading leaves
  * out are kept. Both values must be valid.
@@ -781,6 +789,15 @@ export function mergeQuotaState(
   const incoming = encodeQuotaState(decodeQuotaState(observation))
   if (stored === undefined) return incoming
   const prior = encodeQuotaState(decodeQuotaState(stored))
+  const previousAt = prior.cachedQuotaUpdatedAt
+  const observedAt = incoming.cachedQuotaUpdatedAt
+  if (
+    typeof previousAt === 'number' &&
+    typeof observedAt === 'number' &&
+    observedAt < previousAt
+  ) {
+    throw new StaleQuotaObservationError()
+  }
   return encodeQuotaState(decodeQuotaState({ ...prior, ...incoming }))
 }
 
