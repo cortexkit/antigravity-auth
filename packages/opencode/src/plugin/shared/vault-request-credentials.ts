@@ -1050,11 +1050,12 @@ export function vaultQuotaState(quota: QuotaSummary, at: number): QuotaState {
 
 /**
  * Checks quota for the selected routes (all rows for a manual check) and,
- * once every selected route has
- * been fetched, records the readings through the source's provider-state
- * commit: all in one commit when the source can batch them, otherwise one
- * commit each (see `VaultSelectionState.recordQuotas`). Admission attribution
- * binds each write; the reading keeps its observation time. A row counts as
+ * once every selected route has been fetched, records the readings through
+ * the source's provider-state commit: all in one commit when the source can
+ * batch them, otherwise one commit each (see
+ * `VaultSelectionState.recordQuotas`). Each write is checked against the
+ * route, credential and account its reading was fetched for, and the reading
+ * keeps the time it was observed, not the time it is written. A row counts as
  * checked only when its reading was written; a reading with an error, without
  * an attribution, or whose write the source refuses (another credential,
  * account or a newer record version) is not checked and is not shown, and
