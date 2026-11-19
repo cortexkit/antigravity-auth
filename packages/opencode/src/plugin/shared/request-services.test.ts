@@ -1753,6 +1753,70 @@ describe('createRequestExecutor pre-response deadline', () => {
     expect(h.calls).toHaveLength(1)
   })
 
+  // Successful headers pause the deadline while the body is read. A failure
+  // while reading must not reach another physical send once the original
+  // expiry has passed, neither on the next endpoint nor on another account.
+  for (const route of ['endpoint fallback', 'account revisit'] as const) {
+    it(`a failure reading an accepted response cannot resend after the deadline (${route})`, async () => {
+      const clock = deadlineClock()
+      // The account revisit reaches the last endpoint first, so the failure
+      // there ends the selection rather than falling back to an endpoint.
+      const failingCall = route === 'endpoint fallback' ? 0 : 1
+      const h = harness({
+        pool: makePool(route === 'endpoint fallback' ? 1 : 2),
+        respond: async (_call, index) =>
+          index < failingCall ? new Response('{}', { status: 500 }) : okJson(),
+      })
+      let transforms = 0
+      const wire: RequestWire = {
+        ...WIRE,
+        transformResponse: (...args) => {
+          if (transforms++ === 0) {
+            clock.advance(PRE_RESPONSE_DEADLINE_MS + 1)
+            throw new Error('response processing failed after headers')
+          }
+          return WIRE.transformResponse(...args)
+        },
+      }
+      Object.assign(h.deps, { preResponseClock: clock, wire })
+      const executor = createRequestExecutor(h.deps)
+      try {
+        const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+        expect(response.status).toBe(412)
+        expect(await response.text()).toContain(PRE_RESPONSE_TIMEOUT_MESSAGE)
+        expect(h.calls).toHaveLength(failingCall + 1)
+        expect(clock.pending()).toBe(0)
+      } finally {
+        await executor.dispose()
+      }
+    })
+  }
+
+  it('a failure reading an accepted response still falls back before the deadline', async () => {
+    const clock = deadlineClock()
+    const h = harness({ respond: async () => okJson() })
+    let transforms = 0
+    const wire: RequestWire = {
+      ...WIRE,
+      transformResponse: (...args) => {
+        if (transforms++ === 0)
+          throw new Error('response processing failed after headers')
+        return WIRE.transformResponse(...args)
+      },
+    }
+    Object.assign(h.deps, { preResponseClock: clock, wire })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      expect(response.status).toBe(200)
+      expect(h.calls.map((call) => new URL(call.url).origin)).toEqual([
+        ANTIGRAVITY_ENDPOINT_FALLBACKS[0],
+        ANTIGRAVITY_ENDPOINT_FALLBACKS[1],
+      ])
+    } finally {
+      await executor.dispose()
+    }
+  })
   it('expiry during retryable diagnostics bypasses account failure and cooldown recording', async () => {
     const clock = deadlineClock()
     const h = harness({
@@ -3835,6 +3899,63 @@ it('disposal drains successful-send quota after-work without delaying the reply'
     gate.resolve()
     await executor.dispose()
   }
+})
+
+describe('createRequestExecutor empty-response budget', () => {
+  it("another request's success does not refill a running request's empty-response budget", async () => {
+    const emptyBody = () =>
+      new Response('{"response":{"candidates":[]}}', {
+        headers: { 'content-type': 'application/json' },
+      })
+    const secondA = Promise.withResolvers<void>()
+    const releaseA = Promise.withResolvers<void>()
+    const order: string[] = []
+    let sendsA = 0
+    const h = harness({
+      config: {
+        empty_response_max_attempts: 2,
+        empty_response_retry_delay_ms: 0,
+      },
+      respond: async (call) => {
+        const isA = String(call.init?.body).includes('prompt-A')
+        order.push(isA ? 'A' : 'B')
+        if (!isA) return okJson()
+        if (++sendsA === 2) {
+          secondA.resolve()
+          await releaseA.promise
+        }
+        return emptyBody()
+      },
+    })
+    const init = (text: string): RequestInit => ({
+      ...CHAT_INIT(),
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text }] }],
+      }),
+    })
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const pendingA = executor.execute(
+        NON_STREAM_URL,
+        init('prompt-A'),
+        routingSession('empty-budget-A'),
+      )
+      await secondA.promise
+      const responseB = await executor.execute(
+        NON_STREAM_URL,
+        init('prompt-B'),
+        routingSession('empty-budget-B'),
+      )
+      expect(responseB.status).toBe(200)
+      releaseA.resolve()
+      const responseA = await pendingA
+      expect(responseA.status).toBe(502)
+      expect(order).toEqual(['A', 'A', 'B'])
+    } finally {
+      releaseA.resolve()
+      await executor.dispose()
+    }
+  })
 })
 
 describe('createRequestExecutor retry contract', () => {

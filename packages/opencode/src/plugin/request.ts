@@ -42,6 +42,10 @@ import {
   transformStreamingPayload,
 } from './core/streaming'
 import {
+  createDisplayedThinkingRegistry,
+  type DisplayedThinkingRegistry,
+} from './core/streaming/displayed-thinking'
+import {
   type AntigravityDebugContext,
   DEBUG_MESSAGE_PREFIX,
   isDebugTuiEnabled,
@@ -117,7 +121,7 @@ const log = createLogger('request')
 const PLUGIN_SESSION_ID = `-${crypto.randomUUID()}`
 const DEFAULT_AGY_REQUEST_SESSION = createAgyRequestSessionContext()
 
-const sessionDisplayedThinkingHashes = new Set<string>()
+const openCode1DisplayedThinking = createDisplayedThinkingRegistry()
 
 const MIN_SIGNATURE_LENGTH = 50
 const AGY_CLAUDE_THINKING_BUDGET = 1024
@@ -1411,7 +1415,8 @@ export interface RequestWireLocation {
   readonly logger: Logger
   /** Fingerprint used when the selected account has none. */
   sessionFingerprint(): Fingerprint
-  readonly displayedThinkingHashes: Set<string>
+  /** Gemini thinking already shown, remembered separately per session. */
+  readonly displayedThinking: DisplayedThinkingRegistry
   readonly cacheStats: { last: RequestCacheStats | null }
 }
 
@@ -1429,7 +1434,7 @@ export function createRequestWireLocation(input: {
     debug: input.debug,
     logger: input.logger,
     sessionFingerprint: () => fingerprint,
-    displayedThinkingHashes: new Set<string>(),
+    displayedThinking: createDisplayedThinkingRegistry(),
     cacheStats: { last: null },
   }
 }
@@ -1456,7 +1461,7 @@ const openCode1WireLocation: RequestWireLocation = {
   },
   logger: log,
   sessionFingerprint: () => getSessionFingerprint(),
-  displayedThinkingHashes: sessionDisplayedThinkingHashes,
+  displayedThinking: openCode1DisplayedThinking,
   cacheStats: { last: null },
 }
 
@@ -2831,7 +2836,7 @@ async function transformAntigravityResponseIn(
         cacheSignatures,
         displayedThinkingHashes:
           effectiveModel && isGemini3Model(effectiveModel)
-            ? wire.displayedThinkingHashes
+            ? wire.displayedThinking.forSession(sessionId)
             : undefined,
         // injectSyntheticThinking removed - keep_thinking now unified with debug via debugText
       },

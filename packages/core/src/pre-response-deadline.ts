@@ -121,9 +121,11 @@ export class PreResponseDeadline {
   }
 
   resume(): void {
+    const paused = !this.active
     this.active = true
     this.check()
-    this.arm()
+    // Re-arming an already running deadline would leave a second timer.
+    if (paused) this.arm()
   }
 
   /** Cancel a response that arrives after its sender lost the abort race. */

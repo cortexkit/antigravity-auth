@@ -2813,6 +2813,75 @@ describe('request.ts', () => {
   })
 
   describe('transformAntigravityResponse', () => {
+    describe('Gemini displayed-thinking de-duplication', () => {
+      const sse = (events: unknown[][]) =>
+        new Response(
+          events
+            .map(
+              (parts, index) =>
+                `data: ${JSON.stringify({
+                  response: {
+                    candidates: [
+                      {
+                        content: { role: 'model', parts },
+                        ...(index === events.length - 1
+                          ? { finishReason: 'STOP' }
+                          : {}),
+                      },
+                    ],
+                  },
+                })}\n\n`,
+            )
+            .join(''),
+          { headers: { 'content-type': 'text/event-stream' } },
+        )
+      const render = async (events: unknown[][], sessionId: string) =>
+        (
+          await transformAntigravityResponse(
+            sse(events),
+            true,
+            null,
+            'gemini-3-flash',
+            undefined,
+            undefined,
+            'gemini-3-flash',
+            sessionId,
+          )
+        ).text()
+      const thought = 'An identical thought shown in two sessions.'
+      const turn = [[{ thought: true, text: thought }, { text: 'answer' }]]
+      const unique = `${Date.now()}-${Math.random()}`
+
+      it('shows identical thinking in independent sessions', async () => {
+        const first = await render(turn, `thought-a-${unique}`)
+        const second = await render(turn, `thought-b-${unique}`)
+        expect(first).toContain(thought)
+        expect(second).toContain(thought)
+        expect(second).toContain('answer')
+      })
+
+      it('still hides thinking repeated by a later response in one session', async () => {
+        const session = `thought-same-${unique}`
+        expect(await render(turn, session)).toContain(thought)
+        const repeat = await render(turn, session)
+        expect(repeat).not.toContain(thought)
+        expect(repeat).toContain('answer')
+      })
+
+      it('emits only the new part of cumulative thinking in one stream', async () => {
+        const text = await render(
+          [
+            [{ thought: true, text: 'Cumulative step one' }],
+            [{ thought: true, text: 'Cumulative step one, then two' }],
+            [{ text: 'answer' }],
+          ],
+          `thought-cumulative-${unique}`,
+        )
+        expect(text).toContain('"text":"Cumulative step one"')
+        expect(text).toContain('"text":", then two"')
+        expect(text).not.toContain('Cumulative step one, then two')
+      })
+    })
     it('masks project IDs in failed request text', async () => {
       const projectId = 'my-real-project-123456'
       const response = new Response(
