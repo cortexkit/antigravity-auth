@@ -17,16 +17,10 @@
  * Cache key format: `${sessionId}:${modelId}`
  */
 
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  renameSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
+import { writeJsonAtomic } from '@cortexkit/antigravity-auth-core/atomic-write'
 import { stateHomeSignatureCacheFile } from '../../runtime-paths'
 import type { SignatureCacheConfig } from '../config'
 import type { Clock } from '../neutral-types'
@@ -115,6 +109,23 @@ export interface SignatureCacheRetention {
 // Signature Cache Class
 // =============================================================================
 
+// Thousands of entries leave room for many active sessions and their thinking
+// blocks, while bounding the work needed to merge and rewrite the cache file.
+const MAX_ENTRIES = 4096
+
+function newestEntries(
+  entries: [string, CacheEntry][],
+): [string, CacheEntry][] {
+  if (entries.length <= MAX_ENTRIES) return entries
+  return entries
+    .sort(([, a], [, b]) => a.timestamp - b.timestamp)
+    .slice(-MAX_ENTRIES)
+}
+
+// Serialize the whole read/merge/write for one path, including when a new
+// cache instance and a retiring one need to write to the same file.
+const pendingWrites = new Map<string, Promise<boolean>>()
+
 export class SignatureCache {
   // In-memory cache: key -> entry with signature and optional thinking text
   private cache: Map<string, CacheEntry> = new Map()
@@ -131,6 +142,8 @@ export class SignatureCache {
 
   // State
   private dirty: boolean = false
+  private revision = 0
+  private pendingWrite: Promise<boolean> | undefined
   private writeTimer: ReturnType<typeof setInterval> | null = null
   private cleanupTimer: ReturnType<typeof setInterval> | null = null
 
@@ -177,11 +190,10 @@ export class SignatureCache {
   store(key: string, signature: string): void {
     if (!this.enabled) return
 
-    this.cache.set(key, {
+    this.storeEntry(key, {
       value: signature,
       timestamp: this.now(),
     })
-    this.dirty = true
   }
 
   /**
@@ -250,13 +262,30 @@ export class SignatureCache {
   ): void {
     if (!this.enabled || !thinkingText || !signature) return
 
-    this.cache.set(key, {
+    this.storeEntry(key, {
       value: signature,
       timestamp: this.now(),
       thinkingText,
       textPreview: thinkingText.slice(0, 100),
       toolIds,
     })
+  }
+
+  private storeEntry(key: string, entry: CacheEntry): void {
+    this.cache.delete(key)
+    this.cache.set(key, entry)
+    if (this.cache.size > MAX_ENTRIES) {
+      let oldest: string | undefined
+      let oldestTimestamp = Number.POSITIVE_INFINITY
+      for (const [candidate, value] of this.cache) {
+        if (oldest === undefined || value.timestamp < oldestTimestamp) {
+          oldest = candidate
+          oldestTimestamp = value.timestamp
+        }
+      }
+      if (oldest !== undefined) this.cache.delete(oldest)
+    }
+    this.revision++
     this.dirty = true
   }
 
@@ -338,7 +367,17 @@ export class SignatureCache {
    */
   async flush(): Promise<boolean> {
     if (!this.enabled) return true
-    return this.saveToDisk()
+    const path = resolve(this.cacheFilePath)
+    const previous = pendingWrites.get(path) ?? Promise.resolve(true)
+    const writing = previous.then(() => this.saveToDisk())
+    this.pendingWrite = writing
+    pendingWrites.set(path, writing)
+    try {
+      return await writing
+    } finally {
+      if (this.pendingWrite === writing) this.pendingWrite = undefined
+      if (pendingWrites.get(path) === writing) pendingWrites.delete(path)
+    }
   }
 
   /**
@@ -355,7 +394,7 @@ export class SignatureCache {
     }
 
     if (this.dirty && this.enabled) {
-      this.saveToDisk()
+      void this.flush()
     }
   }
 
@@ -399,7 +438,9 @@ export class SignatureCache {
         }
       }
 
-      // Silently load - no console output
+      if (this.cache.size > MAX_ENTRIES) {
+        this.cache = new Map(newestEntries([...this.cache]))
+      }
     } catch {
       // Silently start fresh on any error (corruption, file not found, etc.)
     }
@@ -409,28 +450,20 @@ export class SignatureCache {
    * Save cache to disk with atomic write pattern.
    * Merges with existing disk entries that haven't expired.
    */
-  private saveToDisk(): boolean {
+  private async saveToDisk(): Promise<boolean> {
     try {
-      // Ensure directory exists
-      const dir = dirname(this.cacheFilePath)
-      if (!existsSync(dir)) {
-        mkdirSync(dir, { recursive: true })
+      // Step 1: Load existing disk entries (if any)
+      let existingEntries: Record<string, CacheEntry> = {}
+      try {
+        const content = await readFile(this.cacheFilePath, 'utf-8')
+        const data = JSON.parse(content) as CacheData
+        existingEntries = data.entries || {}
+      } catch {
+        // Start fresh if missing or corrupted
       }
 
       const now = this.now()
-
-      // Step 1: Load existing disk entries (if any)
-      let existingEntries: Record<string, CacheEntry> = {}
-      if (existsSync(this.cacheFilePath)) {
-        try {
-          const content = readFileSync(this.cacheFilePath, 'utf-8')
-          const data = JSON.parse(content) as CacheData
-          existingEntries = data.entries || {}
-        } catch {
-          // Start fresh if corrupted
-        }
-      }
-
+      const revision = this.revision
       // Step 2: Filter existing disk entries by the retention disk_ttl
       const validDiskEntries: Record<string, CacheEntry> = {}
       for (const [key, entry] of Object.entries(existingEntries)) {
@@ -454,7 +487,9 @@ export class SignatureCache {
         version: '1.0',
         memory_ttl_seconds: this.retentionMemoryTtlMs / 1000,
         disk_ttl_seconds: this.retentionDiskTtlMs / 1000,
-        entries: mergedEntries,
+        entries: Object.fromEntries(
+          newestEntries(Object.entries(mergedEntries)),
+        ),
         statistics: {
           memory_hits: this.stats.memoryHits,
           disk_hits: this.stats.diskHits,
@@ -464,28 +499,11 @@ export class SignatureCache {
         },
       }
 
-      // Step 5: Atomic write (temp file + rename)
-      const tmpPath = join(
-        tmpdir(),
-        `antigravity-cache-${Date.now()}-${Math.random().toString(36).slice(2)}.tmp`,
-      )
-      writeFileSync(tmpPath, JSON.stringify(cacheData, null, 2), 'utf-8')
-
-      try {
-        renameSync(tmpPath, this.cacheFilePath)
-      } catch {
-        // On Windows, rename across volumes may fail
-        // Fall back to copy + delete
-        writeFileSync(this.cacheFilePath, readFileSync(tmpPath))
-        try {
-          unlinkSync(tmpPath)
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
+      await writeJsonAtomic(this.cacheFilePath, cacheData)
 
       this.stats.writes++
-      this.dirty = false
+      // A signature may have arrived after the snapshot was staged.
+      if (revision === this.revision) this.dirty = false
       return true
     } catch {
       // Silently fail - disk cache is optional
@@ -515,8 +533,8 @@ export class SignatureCache {
 
   private startWriteTimer(): void {
     this.writeTimer = setInterval(() => {
-      if (this.dirty) {
-        this.saveToDisk()
+      if (this.dirty && !this.pendingWrite) {
+        void this.flush()
       }
     }, this.writeIntervalMs)
   }
