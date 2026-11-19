@@ -435,7 +435,8 @@ export async function checkAccountsQuotaStandalone(
       assertAdmission,
     ),
   )
-  // Losing local access must refuse the command, not just report a per-account error.
+  // If the vault or Thalamus takes over the accounts mid-check, refuse the
+  // whole command rather than report it as one account's error.
   refused.signal.throwIfAborted()
   return results
 }

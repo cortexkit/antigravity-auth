@@ -219,7 +219,11 @@ export function countAgyRequestSteps(payload: Record<string, unknown>): number {
   return Array.isArray(payload.contents) ? payload.contents.length : 0
 }
 
-/** Finish a model-ending history before its turns are counted in the wire metadata. */
+/**
+ * Appends a `[Continue]` user turn when the history ends on a model turn,
+ * because Antigravity refuses such requests. Call it before the request's
+ * step counts and session labels are built, so they include the new turn.
+ */
 export function appendAgyContinuation(
   contents: unknown[],
   wireModel: string,

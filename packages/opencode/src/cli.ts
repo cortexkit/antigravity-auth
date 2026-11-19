@@ -510,9 +510,10 @@ export async function runCli(
     if (parsed.value.command === 'list' || parsed.value.command === 'quota')
       await assertLocalAccounts()
 
-    // Setup settles the vault folder and holds the heartbeat itself, only on
-    // a real run that passed its checks. Account inspection follows the
-    // existing vault layout without moving anything.
+    // Setup itself moves the vault folder to its current location and writes
+    // this process's running-version record, and only on a real run that
+    // passed its checks. `list` and `quota` read the vault layout as it is and
+    // move nothing.
     if (parsed.value.command !== 'setup') {
       // Login reads a vault file, so it settles the vault folder. The store
       // commands move the store themselves and settle nothing: their anchor
