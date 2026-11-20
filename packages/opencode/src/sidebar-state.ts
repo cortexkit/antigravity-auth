@@ -39,7 +39,7 @@
  * 100 entries within 24h.
  */
 
-import { chmodSync, mkdirSync, readFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -245,21 +245,59 @@ export function readSidebarState(
   return parseSidebarState(raw)
 }
 
-/** Create a reader for one polling consumer. Polls must not overlap. */
-export function createSidebarStateReader(): (
-  path?: string,
-) => Promise<SidebarStateV1 | undefined> {
-  let previousPath: string | undefined
-  let previousSignature: string | null = null
+/** Identifies one version of the state file; see `fileSignature`. */
+export interface SidebarStateBaseline {
+  path: string
+  signature: string | null
+}
+
+// Atomic replacement can leave size and mtime unchanged; inode identifies
+// the new file, and ctime invalidates the read on permission changes.
+function fileSignature(info: {
+  dev: bigint
+  ino: bigint
+  size: bigint
+  mtimeNs: bigint
+  ctimeNs: bigint
+}): string {
+  return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`
+}
+
+/**
+ * Read the state file synchronously with the signature of the version read.
+ * The sidebar uses it once at mount, so the very first frame already has the
+ * quota bars; the later polls go through `createSidebarStateReader`.
+ */
+export function readSidebarStateWithBaseline(
+  path: string = getSidebarStateFile(),
+): { state: SidebarStateV1; baseline: SidebarStateBaseline } {
+  try {
+    const signature = fileSignature(statSync(path, { bigint: true }))
+    const raw = readFileSync(path, 'utf-8')
+    return { state: parseSidebarState(raw), baseline: { path, signature } }
+  } catch {
+    return {
+      state: { ...DEFAULT_SIDEBAR_STATE },
+      baseline: { path, signature: null },
+    }
+  }
+}
+
+/**
+ * Create a reader for one polling consumer. Polls must not overlap. A reader
+ * started from a `baseline` returns nothing until the file changes from it.
+ */
+export function createSidebarStateReader(
+  baseline?: SidebarStateBaseline,
+): (path?: string) => Promise<SidebarStateV1 | undefined> {
+  let previousPath: string | undefined = baseline?.path
+  let previousSignature: string | null = baseline?.signature ?? null
 
   return async (path = getSidebarStateFile()) => {
     let raw: string
     let signature: string
     try {
-      const info = await stat(path, { bigint: true })
-      // Atomic replacement can leave size and mtime unchanged; inode identifies
-      // the new file, and ctime invalidates the read on permission changes.
-      signature = `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`
+      signature = fileSignature(await stat(path, { bigint: true }))
       if (path === previousPath && signature === previousSignature) return
       raw = await readFile(path, 'utf-8')
     } catch {

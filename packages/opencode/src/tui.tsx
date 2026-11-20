@@ -53,7 +53,11 @@ import { createSlot } from '@opentui/solid'
 import { createSignal, type JSX, onCleanup, onMount } from 'solid-js'
 
 import { getRpcDir } from './rpc/rpc-dir'
-import { createSidebarStateReader, type SidebarStateV1 } from './sidebar-state'
+import {
+  createSidebarStateReader,
+  readSidebarStateWithBaseline,
+  type SidebarStateV1,
+} from './sidebar-state'
 import { createTuiFileLogger, type TuiLogger } from './tui/file-logger'
 import {
   createV1MenuTransport,
@@ -363,7 +367,11 @@ export function SidebarPanel(props: SidebarPanelProps): JSX.Element {
   })
 
   onMount(() => {
-    const readChanged = createSidebarStateReader()
+    // Read synchronously once so the first frame already draws the quota bars;
+    // the polls below reread only when the file has changed since.
+    const first = readSidebarStateWithBaseline(props.stateFile)
+    setState({ loaded: first.state, lastError: null })
+    const readChanged = createSidebarStateReader(first.baseline)
     let mounted = true
     let reading = false
     const refresh = async (): Promise<void> => {

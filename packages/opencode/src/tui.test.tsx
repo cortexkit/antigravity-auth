@@ -9,6 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
+import * as fsSync from 'node:fs'
 import {
   existsSync,
   mkdirSync,
@@ -164,8 +165,8 @@ async function testRenderSidebar(...args: Parameters<typeof testRender>) {
   const reader = spyOn(
     sidebarState,
     'createSidebarStateReader',
-  ).mockImplementation(() => {
-    const read = createReader()
+  ).mockImplementation((baseline) => {
+    const read = createReader(baseline)
     return async (path) => {
       try {
         return await read(path)
@@ -576,6 +577,19 @@ describe('SidebarPanel', () => {
       }
       return current
     }) as typeof fs.stat)
+    // The mount's first read is synchronous; give it the same ctime, so its
+    // baseline matches the polls' and the unchanged file isn't parsed again.
+    const realStatSync = fsSync.statSync
+    const syncStats = spyOn(fsSync, 'statSync').mockImplementation(((
+      path: Parameters<typeof fsSync.statSync>[0],
+      options?: Parameters<typeof fsSync.statSync>[1],
+    ) => {
+      const current = realStatSync(path, options)
+      if (path === fixture.statePath && current) {
+        Object.defineProperty(current, 'ctimeNs', { value: 0n })
+      }
+      return current
+    }) as typeof fsSync.statSync)
     const allowRead = Promise.withResolvers<void>()
     let blockedTick: Promise<void> | undefined
     let reads: ReturnType<typeof spyOn<typeof fs, 'readFile'>> | undefined
@@ -663,6 +677,7 @@ describe('SidebarPanel', () => {
       frame.mockRestore()
       parses.mockRestore()
       stats.mockRestore()
+      syncStats.mockRestore()
       cancellations.mockRestore()
       intervals.mockRestore()
     }
