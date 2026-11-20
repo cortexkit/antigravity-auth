@@ -76,8 +76,9 @@ async function nextWithTimeout<T>(
   }
 }
 
-// Pi 0.87.1: @earendil-works/pi-ai/dist/api/google-shared.js:383–424
-// (mapStopReason and mapStopReasonString). Only name known reasons in errors.
+// Mirrors Pi 1.6.0's mapStopReason in @earendil-works/pi-ai/dist/api/google-shared.js
+// (lines 440–469), which maps CONTINUATION to length beside MAX_TOKENS.
+// Only name known reasons in errors.
 const GOOGLE_ERROR_FINISH_REASONS = new Set([
   'BLOCKLIST',
   'PROHIBITED_CONTENT',
