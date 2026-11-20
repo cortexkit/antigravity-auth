@@ -1347,6 +1347,55 @@ describe('real public consumer with a local vault transport', () => {
       ).rejects.toMatchObject({ kind: 'invalid-attribution' })
     expect(vault.gets).toHaveLength(1)
   })
+
+  // Pi's session shutdown and OpenCode's disposal await custody.dispose() so
+  // work already started can finish. The enrollment token read that precedes
+  // each vault call is part of that work: disposal must wait for it, and the
+  // read's caller must then see a closed custody instead of reaching the vault.
+  it('waits for an in-flight enrollment token read when custody is disposed', async () => {
+    const vault = localVault()
+    const { src, claustrum, client } = await realSource(vault)
+    await src.dispose()
+    const listsBefore = vault.listTokens.length
+    const closedBefore = vault.closed
+    let release: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let reads = 0
+    const custody = new claustrum.ClaustrumScopedCustody({
+      client: { ...client },
+      family: ANTIGRAVITY_VAULT_FAMILY,
+      logger: SILENT,
+      readToken: async () => {
+        reads++
+        await held
+        return { token: ENROLLMENT_TOKEN, token_generation: 1 }
+      },
+    })
+    const discovering = custody.discover()
+    discovering.catch(() => {})
+    while (reads === 0) await new Promise((r) => setTimeout(r, 1))
+
+    const onTimeout = mock((_count: number) => {})
+    let disposed = false
+    const disposing = custody.dispose(onTimeout).then(() => {
+      disposed = true
+    })
+    // Disposal gives in-flight work up to two seconds to finish, so a short
+    // wait must still find it waiting.
+    await new Promise((r) => setTimeout(r, 50))
+    expect(disposed).toBe(false)
+
+    release()
+    await disposing
+    expect(disposed).toBe(true)
+    expect(onTimeout).not.toHaveBeenCalled()
+    await expect(discovering).rejects.toMatchObject({ kind: 'closed' })
+    // The read finished after disposal, so the vault is never listed with it.
+    expect(vault.listTokens).toHaveLength(listsBefore)
+    expect(vault.closed).toBe(closedBefore + 1)
+  })
 })
 
 describe('Claustrum connection-file path', () => {

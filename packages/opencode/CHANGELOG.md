@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Embed the published common-auth 0.56.0 release.
 - Refresh local account quota based on when each account was last checked, even when the sidebar is active. Background checks skip accounts with fresh quota.
 - Keep newer quota readings and rate-limit decisions when older quota checks finish late.
 - Don't impose a long quota wait based on an empty quota window that has already reset.

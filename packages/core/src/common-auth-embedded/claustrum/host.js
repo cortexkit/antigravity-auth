@@ -55,6 +55,8 @@ async function request(operation) {
 function wrapHostClient(client) {
     const watchScoped = client.watchScoped?.bind(client);
     const reportUsageScoped = client.reportUsageScoped?.bind(client);
+    const reportCondition = client.reportCondition?.bind(client);
+    const clearCondition = client.clearCondition?.bind(client);
     return {
         listScoped: (...args) => request(() => client.listScoped(...args)),
         getScoped: (...args) => request(() => client.getScoped(...args)),
@@ -76,6 +78,12 @@ function wrapHostClient(client) {
         }),
         ...(reportUsageScoped && {
             reportUsageScoped: (...args) => request(() => reportUsageScoped(...args)),
+        }),
+        ...(reportCondition && {
+            reportCondition: (...args) => request(() => reportCondition(...args)),
+        }),
+        ...(clearCondition && {
+            clearCondition: (...args) => request(() => clearCondition(...args)),
         }),
         ...(client.insula && {
             insula: wrapInsula(client.insula),

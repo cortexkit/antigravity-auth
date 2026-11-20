@@ -178,6 +178,34 @@ function rowFactsOf(row, { includeProviderIds = true } = {}) {
         authMethod: metadata.authMethod,
     };
 }
+function isVaultConditionReason(reason) {
+    return (reason === 'provider_verification_required' ||
+        reason === 'provider_ineligible');
+}
+function vaultConditionOf(row) {
+    const condition = row.condition;
+    if (!condition)
+        return undefined;
+    const { reason, sinceMs } = condition;
+    if (isVaultConditionReason(reason) &&
+        Number.isSafeInteger(sinceMs) &&
+        sinceMs > 0)
+        return Object.freeze({ reason, sinceMs });
+    return undefined;
+}
+function httpsActionUrl(actionUrl) {
+    if (typeof actionUrl !== 'string')
+        return undefined;
+    try {
+        // Keep the original spelling so the vault can enforce its own link rules.
+        if (new URL(actionUrl).protocol === 'https:')
+            return actionUrl;
+    }
+    catch {
+        // An unparseable link does not invalidate the condition itself.
+    }
+    return undefined;
+}
 /**
  * The grants named in the vault's list reply, or undefined when it names none.
  * Both fields must be present: a reply carrying only one of them is treated as
@@ -211,6 +239,10 @@ export class ClaustrumScopedCustody {
     #logger;
     #provenance = new WeakMap();
     #reports = new WeakMap();
+    #conditionReports = new Map();
+    #conditionClears = new Map();
+    #conditionsUnsupported = false;
+    #pendingConditionCalls = 0;
     #kept = new Map();
     #keptAttempts = new WeakMap();
     #usage;
@@ -229,8 +261,9 @@ export class ClaustrumScopedCustody {
     #closed = false;
     /** The view of the last successful `discover()`, for `watchRoster`. */
     #discoveredView;
+    #discoveredConditions = new Map();
     #watches = new Set();
-    #tokenReads = new Set();
+    #shutdownWork = new Set();
     #warnShutdown;
     #onDrainTimeout;
     #disposing;
@@ -292,6 +325,7 @@ export class ClaustrumScopedCustody {
         if (hasVaultHost() && !isVaultHostClient(next))
             throw new ClaustrumUnreachableError();
         this.#client = next;
+        this.#conditionsUnsupported = false;
         for (const watch of this.#watches)
             watch.restart();
     }
@@ -372,13 +406,13 @@ export class ClaustrumScopedCustody {
                 phase: 'token read begin',
             });
         const pending = this.#readToken();
-        this.#tokenReads.add(pending);
+        this.#shutdownWork.add(pending);
         let value;
         try {
             value = await pending;
         }
         finally {
-            this.#tokenReads.delete(pending);
+            this.#shutdownWork.delete(pending);
             if (phaseDiagnostics.hasSubscribers)
                 phaseDiagnostics.publish({
                     logger: this.#logger,
@@ -438,6 +472,11 @@ export class ClaustrumScopedCustody {
     async discover(signal) {
         const inventory = await this.#list(signal);
         this.#discoveredView = inventory.view;
+        this.#discoveredConditions.clear();
+        for (const { credentialId, condition } of inventory.credentials) {
+            if (condition)
+                this.#discoveredConditions.set(credentialId, condition);
+        }
         return inventory;
     }
     async #list(signal) {
@@ -514,6 +553,7 @@ export class ClaustrumScopedCustody {
                 });
                 continue;
             }
+            const condition = vaultConditionOf(row);
             credentials.push(Object.freeze({
                 credentialId: row.id,
                 credentialType: type,
@@ -524,6 +564,7 @@ export class ClaustrumScopedCustody {
                 state: row.state,
                 ...(row.email !== undefined && { email: row.email }),
                 ...(row.orgName !== undefined && { orgName: row.orgName }),
+                ...(condition && { condition }),
             }));
         }
         for (const record of skipped)
@@ -927,6 +968,101 @@ export class ClaustrumScopedCustody {
         }
     }
     /**
+     * Report a provider login condition as bookkeeping after handing back the
+     * reply, never on the request path. Pass the receipt actually sent with it.
+     */
+    reportCondition(attempt, input) {
+        const provenance = this.#provenance.get(attempt);
+        if (!provenance)
+            return Promise.reject(new ClaustrumConsumerError('no-receipt', 'Claustrum condition report requires an original dispatch receipt'));
+        const { reason, providerStatus } = input ?? {};
+        if (this.#closed ||
+            this.#keptAttempts.has(attempt) ||
+            providerStatus !== 403 ||
+            !isVaultConditionReason(reason))
+            return Promise.resolve('skipped');
+        const { credentialId, recordVersion } = attempt;
+        const actionUrl = reason === 'provider_verification_required'
+            ? httpsActionUrl(input.actionUrl)
+            : undefined;
+        return this.#conditionOnce(this.#conditionReports, JSON.stringify([credentialId, recordVersion, reason]), { credentialId, recordVersion, reason }, (client) => client.reportCondition?.({
+            credentialId,
+            recordVersion,
+            reason,
+            providerStatus,
+            ...(actionUrl !== undefined && { actionUrl }),
+            enrollmentToken: provenance.token,
+        }));
+    }
+    /**
+     * Clear a listed condition as bookkeeping after handing back a successful
+     * reply, never on the request path. Pass the receipt actually sent with it.
+     */
+    clearCondition(attempt) {
+        const provenance = this.#provenance.get(attempt);
+        if (!provenance)
+            return Promise.reject(new ClaustrumConsumerError('no-receipt', 'Claustrum condition clear requires an original dispatch receipt'));
+        if (this.#closed || this.#keptAttempts.has(attempt))
+            return Promise.resolve('skipped');
+        const { credentialId, recordVersion } = attempt;
+        const condition = this.#discoveredConditions.get(credentialId);
+        if (!condition)
+            return Promise.resolve('skipped');
+        return this.#conditionOnce(this.#conditionClears, JSON.stringify([credentialId, condition.sinceMs]), { credentialId, recordVersion, reason: condition.reason }, (client) => client.clearCondition?.({
+            credentialId,
+            recordVersion,
+            enrollmentToken: provenance.token,
+        }));
+    }
+    #conditionOnce(outcomes, key, details, send) {
+        const previous = outcomes.get(key);
+        if (previous)
+            return previous;
+        if (this.#conditionsUnsupported)
+            return Promise.resolve('unsupported');
+        // A lost reply may already have committed. Keep the result so a later call
+        // for the same key does not retry it, even after client replacement.
+        const pending = Promise.resolve().then(async () => {
+            const client = this.#client;
+            if (this.#conditionsUnsupported)
+                return 'unsupported';
+            try {
+                const sent = send(client);
+                if (!sent)
+                    return 'unsupported';
+                if ((await sent) === false)
+                    this.#debugCondition('scoped login condition not cleared', details);
+                return 'reported';
+            }
+            catch (error) {
+                if (error instanceof ClaustrumCredentialError &&
+                    error.code === 'unknown_method') {
+                    if (client === this.#client)
+                        this.#conditionsUnsupported = true;
+                    return 'unsupported';
+                }
+                this.#debugCondition('scoped login condition update failed', details);
+                return 'failed';
+            }
+        });
+        outcomes.set(key, pending);
+        this.#pendingConditionCalls++;
+        this.#shutdownWork.add(pending);
+        void pending.then(() => {
+            this.#pendingConditionCalls--;
+            this.#shutdownWork.delete(pending);
+        });
+        return pending;
+    }
+    #debugCondition(message, details) {
+        try {
+            this.#logger.debug(message, details);
+        }
+        catch {
+            // A caller's logger must not turn bookkeeping into a rejection.
+        }
+    }
+    /**
      * Watch this consumer's visible vault accounts instead of listing them on a
      * short timer. Opens one `watchScoped` on this custody's client and calls
      * `onView` when the host must run its discovery (see
@@ -1046,16 +1182,17 @@ export class ClaustrumScopedCustody {
         this.#watches.clear();
         this.#kept.clear();
         const usage = this.#usage.close();
+        const keepClientOpen = usage !== undefined || this.#pendingConditionCalls > 0;
         if (usage) {
-            this.#tokenReads.add(usage);
-            void usage.then(() => this.#tokenReads.delete(usage));
+            this.#shutdownWork.add(usage);
+            void usage.then(() => this.#shutdownWork.delete(usage));
         }
-        else
+        if (!keepClientOpen)
             this.#client.close();
-        this.#disposing = drainShutdown(this.#tokenReads, (count) => (this.#onDrainTimeout ?? this.#warnShutdown)(count)).finally(() => {
+        this.#disposing = drainShutdown(this.#shutdownWork, (count) => (this.#onDrainTimeout ?? this.#warnShutdown)(count)).finally(() => {
             this.#usage.drop();
             this.#usageServed.clear();
-            if (usage)
+            if (keepClientOpen)
                 this.#client.close();
         });
     }

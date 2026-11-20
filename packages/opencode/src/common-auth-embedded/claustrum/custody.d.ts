@@ -3,8 +3,12 @@ import { type ClaustrumLogger } from './errors.js';
 import type { InsulaUsageTransport } from './insula.js';
 import { type ClaustrumUsageReading, type ClaustrumUsageReportState, type ScopedUsageSource } from './usage.js';
 import { type ScopedWatchSource, type WatchMode } from './watch.js';
-type ScopedRow = Omit<ScopedInventoryRow, 'authMethod'> & {
+type ScopedRow = Omit<ScopedInventoryRow, 'authMethod' | 'condition'> & {
     readonly authMethod?: string;
+    readonly condition?: {
+        readonly reason: string;
+        readonly sinceMs: number;
+    };
 };
 type ScopedInventory = Omit<Awaited<ReturnType<ClaustrumClient['listScoped']>>, 'rows'> & {
     readonly rows: readonly ScopedRow[];
@@ -12,13 +16,29 @@ type ScopedInventory = Omit<Awaited<ReturnType<ClaustrumClient['listScoped']>>, 
 /**
  * claustrum-client adds watchScoped in 0.12.0 and reportUsageScoped in 0.14.0.
  * Older clients keep polling and simply do not send reply quota readings.
+ * The optional login condition methods match 0.21.0 without requiring it.
  */
 export type ClaustrumScopedClient = Pick<ClaustrumClient, 'getScoped' | 'reportAuthFailureScoped' | 'close'> & {
     listScoped(enrollmentToken?: string): Promise<ScopedInventory>;
+    reportCondition?(input: {
+        credentialId: string;
+        recordVersion: number;
+        reason: string;
+        providerStatus: number;
+        actionUrl?: string;
+        enrollmentToken?: string;
+    }): Promise<void>;
+    clearCondition?(input: {
+        credentialId: string;
+        recordVersion: number;
+        enrollmentToken?: string;
+    }): Promise<boolean>;
     insula?: InsulaUsageTransport;
 } & ScopedWatchSource & ScopedUsageSource;
 /** The two credential types a plugin's family can hold; routing differs by type. */
 export type VaultCredentialType = 'oauth' | 'api_key';
+export type VaultConditionReason = 'provider_verification_required' | 'provider_ineligible';
+export type VaultConditionOutcome = 'reported' | 'skipped' | 'unsupported' | 'failed';
 /**
  * Which vault rows belong to this plugin. `refreshAdapter` classifies an OAuth
  * row by the protocol it speaks; `category` is the grant that authorizes this
@@ -69,6 +89,10 @@ export interface VaultCredential {
     readonly state: string;
     readonly email?: string;
     readonly orgName?: string;
+    readonly condition?: {
+        readonly reason: VaultConditionReason;
+        readonly sinceMs: number;
+    };
 }
 /**
  * Why a listed vault record could not be used. A closed set of fixed codes, so
@@ -339,6 +363,20 @@ export declare class ClaustrumScopedCustody {
      * it. A receipt this custody did not issue is refused rather than reported.
      */
     reportFailure(attempt: ClaustrumScopedAttempt, status: number, reporterSource: ClaustrumReporterSource): Promise<void>;
+    /**
+     * Report a provider login condition as bookkeeping after handing back the
+     * reply, never on the request path. Pass the receipt actually sent with it.
+     */
+    reportCondition(attempt: ClaustrumScopedAttempt, input: {
+        reason: VaultConditionReason;
+        providerStatus: number;
+        actionUrl?: string;
+    }): Promise<VaultConditionOutcome>;
+    /**
+     * Clear a listed condition as bookkeeping after handing back a successful
+     * reply, never on the request path. Pass the receipt actually sent with it.
+     */
+    clearCondition(attempt: ClaustrumScopedAttempt): Promise<VaultConditionOutcome>;
     /**
      * Watch this consumer's visible vault accounts instead of listing them on a
      * short timer. Opens one `watchScoped` on this custody's client and calls

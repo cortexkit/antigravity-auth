@@ -2821,9 +2821,9 @@ describe('loadAccountManagerFromRepository', () => {
 
 const EMBEDDED_COMMON_AUTH = {
   package: '@cortexkit/common-auth',
-  version: '0.55.2',
+  version: '0.56.0',
   tarballSha256:
-    'ca51b83059e16b39c5e1ddb3d0c35aaa47794b68d7c56299a0ae4fcae213a06e',
+    '57adc0dbe822be17cd4df5cbe0eecdce87257858ff2ee65f8d43e0e428001683',
 } as const
 
 async function embeddedFilesBelow(

@@ -44,4 +44,5 @@
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.55.0.tgz -text -eol -filter -working-tree-encoding
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.55.1.tgz -text -eol -filter -working-tree-encoding
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.55.2.tgz -text -eol -filter -working-tree-encoding
+/tools/common-auth-build/inputs/cortexkit-common-auth-0.56.0.tgz -text -eol -filter -working-tree-encoding
 /tools/common-auth-build/inputs/cortexkit-common-auth-0.45.0.tgz -text -eol -filter -working-tree-encoding

@@ -1,15 +1,15 @@
 {
-  "version": "0.55.2",
+  "version": "0.56.0",
   "artifactStatus": "published",
-  "archiveBytes": 503294,
-  "shasum": "e73d01bafc09c35ef5b484c1b2ebf579a23a6ca4",
-  "sha256": "ca51b83059e16b39c5e1ddb3d0c35aaa47794b68d7c56299a0ae4fcae213a06e",
-  "sri": "sha512-csS+wr+jjiwoFEg3uL03nZCjHQLzWw1TJBDbqCe7ZDstQXWTykG0q/kJkLykWZ1L5LQGo07P1aB5a7q6XEY8BA==",
-  "manifestSha256": "cc0248f2d287c3bb7a36bb7358c796b91e9005d34d3a7c0040426ba562336606",
+  "archiveBytes": 504766,
+  "shasum": "a386963ea33a68b2dc5c9f30f60329124a5014bf",
+  "sha256": "57adc0dbe822be17cd4df5cbe0eecdce87257858ff2ee65f8d43e0e428001683",
+  "sri": "sha512-s8jHCoHrrIZhbo/oEO88XhAI1DKPWw9sNSvwrGPlqau+I4ZVZ4MTxjlHGnr/TtdymVsGCeyXj9MedBeXcXUXzQ==",
+  "manifestSha256": "0521145fb7768d924d25e448d4f5199b92fc8cb950646748567b440994a22e07",
   "inventorySha256": "4c51b6fe88b8328d03d095e996ad2ae1c8283853fd7b1ea5f2012e3cd7606393",
   "licenseSha256": "bf737fd6a5d9da55873eb7ea481fd9e875bcfefc13ed42766a1964c6040c5581",
   "canonicalFiles": 250,
-  "canonicalBytes": 1476964,
+  "canonicalBytes": 1484719,
   "publicRoots": {
     "./rpc": {
       "types": "./dist/rpc/index.d.ts",
@@ -249,13 +249,13 @@
     ],
     [
       "claustrum/custody.d.ts",
-      18601,
-      "9c34f311ef87563256138b5aa070216d9dd027c6ddf4110aba630ba14157bc16"
+      20105,
+      "3e18a29925889dc0bcae4a23b57df3b6bf683ba9a3e58fe95d3132ca50a2417e"
     ],
     [
       "claustrum/custody.js",
-      44266,
-      "72d08a16f7fb27c26813501b0e89cddfdf640b9aeac8b89e9c7f9c92663db59c"
+      50079,
+      "fdb2f9a4eee791b44d6bb953d31bb7f560159302e2f83932c03964e1ae24cf22"
     ],
     [
       "claustrum/enrollment.d.ts",
@@ -294,8 +294,8 @@
     ],
     [
       "claustrum/host.js",
-      4610,
-      "c2eba15f35b996993ba7f0ec849ce84312d5f08e9b15e8f6458c6d8a0e03ae7b"
+      4993,
+      "d2e197db15bfe75de41a892709f4d7d69248293bd80bb5a720b9035e961ec6d7"
     ],
     [
       "claustrum/hub.d.ts",
@@ -309,8 +309,8 @@
     ],
     [
       "claustrum/index.d.ts",
-      5073,
-      "9e6722e2c38df279563804af98297aa6558efd8e50eb253e348a23b22e6e9785"
+      5128,
+      "522249e709781475b8458130a72ea6885e16e8ea59821100bead9f23ae34ddcb"
     ],
     [
       "claustrum/index.js",
