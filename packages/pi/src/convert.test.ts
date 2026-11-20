@@ -5,8 +5,8 @@ import {
   normalizeContext,
   type SystemMessage,
   type Tool,
-  Type,
 } from '@earendil-works/pi-ai'
+import { Type } from 'typebox'
 import stockPiPrompt from '../../../test-fixtures/pi-1.5.2-system-prompt.json'
 
 import { buildGeminiRequest } from './convert.ts'

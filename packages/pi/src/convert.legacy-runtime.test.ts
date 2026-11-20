@@ -1,6 +1,7 @@
 import { describe, expect, it, mock } from 'bun:test'
 import type { Context } from '@earendil-works/pi-ai'
 import * as actualPiAi from '@earendil-works/pi-ai'
+import { Type } from 'typebox'
 
 // Simulate a pre-0.86 pi-ai install that has no transcript helpers. The
 // converter must still load and handle flat contexts, and must refuse a
@@ -21,8 +22,8 @@ describe('buildGeminiRequest on a pi-ai runtime without transcript helpers', () 
         {
           name: 'read',
           description: 'Read a file',
-          parameters: actualPiAi.Type.Object({
-            path: actualPiAi.Type.String(),
+          parameters: Type.Object({
+            path: Type.String(),
           }),
         },
       ],

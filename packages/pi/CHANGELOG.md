@@ -8,6 +8,7 @@
 
 ### Fixed
 
+- On Pi, a response Google ends with CONTINUATION is treated as hitting the output limit, as Pi 1.6.0 does, instead of as an error.
 - Responses that Google stops for safety or another refusal now show an error instead of appearing to complete successfully.
 - Pi can resume Antigravity conversations that end with an assistant reply, while normal Gemini tool continuations stay unchanged.
 - A model response that stalls, is aborted, is cancelled or is cut off before its end now fails with an error and closes its connection, instead of hanging or being passed on as a complete answer.

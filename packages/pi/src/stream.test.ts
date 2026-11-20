@@ -18,10 +18,10 @@ import {
   type Model,
   normalizeContext,
   type ThinkingLevel,
-  Type,
 } from '@earendil-works/pi-ai'
 import type { ProviderConfig } from '@earendil-works/pi-coding-agent'
 import { ModelRegistry, ModelRuntime } from '@earendil-works/pi-coding-agent'
+import { Type } from 'typebox'
 import {
   hostFileError,
   hostFileErrorKinds,
@@ -1676,6 +1676,20 @@ describe('streamCortexKitAntigravity', () => {
         )
       }
     }
+  })
+
+  it('preserves partial text when Gemini ends with CONTINUATION', async () => {
+    const { events, result } = await runStream(
+      fakeModel(),
+      sseResponse([
+        'data: {"candidates":[{"content":{"parts":[{"text":"partial answer"}]}}]}\n\n',
+        'data: {"candidates":[{"finishReason":"CONTINUATION"}]}\n\n',
+      ]),
+      'candidate-continuation',
+    )
+    expect(events.at(-1)?.type).toBe('done')
+    expect(result.stopReason).toBe('length')
+    expect(result.content).toEqual([{ type: 'text', text: 'partial answer' }])
   })
 
   it('does not use a tool call to override the Gemini token limit', async () => {
