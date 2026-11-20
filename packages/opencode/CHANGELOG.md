@@ -17,6 +17,7 @@
 - Repairing a long tool history with many unmatched tool results no longer slows down with the square of its length, and an unconfirmed rate-limit refusal no longer re-reads the whole request.
 - The debug line that counted responses on the current account is renamed so it no longer claims to count every request for the message.
 - Avoid rereading unchanged OpenCode 1 sidebar snapshots, and persist the bounded signature cache without blocking on file I/O.
+- When Google reports no capacity for a model, the plugin moves to another account at most once per request instead of trying every account.
 
 ## [3.1.10] - 2026-11-19
 

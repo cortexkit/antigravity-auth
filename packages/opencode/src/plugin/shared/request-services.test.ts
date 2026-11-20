@@ -3999,28 +3999,133 @@ describe('createRequestExecutor retry contract', () => {
     }
   })
 
+  function capacityBody(attempt: number) {
+    return {
+      error: {
+        code: 503,
+        message: `No capacity available for model (attempt ${attempt})`,
+        details: [{ reason: 'MODEL_CAPACITY_EXHAUSTED' }],
+      },
+    }
+  }
+
+  function capacityError(attempt: number): Response {
+    return Response.json(capacityBody(attempt), { status: 503 })
+  }
+
+  async function expectUpstreamCapacityError(
+    response: Response,
+    attempt: number,
+  ) {
+    const { error } = capacityBody(attempt)
+    expect(response.status).toBe(503)
+    // The response transformer adds diagnostics to the upstream message.
+    expect(await response.json()).toEqual({
+      error: { ...error, message: expect.stringContaining(error.message) },
+    })
+  }
+
+  function capacityHarness(
+    count: number,
+    respond: (call: TransportCall, index: number) => Promise<Response>,
+  ): Harness {
+    const pool = makePool(count)
+    // Round-robin prefers accounts already used by this process. Seed every
+    // row so selection can rotate even though capacity leaves the rows eligible.
+    for (const account of pool.getAccounts())
+      pool.recordSessionUsage(account.index)
+    return harness({
+      pool,
+      config: {
+        account_selection_strategy: 'round-robin',
+        max_account_switches: 10,
+      },
+      refresh: async (auth) => ({
+        ...auth,
+        access: `access-${auth.refresh.split('|')[0]}`,
+        expires: Date.now() + 3.6e6,
+      }),
+      respond,
+    })
+  }
+
+  async function executeWithFastCapacityBackoff(
+    executor: ReturnType<typeof createRequestExecutor>,
+  ): Promise<Response> {
+    const random = spyOn(Math, 'random').mockReturnValue(0.5)
+    const clock = routedTime(1000, 2000)
+    try {
+      return await executor.execute(NON_STREAM_URL, CHAT_INIT())
+    } finally {
+      clock.restore()
+      random.mockRestore()
+    }
+  }
+
   it('retries the same endpoint once after a capacity 503', async () => {
     const h = harness({
       respond: async (_call, index) =>
-        index === 0
-          ? new Response(
-              JSON.stringify({
-                error: {
-                  code: 503,
-                  message: 'No capacity available for model',
-                  details: [{ reason: 'MODEL_CAPACITY_EXHAUSTED' }],
-                },
-              }),
-              { status: 503 },
-            )
-          : okJson(),
+        index === 0 ? capacityError(1) : okJson(),
     })
     const executor = createRequestExecutor(h.deps)
     try {
-      const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+      const response = await executeWithFastCapacityBackoff(executor)
       expect(response.status).toBe(200)
       expect(h.calls).toHaveLength(2)
       expect(h.calls[1]?.url).toBe(h.calls[0]?.url as string)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('stops after one account switch when capacity errors persist', async () => {
+    const h = capacityHarness(3, async (_call, index) =>
+      capacityError(index + 1),
+    )
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executeWithFastCapacityBackoff(executor)
+      expect(h.calls).toHaveLength(8)
+      expect(wireBearers(h)).toEqual([
+        ...Array(4).fill('Bearer access-refresh-0'),
+        ...Array(4).fill('Bearer access-refresh-1'),
+      ])
+      await expectUpstreamCapacityError(response, 8)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('can succeed on the next account after a capacity exhaustion', async () => {
+    const h = capacityHarness(2, async (call, index) =>
+      new Headers(call.init?.headers).get('authorization') ===
+      'Bearer access-refresh-1'
+        ? okJson()
+        : capacityError(index + 1),
+    )
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executeWithFastCapacityBackoff(executor)
+      expect(h.calls).toHaveLength(5)
+      expect(wireBearers(h)).toEqual([
+        ...Array(4).fill('Bearer access-refresh-0'),
+        'Bearer access-refresh-1',
+      ])
+      expect(response.status).toBe(200)
+    } finally {
+      await executor.dispose()
+    }
+  })
+
+  it('returns the fourth upstream capacity error with only one account', async () => {
+    const h = capacityHarness(1, async (_call, index) =>
+      capacityError(index + 1),
+    )
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executeWithFastCapacityBackoff(executor)
+      expect(h.calls).toHaveLength(4)
+      await expectUpstreamCapacityError(response, 4)
     } finally {
       await executor.dispose()
     }
