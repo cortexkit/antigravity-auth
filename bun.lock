@@ -22,7 +22,7 @@
       "name": "@cortexkit/antigravity-auth-core",
       "version": "3.1.10",
       "dependencies": {
-        "@cortexkit/claustrum-client": "0.18.0",
+        "@cortexkit/claustrum-client": "0.21.0",
         "@cortexkit/private-files": "0.2.2",
         "@cortexkit/subc-client": "0.24.0",
         "jsonc-parser": "^3.3.1",
@@ -38,7 +38,7 @@
         "@cortexkit/opencode-antigravity-auth": "workspace:*",
       },
       "devDependencies": {
-        "@cortexkit/claustrum-client": "0.18.0",
+        "@cortexkit/claustrum-client": "0.21.0",
         "@cortexkit/subc-client": "0.24.0",
         "@opencode/plugin": "2.0.22",
         "@types/bun": "1.3",
@@ -55,7 +55,7 @@
       },
       "dependencies": {
         "@cortexkit/antigravity-auth-core": "3.1.10",
-        "@cortexkit/claustrum-client": "0.18.0",
+        "@cortexkit/claustrum-client": "0.21.0",
         "@cortexkit/private-files": "0.2.2",
         "@cortexkit/subc-client": "0.24.0",
         "jsonc-parser": "^3.3.1",
@@ -98,7 +98,7 @@
       "version": "3.1.10",
       "dependencies": {
         "@cortexkit/antigravity-auth-core": "3.1.10",
-        "@cortexkit/claustrum-client": "0.18.0",
+        "@cortexkit/claustrum-client": "0.21.0",
         "@cortexkit/subc-client": "0.24.0",
       },
       "devDependencies": {
@@ -257,7 +257,7 @@
 
     "@cortexkit/antigravity-auth-e2e": ["@cortexkit/antigravity-auth-e2e@workspace:packages/e2e-tests"],
 
-    "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.18.0", "", { "dependencies": { "@cortexkit/store": "^0.2.3", "@cortexkit/subc-client": "^0.24.0" } }, "sha512-tdRTrtnmOk3En1ZT1T+J+8NDwZl5FNxtN4w4Im2KV12QypPwyMi1ZBUXS2X4ZyDn4vPbHiOK8gjP+hQMsZ/V9g=="],
+    "@cortexkit/claustrum-client": ["@cortexkit/claustrum-client@0.21.0", "", { "dependencies": { "@cortexkit/store": "^0.2.3", "@cortexkit/subc-client": "^0.24.0" } }, "sha512-36wFsjQOFlma7Mcd4JxYd86PTSu2oBYF4CL6dOJqISe+U+trzlSq1wrrezUr0aio+8qkquoIXGYJ/hDOSRvkPw=="],
 
     "@cortexkit/opencode-antigravity-auth": ["@cortexkit/opencode-antigravity-auth@workspace:packages/opencode"],
 
