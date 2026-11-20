@@ -12,15 +12,15 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.56.0.tgz'
-export const producerVersion = '0.56.0'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.56.1.tgz'
+export const producerVersion = '0.56.1'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  archiveBytes: 504766,
-  shasum: 'a386963ea33a68b2dc5c9f30f60329124a5014bf',
-  sha256: '57adc0dbe822be17cd4df5cbe0eecdce87257858ff2ee65f8d43e0e428001683',
-  sri: 'sha512-s8jHCoHrrIZhbo/oEO88XhAI1DKPWw9sNSvwrGPlqau+I4ZVZ4MTxjlHGnr/TtdymVsGCeyXj9MedBeXcXUXzQ==',
+  archiveBytes: 505365,
+  shasum: 'f8b2504321810ab59a448effc2c485c601a039de',
+  sha256: '32ce3a411b3a8f8034e4c5eb5b79550d7529834567520943ca962d1b13512aa0',
+  sri: 'sha512-5JTuezeHbodZacTXEB6mjoicODWsCYh6J/APShcB11/92KAz8xJjcLG+MVmDK+QtL2VmBNwa7yhHCFiKqqIKww==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -223,13 +223,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/consumer.d.ts',
-    14722,
-    'b4c4a006089b95a5b553fcc03b598851535ba8e5d184c277b7b2fa5ce172f7d9',
+    15756,
+    '3118eb0112ebb100c4f0ec8528eae840fee076b99e39d30c9c204042a9e2fc5e',
   ],
   [
     'claustrum/consumer.js',
-    41187,
-    'c566f9a86fcd7cacb64901f68d4d0399424e2f27135bbdc1855f5c8262be9604',
+    42662,
+    'c257a0ed546c9e55ee93a77a3d2247d8e65274f0dfb944b676f9da1ad23a3df5',
   ],
   [
     'claustrum/custody.d.ts',
@@ -283,13 +283,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/hub.d.ts',
-    9719,
-    '489a3214a386ad2329d7348288c371d41e79427bfc2daa91e2743cd4ddeccec9',
+    9816,
+    '71196e15856a31236ae0f77f2e8b37d5216e5f7d42170a1eda27a154d1542b67',
   ],
   [
     'claustrum/hub.js',
-    48395,
-    '77bb04f1e6956eb2419b4d497fd2c478f59833f0a1bcc7650a090bd5c8a6ec23',
+    48839,
+    '31af42582b6e9694ce334403bc3105fce8864c12d69146f4938a7300a1f718ce',
   ],
   [
     'claustrum/index.d.ts',
@@ -1564,7 +1564,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    '0521145fb7768d924d25e448d4f5199b92fc8cb950646748567b440994a22e07'
+    'b87a3ff7a596bd92bb16c387cbef26e79d4cc80bb8b1b8726f07d183da29fae9'
   )
     throw new Error('publication: manifest bytes')
 }

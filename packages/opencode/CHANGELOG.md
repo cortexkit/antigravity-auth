@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Embed the published common-auth 0.56.1 release.
 - Use claustrum-client 0.21.0
 - Embed the published common-auth 0.56.0 release.
 - Refresh local account quota based on when each account was last checked, even when the sidebar is active. Background checks skip accounts with fresh quota.

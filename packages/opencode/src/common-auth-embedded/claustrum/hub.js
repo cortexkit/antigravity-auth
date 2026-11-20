@@ -533,6 +533,16 @@ export class ClaustrumDiscoveryHub {
                 check();
                 return custody.reportFailure(attempt, status, source);
             },
+            reportCondition: async (attempt, input) => {
+                if (state.released || generation.ended)
+                    return 'skipped';
+                return custody.reportCondition(attempt, input);
+            },
+            clearCondition: async (attempt) => {
+                if (state.released || generation.ended)
+                    return 'skipped';
+                return custody.clearCondition(attempt);
+            },
             reportUsage: (input) => {
                 if (!state.released && !generation.ended)
                     custody.reportUsage(input);

@@ -798,6 +798,38 @@ export class ClaustrumConsumer {
             throw new ClaustrumConsumerError('no-receipt', 'Claustrum dispatch receipt has no active owner');
         await this.#custody.reportFailure(attempt, status, source);
     }
+    /** The custody (or hub lease) that issued `attempt`, or a `no-receipt` refusal. */
+    #issuingCustody(attempt) {
+        const custody = this.#hub
+            ? this.#issuedBy.get(attempt)?.custody
+            : this.#custody;
+        if (!custody)
+            throw new ClaustrumConsumerError('no-receipt', 'Claustrum dispatch receipt has no active owner');
+        return custody;
+    }
+    /**
+     * Report a provider login condition through the custody that issued the
+     * receipt; see `ClaustrumScopedCustody.reportCondition`. Bookkeeping: call it
+     * after handing back the reply, never on the request path. It resolves
+     * `skipped` after shutdown and rejects only with `no-receipt` for a receipt
+     * no live custody of this consumer issued.
+     */
+    async reportCondition(attempt, input) {
+        if (this.#shutdown.signal.aborted)
+            return 'skipped';
+        return this.#issuingCustody(attempt).reportCondition(attempt, input);
+    }
+    /**
+     * Clear a listed login condition through the custody that issued the
+     * receipt; see `ClaustrumScopedCustody.clearCondition`. Safe to call after
+     * every successful reply: it sends nothing unless the login is marked.
+     * Same `skipped` and `no-receipt` rules as `reportCondition`.
+     */
+    async clearCondition(attempt) {
+        if (this.#shutdown.signal.aborted)
+            return 'skipped';
+        return this.#issuingCustody(attempt).clearCondition(attempt);
+    }
     /**
      * Send on a vault route. `dispatch` builds and sends the request with the
      * receipt's token and may be called twice, so it must be able to rebuild

@@ -1,7 +1,7 @@
 import type { ClaustrumReporterSource } from '@cortexkit/claustrum-client';
 import type { QuotaObservation } from '../quota/index.js';
 import type { RoutingRow } from '../routing/index.js';
-import { type ClaustrumFamily, type ClaustrumScopedAttempt, type ClaustrumScopedClient, type IdentityParser, type KeptReceiptState, type VaultGrantReach } from './custody.js';
+import { type ClaustrumFamily, type ClaustrumScopedAttempt, type ClaustrumScopedClient, type IdentityParser, type KeptReceiptState, type VaultConditionOutcome, type VaultConditionReason, type VaultGrantReach } from './custody.js';
 import { type ClaustrumLogger } from './errors.js';
 import type { CustodyLease } from './hub.js';
 import { type InsulaQuotaOptions, type InsulaQuotaResult } from './insula.js';
@@ -246,6 +246,25 @@ export declare class ClaustrumConsumer<Q = QuotaObservation> {
     }): void;
     usageReportState(): ClaustrumUsageReportState;
     reportFailure(attempt: ClaustrumScopedAttempt, status: number, source: ClaustrumReporterSource): Promise<void>;
+    /**
+     * Report a provider login condition through the custody that issued the
+     * receipt; see `ClaustrumScopedCustody.reportCondition`. Bookkeeping: call it
+     * after handing back the reply, never on the request path. It resolves
+     * `skipped` after shutdown and rejects only with `no-receipt` for a receipt
+     * no live custody of this consumer issued.
+     */
+    reportCondition(attempt: ClaustrumScopedAttempt, input: {
+        reason: VaultConditionReason;
+        providerStatus: number;
+        actionUrl?: string;
+    }): Promise<VaultConditionOutcome>;
+    /**
+     * Clear a listed login condition through the custody that issued the
+     * receipt; see `ClaustrumScopedCustody.clearCondition`. Safe to call after
+     * every successful reply: it sends nothing unless the login is marked.
+     * Same `skipped` and `no-receipt` rules as `reportCondition`.
+     */
+    clearCondition(attempt: ClaustrumScopedAttempt): Promise<VaultConditionOutcome>;
     /**
      * Send on a vault route. `dispatch` builds and sends the request with the
      * receipt's token and may be called twice, so it must be able to rebuild
