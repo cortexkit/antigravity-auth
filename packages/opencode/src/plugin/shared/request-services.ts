@@ -61,6 +61,8 @@ import {
   UNCONFIRMED_RATE_LIMIT_MESSAGE,
   unconfirmedRateLimitDelayMs,
   VAULT_ACCOUNT_REMEDY,
+  type VaultConditionInput,
+  type VaultConditionOutcome,
 } from '@cortexkit/antigravity-auth-core'
 import { hasVaultHost } from '../../common-auth-embedded/claustrum/host.js'
 import {
@@ -497,6 +499,14 @@ export interface VaultRequestCredentials<A extends RequestAccountRow> {
   emptyRosterRefusal?(): string | undefined
 }
 
+type VaultConditionWork = () => Promise<VaultConditionOutcome> | undefined
+
+interface RequestCompletion {
+  refusal?: () => Response
+  quota?: (signal: AbortSignal) => Promise<void>
+  vaultConditions: VaultConditionWork[]
+}
+
 /** One vault admission, valid for exactly one physical send. */
 export interface RequestSendAdmission {
   readonly fromKeptReceipt?: true
@@ -515,6 +525,8 @@ export interface RequestSendAdmission {
    * A reporting failure is logged and ignored unless the request was aborted.
    */
   report401(status: number): Promise<unknown>
+  reportCondition?(input: VaultConditionInput): Promise<VaultConditionOutcome>
+  clearCondition?(): Promise<VaultConditionOutcome>
 }
 
 /** Which store holds the selected row's credentials. */
@@ -540,6 +552,7 @@ export interface AccountAccessErrorDetails {
   accountIneligible: boolean
   message?: string
   verifyUrl?: string
+  structuredVerifyUrl?: string
 }
 
 /** The account and header style a session's request was finally sent with. */
@@ -1188,6 +1201,27 @@ export function createRequestExecutor<A extends RequestAccountRow>(
   let retired = false
   let drainPromise: Promise<void> | undefined
   let disposePromise: Promise<void> | undefined
+  let warnedConditionReceipt = false
+
+  const runVaultCondition = (operation: VaultConditionWork): void => {
+    void Promise.resolve()
+      .then(operation)
+      .catch((error: unknown) => {
+        if (
+          warnedConditionReceipt ||
+          !(error instanceof Error) ||
+          !('kind' in error) ||
+          error.kind !== 'no-receipt'
+        )
+          return
+        warnedConditionReceipt = true
+        try {
+          log.warn('vault-condition-no-receipt')
+        } catch {
+          // Diagnostics cannot fail a published reply.
+        }
+      })
+  }
 
   /** Reports a 401 served to an auxiliary send against its admission. */
   const reportVault401 = (
@@ -1221,10 +1255,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     selectedCredentials: Set<string>,
     selectedProjectIds: Set<string>,
     deadline: PreResponseDeadline,
-    waitPolicy: {
-      refusal?: () => Response
-      quota?: (signal: AbortSignal) => Promise<void>
-    },
+    waitPolicy: RequestCompletion,
     waits: RoutingWaits,
   ): Promise<Response> {
     const assertAdmission = async (): Promise<void> => {
@@ -3600,6 +3631,21 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 errorBodyText === undefined
                   ? undefined
                   : classifyAccessError(errorBodyText)
+              const served = sendAdmission
+              const reportCondition = (
+                reason: VaultConditionInput['reason'],
+              ) => {
+                if (credentials.domain !== 'vault' || !served?.reportCondition)
+                  return
+                const actionUrl = extracted?.structuredVerifyUrl
+                waitPolicy.vaultConditions.push(() =>
+                  served.reportCondition?.({
+                    reason,
+                    providerStatus: 403,
+                    ...(actionUrl && { actionUrl }),
+                  }),
+                )
+              }
               if (
                 routedIdentity &&
                 (extracted?.accountIneligible || extracted?.validationRequired)
@@ -3642,6 +3688,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 trackers.health.recordFailure(account.index)
                 retainHttpFailure(response)
                 shouldSwitchAccount = true
+                reportCondition('provider_ineligible')
                 break
               }
 
@@ -3684,6 +3731,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 trackers.health.recordFailure(account.index)
                 retainHttpFailure(response)
                 shouldSwitchAccount = true
+                reportCondition('provider_verification_required')
                 break
               }
             }
@@ -3914,6 +3962,14 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               waitPolicy.quota = (signal) =>
                 refresh(account, config.quota_refresh_interval_minutes, signal)
             }
+            const served = sendAdmission
+            if (
+              credentials.domain === 'vault' &&
+              response.ok &&
+              transformedResponse.ok &&
+              served?.clearCondition
+            )
+              waitPolicy.vaultConditions.push(() => served.clearCondition?.())
             return routingObservation &&
               credentials.domain === 'vault' &&
               sendAdmission &&
@@ -4157,10 +4213,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           : [shutdown.signal],
         () => log.debug('post-response-advisory-work-failed'),
       )
-      const waitPolicy: {
-        refusal?: () => Response
-        quota?: (signal: AbortSignal) => Promise<void>
-      } = {}
+      const waitPolicy: RequestCompletion = { vaultConditions: [] }
+      const publishVaultConditions = () => {
+        for (const operation of waitPolicy.vaultConditions.splice(0))
+          runVaultCondition(operation)
+      }
       const selectedCredentials = new Set<string>()
       const selectedProjectIds = new Set<string>()
       const redactFailure = (error: unknown) => {
@@ -4245,7 +4302,25 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             throw redactFailure(error)
           },
         )
+        .then((response) => {
+          if (waitPolicy.vaultConditions.length > 0) {
+            // Use the host's publication point, not the end of any failed
+            // attempt that may have led to a successful reply on another account.
+            if (requestOptions?.onResponseHandoff) {
+              try {
+                requestOptions.onResponseHandoff(publishVaultConditions)
+                return response
+              } catch {
+                // Even a failed handoff registration cannot change the reply.
+              }
+            }
+            setImmediate(publishVaultConditions)
+          }
+          return response
+        })
         .catch((error: unknown) => {
+          if (waitPolicy.vaultConditions.length > 0)
+            setImmediate(publishVaultConditions)
           handoff.cancel()
           deadline.dispose()
           cancellation.release()

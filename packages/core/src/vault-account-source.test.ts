@@ -153,6 +153,12 @@ function harness(): Harness {
     ) {
       h.reports.push({ attempt, status, source })
     }
+    async reportCondition() {
+      return 'unsupported' as const
+    }
+    async clearCondition() {
+      return 'unsupported' as const
+    }
     async decline(routeId: string) {
       h.declined.push(routeId)
     }
@@ -765,6 +771,12 @@ type ScopedRow = ScopedInventory['rows'][number]
 type ServedCredential = Awaited<ReturnType<VaultScopedClient['getScoped']>>
 type GetScopedInput = Parameters<VaultScopedClient['getScoped']>[0]
 type ReportInput = Parameters<VaultScopedClient['reportAuthFailureScoped']>[0]
+type ConditionReport = Parameters<
+  NonNullable<VaultScopedClient['reportCondition']>
+>[0]
+type ConditionClear = Parameters<
+  NonNullable<VaultScopedClient['clearCondition']>
+>[0]
 
 const ENROLLMENT_TOKEN = 'ab'.repeat(32)
 const SILENT = { warn() {}, debug() {} }
@@ -774,6 +786,8 @@ interface LocalVault {
   served: ServedCredential[]
   gets: GetScopedInput[]
   reports: ReportInput[]
+  conditionReports: ConditionReport[]
+  conditionClears: ConditionClear[]
   listTokens: (string | undefined)[]
   closed: number
   /** When this promise is set, `getScoped` waits for it before answering. */
@@ -819,6 +833,8 @@ function localVault(rows: ScopedRow[] = [vaultRow()]): LocalVault {
     served: [],
     gets: [],
     reports: [],
+    conditionReports: [],
+    conditionClears: [],
     listTokens: [],
     closed: 0,
   }
@@ -856,6 +872,13 @@ async function realSource(vault: LocalVault, hosted = false) {
     },
     async reportAuthFailureScoped(input) {
       vault.reports.push(input)
+    },
+    async reportCondition(input) {
+      vault.conditionReports.push(input)
+    },
+    async clearCondition(input) {
+      vault.conditionClears.push(input)
+      return true
     },
     close() {
       vault.closed++
@@ -900,6 +923,56 @@ async function realSource(vault: LocalVault, hosted = false) {
 }
 
 describe('real public consumer with a local vault transport', () => {
+  for (const hosted of [false, true]) {
+    it(`forwards login conditions with the served record versions in ${hosted ? 'host' : 'standalone vault'} mode`, async () => {
+      await withVaultHost(
+        hosted ? 'thalamus' : undefined,
+        undefined,
+        async () => {
+          const vault = localVault([
+            vaultRow({
+              condition: {
+                reason: 'provider_verification_required',
+                sinceMs: 123,
+              },
+            }),
+          ])
+          const { src, ref } = await realSource(vault, hosted)
+          try {
+            vault.served.push(servedCredential(5), servedCredential(6))
+            const old = await src.admit(ref)
+            const current = await src.admit(ref)
+            const condition = {
+              reason: 'provider_verification_required',
+              providerStatus: 403,
+              actionUrl: 'https://accounts.google.com/verify',
+            } as const
+            expect(await src.reportCondition(old, condition)).toBe('reported')
+            expect(await src.clearCondition(current)).toBe('reported')
+            const enrollment = hosted ? '' : ENROLLMENT_TOKEN
+            expect(vault.conditionReports).toEqual([
+              {
+                ...condition,
+                credentialId: CREDENTIAL,
+                recordVersion: 5,
+                enrollmentToken: enrollment,
+              },
+            ])
+            expect(vault.conditionClears).toEqual([
+              {
+                credentialId: CREDENTIAL,
+                recordVersion: 6,
+                enrollmentToken: enrollment,
+              },
+            ])
+          } finally {
+            await src.dispose()
+          }
+        },
+      )
+    })
+  }
+
   it('[hosted] serves receipts and reports the final unauthorized send to the same client without native files', async () => {
     await withVaultHost('thalamus', undefined, async () => {
       const vault = localVault()

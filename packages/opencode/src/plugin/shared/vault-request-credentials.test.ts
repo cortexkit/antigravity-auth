@@ -7,6 +7,7 @@
 import { describe, expect, it } from 'bun:test'
 import type {
   VaultAccountState,
+  VaultConditionInput,
   VaultProviderStateFile,
   VaultStateAttribution,
 } from '@cortexkit/antigravity-auth-core'
@@ -35,6 +36,8 @@ describe('createVaultRequestCredentials', () => {
     }
     const issued: { recordVersion: number; accessToken: string }[] = []
     const reported: unknown[] = []
+    const conditions: { admission: unknown; input: VaultConditionInput }[] = []
+    const cleared: unknown[] = []
     const source = {
       admit: async (ref: typeof route, signal?: AbortSignal) => {
         expect(ref).toBe(route)
@@ -54,6 +57,17 @@ describe('createVaultRequestCredentials', () => {
       reportServedStatus: async (admission: unknown, status: number) => {
         reported.push({ admission, status })
         return status === 401
+      },
+      reportCondition: async (
+        admission: unknown,
+        input: VaultConditionInput,
+      ) => {
+        conditions.push({ admission, input })
+        return 'reported' as const
+      },
+      clearCondition: async (admission: unknown) => {
+        cleared.push(admission)
+        return 'reported' as const
       },
     }
     const credentials = createVaultRequestCredentials(source)
@@ -76,6 +90,17 @@ describe('createVaultRequestCredentials', () => {
     expect(first.recordVersion).toBe(1)
     await first.report401(401)
     expect(reported).toEqual([{ admission: issued[0], status: 401 }])
+    const input = {
+      reason: 'provider_ineligible',
+      providerStatus: 403,
+    } as const
+    expect(await first.reportCondition?.(input)).toBe('reported')
+    expect(conditions).toHaveLength(1)
+    expect(conditions[0]?.admission).toBe(issued[0])
+    expect(conditions[0]?.input).toBe(input)
+    expect(await second.clearCondition?.()).toBe('reported')
+    expect(cleared).toHaveLength(1)
+    expect(cleared[0]).toBe(issued[1])
   })
 })
 

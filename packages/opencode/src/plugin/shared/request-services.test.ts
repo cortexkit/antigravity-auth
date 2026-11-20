@@ -22,6 +22,8 @@ import {
   TokenBucketTracker,
   UNCONFIRMED_RATE_LIMIT_MESSAGE,
   VAULT_ACCOUNT_REMEDY,
+  type VaultConditionInput,
+  type VaultConditionOutcome,
 } from '@cortexkit/antigravity-auth-core'
 import { runCommandBytes } from '../../../../../test/support/run-command.ts'
 import { vaultWaitClock } from '../../../../../test/support/vault-wait-clock.test.ts'
@@ -4784,6 +4786,208 @@ describe('createRequestExecutor retry contract', () => {
       await executor.dispose()
     }
   })
+})
+
+describe('vault login condition bookkeeping', () => {
+  const actionUrl = 'https://accounts.google.com/signin/continue?flow=verify'
+  const messageUrl = 'https://accounts.google.com/signin/continue?plt=message'
+  const refusal = (reason: string, url?: string) =>
+    new Response(
+      JSON.stringify({
+        error: {
+          code: 403,
+          status: 'PERMISSION_DENIED',
+          message: `${reason}: ${messageUrl}`,
+          details: [
+            { reason, ...(url && { metadata: { validation_url: url } }) },
+          ],
+        },
+      }),
+      { status: 403, headers: { 'content-type': 'application/json' } },
+    )
+  const afterBookkeeping = () =>
+    new Promise<void>((resolve) => setImmediate(resolve))
+
+  function fixture(options: {
+    responses: Response[]
+    local?: boolean
+    report: () => Promise<VaultConditionOutcome>
+    clear: () => Promise<VaultConditionOutcome>
+  }) {
+    const h = harness({
+      pool: makePool(options.responses.length),
+      respond: async (_call, index) => {
+        const response = options.responses[index]
+        if (!response) throw new Error('unexpected upstream attempt')
+        return response
+      },
+      config: { max_account_switches: 2 },
+    })
+    const issued: RequestSendAdmission[] = []
+    const reports: {
+      admission: RequestSendAdmission
+      input: VaultConditionInput
+    }[] = []
+    const clears: RequestSendAdmission[] = []
+    const admit = mock(
+      async (account: ManagedAccount): Promise<RequestSendAdmission> => {
+        const admission: RequestSendAdmission = {
+          ...routingAdmission(account),
+          reportCondition(input) {
+            reports.push({ admission: this, input })
+            return options.report()
+          },
+          clearCondition() {
+            clears.push(this)
+            return options.clear()
+          },
+        }
+        issued.push(admission)
+        return admission
+      },
+    )
+    const warn = mock((..._args: Parameters<typeof h.deps.logger.warn>) => {})
+    const deps = options.local ? h.deps : vaultDeps(h, admit)
+    const executor = createRequestExecutor({
+      ...deps,
+      logger: { ...deps.logger, warn },
+    })
+    return { executor, h, issued, reports, clears, admit, warn }
+  }
+
+  for (const [reason, mapped, structured] of [
+    ['VALIDATION_REQUIRED', 'provider_verification_required', actionUrl],
+    ['ACCOUNT_INELIGIBLE', 'provider_ineligible', undefined],
+  ] as const) {
+    it(`reports ${reason} once on the receipt that served it`, async () => {
+      const h = fixture({
+        responses: [refusal(reason, structured)],
+        report: async () => 'reported',
+        clear: async () => 'reported',
+      })
+      try {
+        const reply = await publishResponse((onResponseHandoff) =>
+          h.executor.execute(NON_STREAM_URL, CHAT_INIT(), {
+            onResponseHandoff,
+          }),
+        )
+        expect(reply.status).toBe(403)
+        expect(await reply.text()).toContain(reason)
+        await afterBookkeeping()
+        expect(h.h.calls).toHaveLength(1)
+        expect(wireBearers(h.h)).toEqual(['Bearer vault-token-0'])
+        expect(h.reports).toHaveLength(1)
+        expect(h.reports[0]?.admission).toBe(h.issued[0])
+        expect(h.reports[0]?.input).toEqual({
+          reason: mapped,
+          providerStatus: 403,
+          ...(structured && { actionUrl: structured }),
+        })
+        expect(h.clears).toEqual([])
+      } finally {
+        await h.executor.dispose()
+      }
+    })
+  }
+
+  it('does not write a vault condition for a local verification refusal', async () => {
+    const h = fixture({
+      responses: [refusal('VALIDATION_REQUIRED', actionUrl)],
+      local: true,
+      report: async () => 'reported',
+      clear: async () => 'reported',
+    })
+    try {
+      const reply = await publishResponse((onResponseHandoff) =>
+        h.executor.execute(NON_STREAM_URL, CHAT_INIT(), { onResponseHandoff }),
+      )
+      expect(reply.status).toBe(403)
+      await reply.text()
+      await afterBookkeeping()
+      expect(h.h.calls).toHaveLength(1)
+      expect(h.admit).not.toHaveBeenCalled()
+      expect(h.reports).toEqual([])
+      expect(h.clears).toEqual([])
+    } finally {
+      await h.executor.dispose()
+    }
+  })
+
+  it('hands back a successful failover reply before reporting and clearing on their own receipts', async () => {
+    const condition = Promise.withResolvers<VaultConditionOutcome>()
+    const h = fixture({
+      responses: [refusal('VALIDATION_REQUIRED'), okJson()],
+      report: () => condition.promise,
+      clear: () => condition.promise,
+    })
+    try {
+      let acknowledge: (() => void) | undefined
+      const reply = await h.executor.execute(NON_STREAM_URL, CHAT_INIT(), {
+        onResponseHandoff: (callback) => {
+          acknowledge = callback
+        },
+      })
+      expect(reply.status).toBe(200)
+      expect(await reply.text()).toContain('hi')
+      expect(wireBearers(h.h)).toEqual([
+        'Bearer vault-token-0',
+        'Bearer vault-token-1',
+      ])
+      expect(h.reports).toEqual([])
+      expect(h.clears).toEqual([])
+      expect(acknowledge).toBeDefined()
+      acknowledge?.()
+      await afterBookkeeping()
+      expect(h.reports).toHaveLength(1)
+      expect(h.reports[0]?.admission).toBe(h.issued[0])
+      expect(h.clears).toHaveLength(1)
+      expect(h.clears[0]).toBe(h.issued[1])
+    } finally {
+      condition.resolve('reported')
+      await h.executor.dispose()
+    }
+  })
+
+  for (const reject of [false, true]) {
+    it(`does not change failover when condition operations ${reject ? 'reject no-receipt' : 'return failed and unsupported'}`, async () => {
+      const noReceipt = () =>
+        Object.assign(new Error('private receipt detail'), {
+          kind: 'no-receipt',
+        })
+      const h = fixture({
+        responses: [refusal('ACCOUNT_INELIGIBLE'), okJson()],
+        report: async () => {
+          if (reject) throw noReceipt()
+          return 'failed'
+        },
+        clear: async () => {
+          if (reject) throw noReceipt()
+          return 'unsupported'
+        },
+      })
+      try {
+        const reply = await publishResponse((onResponseHandoff) =>
+          h.executor.execute(NON_STREAM_URL, CHAT_INIT(), {
+            onResponseHandoff,
+          }),
+        )
+        expect(reply.status).toBe(200)
+        expect(await reply.text()).toContain('hi')
+        expect(wireBearers(h.h)).toEqual([
+          'Bearer vault-token-0',
+          'Bearer vault-token-1',
+        ])
+        await afterBookkeeping()
+        expect(h.reports).toHaveLength(1)
+        expect(h.clears).toHaveLength(1)
+        expect(h.warn.mock.calls).toEqual(
+          reject ? [['vault-condition-no-receipt']] : [],
+        )
+      } finally {
+        await h.executor.dispose()
+      }
+    })
+  }
 })
 
 // Google answers a model the account cannot use with HTTP 404 and the

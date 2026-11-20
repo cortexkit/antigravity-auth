@@ -55,8 +55,23 @@ export type VaultRequestSource = Pick<
   'refresh' | 'routes' | 'admit' | 'reportServedStatus'
 > &
   Partial<
-    Pick<AntigravityVaultAccountSource, 'emptyRosterCause' | 'retryAfter401'>
+    Pick<
+      AntigravityVaultAccountSource,
+      | 'emptyRosterCause'
+      | 'retryAfter401'
+      | 'reportCondition'
+      | 'clearCondition'
+    >
   >
+
+type VaultSendSource = Pick<
+  VaultRequestSource,
+  | 'admit'
+  | 'reportServedStatus'
+  | 'retryAfter401'
+  | 'reportCondition'
+  | 'clearCondition'
+>
 
 /**
  * The vault account source operations durable selection state uses. A source
@@ -135,10 +150,12 @@ class VaultSendGrant implements RequestSendAdmission {
   readonly recordVersion: number
   readonly projectId: string
   readonly report401: (status: number) => Promise<unknown>
+  readonly reportCondition?: RequestSendAdmission['reportCondition']
+  readonly clearCondition?: RequestSendAdmission['clearCondition']
 
   constructor(
     admission: Awaited<ReturnType<VaultRequestSource['admit']>>,
-    report: (status: number) => Promise<unknown>,
+    source: VaultSendSource,
   ) {
     Object.defineProperty(this, 'accessToken', {
       value: admission.accessToken,
@@ -149,7 +166,9 @@ class VaultSendGrant implements RequestSendAdmission {
     this.recordVersion = admission.recordVersion
     this.projectId = admission.projectId
     this.fromKeptReceipt = admission.fromKeptReceipt
-    this.report401 = report
+    this.report401 = (status) => source.reportServedStatus(admission, status)
+    this.reportCondition = source.reportCondition?.bind(source, admission)
+    this.clearCondition = source.clearCondition?.bind(source, admission)
   }
 }
 
@@ -160,10 +179,7 @@ class VaultSendGrant implements RequestSendAdmission {
  * `createVaultSelectionState`).
  */
 export function createVaultRequestCredentials(
-  source: Pick<
-    VaultRequestSource,
-    'admit' | 'reportServedStatus' | 'retryAfter401'
-  >,
+  source: VaultSendSource,
   onAdmitted?: {
     readonly source: Pick<VaultStateSource, 'attribution'>
     admitted(row: VaultAccountRow, attribution: VaultStateAttribution): void
@@ -199,9 +215,7 @@ export function createVaultRequestCredentials(
       const admission = await source.admit(account.route, signal)
       if (onAdmitted)
         onAdmitted.admitted(account, onAdmitted.source.attribution(admission))
-      const grant = new VaultSendGrant(admission, (status) =>
-        source.reportServedStatus(admission, status),
-      )
+      const grant = new VaultSendGrant(admission, source)
       issued.set(grant, admission)
       return grant
     },

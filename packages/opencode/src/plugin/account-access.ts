@@ -169,11 +169,39 @@ export function selectBestVerificationUrl(urls: string[]): string | undefined {
   return unique[0]
 }
 
+function structuredVerificationUrl(bodyText: string): string | undefined {
+  const urls = new Set<string>()
+  const collect = (payload: string) => {
+    try {
+      // Parse before unescaping individual values so message text cannot turn
+      // into a structured URL field.
+      JSON.parse(payload, (key, value: unknown) => {
+        if (
+          typeof value === 'string' &&
+          /^(?:validation_url|verify_url|verification_url|url)$/i.test(key) &&
+          /^https:\/\//i.test(decodeEscapedText(value).trim())
+        )
+          urls.add(value)
+        return value
+      })
+    } catch {
+      // Plain text is not a source of vault action URLs.
+    }
+  }
+  collect(bodyText)
+  for (const rawLine of bodyText.split('\n')) {
+    const line = rawLine.trim()
+    if (line.startsWith('data:')) collect(line.slice(5))
+  }
+  return selectBestVerificationUrl([...urls])
+}
+
 export function extractAccountAccessErrorDetails(bodyText: string): {
   validationRequired: boolean
   accountIneligible: boolean
   message?: string
   verifyUrl?: string
+  structuredVerifyUrl?: string
 } {
   const decodedBody = decodeEscapedText(bodyText)
   const lowerBody = decodedBody.toLowerCase()
@@ -284,11 +312,13 @@ export function extractAccountAccessErrorDetails(bodyText: string): {
       )
   }
 
+  const structuredVerifyUrl = structuredVerificationUrl(bodyText)
   return {
     validationRequired,
     accountIneligible,
     message,
     verifyUrl: selectBestVerificationUrl([...verificationUrls]),
+    ...(structuredVerifyUrl && { structuredVerifyUrl }),
   }
 }
 

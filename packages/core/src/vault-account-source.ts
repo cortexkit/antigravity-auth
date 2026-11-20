@@ -79,6 +79,12 @@ export type VaultRosterRow = VaultRoster['rows'][number]
 export type VaultReporterSource = Parameters<
   ClaustrumConsumerInstance['reportFailure']
 >[2]
+export type VaultConditionInput = Parameters<
+  ClaustrumConsumerInstance['reportCondition']
+>[1]
+export type VaultConditionOutcome = Awaited<
+  ReturnType<ClaustrumConsumerInstance['reportCondition']>
+>
 export type VaultLogger = NonNullable<VaultConsumerOptions['logger']>
 /**
  * What the vault's latest account listing reported about this host's grants:
@@ -97,6 +103,8 @@ export type VaultClaustrumConsumer = Pick<
   | 'start'
   | 'authorize'
   | 'reportFailure'
+  | 'reportCondition'
+  | 'clearCondition'
   | 'decline'
   | 'accept'
   | 'close'
@@ -285,6 +293,13 @@ export interface AntigravityVaultAccountSource {
     status: number,
     reporterSource?: VaultReporterSource,
   ): Promise<boolean>
+  /** Tell the vault what Google refused, using the receipt that served the request. */
+  reportCondition(
+    admission: VaultSendAdmission,
+    input: VaultConditionInput,
+  ): Promise<VaultConditionOutcome>
+  /** Clear a login condition after Google accepted the same receipt's credential. */
+  clearCondition(admission: VaultSendAdmission): Promise<VaultConditionOutcome>
   /** Apply the consumer's retry policy to the original receipts behind these admissions. */
   retryAfter401?(
     served: VaultSendAdmission,
@@ -698,6 +713,10 @@ export function createAntigravityVaultAccountSource(
       return response
     },
     reportServedStatus,
+    reportCondition: async (admission, input) =>
+      consumer.reportCondition(issuedEntry(admission).receipt, input),
+    clearCondition: async (admission) =>
+      consumer.clearCondition(issuedEntry(admission).receipt),
     attribution: (admission) => {
       issuedEntry(admission)
       return Object.freeze({

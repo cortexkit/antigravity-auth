@@ -235,6 +235,8 @@ describe('shared request engine import graph', () => {
         'type QuotaGroupSummary',
         'type QuotaManager',
         'type TokenBucketTracker',
+        'type VaultConditionInput',
+        'type VaultConditionOutcome',
         'unconfirmedRateLimitDelayMs',
       ],
       '../../constants': [

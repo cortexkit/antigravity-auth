@@ -109,6 +109,8 @@ async function fixture(
       throw new Error('unused')
     },
     reportServedStatus: async () => false,
+    reportCondition: async () => 'unsupported',
+    clearCondition: async () => 'unsupported',
     decline: async () => {},
     accept: async () => {},
     grantReach: () => undefined,

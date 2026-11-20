@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- In vault mode, a Google login that needs browser verification or isn't eligible for Antigravity is marked in the vault, so routing skips it and the vault shows it needs action; the mark clears after that login serves again.
 - Embed the published common-auth 0.56.1 release.
 - Use claustrum-client 0.21.0
 - Embed the published common-auth 0.56.0 release.
