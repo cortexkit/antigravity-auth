@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [3.1.12] - 2026-11-21
 
 - On OpenCode 2 in vault mode, a workspace that hit a rate limit now picks up the background quota check's newer reading without a restart, and one workspace no longer overwrites another's newer cooldown ([#77](https://github.com/cortexkit/antigravity-auth/issues/77)).
 
