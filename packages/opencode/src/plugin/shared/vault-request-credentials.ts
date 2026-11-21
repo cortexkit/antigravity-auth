@@ -17,9 +17,12 @@
  */
 
 import {
+  type AccessVerdict,
   AccountSelector,
   type AntigravityQuotaCheckReport,
   type AntigravityVaultAccountSource,
+  applyAccessVerdict,
+  applyCooldownObservation,
   applyRateLimitObservation,
   applyRateLimitReadingUpdate,
   clearAccountLimits,
@@ -27,6 +30,7 @@ import {
   type QuotaState,
   type QuotaSummary,
   rateLimitReadingUpdateOf,
+  reconcileManualLimitClear,
   type SelectableAccount,
   type SelectionSink,
   stampRateLimitWrites,
@@ -124,9 +128,8 @@ export function vaultAccountRowKey(row: VaultAccountRow): string {
 
 /**
  * Keeps a vault row's in-memory selection state across a roster re-read and
- * takes only the route's display fields from the fresh roster. A kept row's
- * in-memory state is the newest there is; stored state (see
- * `createVaultSelectionState`) is restored only onto rows that are new.
+ * takes only the route's display fields from the fresh roster. The pool
+ * reconciles newer shared quota readings and limit clears separately.
  */
 export function refreshVaultAccountRow(
   prior: VaultAccountRow,
@@ -242,14 +245,6 @@ type DurableSelection = Pick<
   | 'cooldownReason'
   | 'fingerprint'
   | 'fingerprintHistory'
-  | 'verificationRequired'
-  | 'verificationRequiredAt'
-  | 'verificationRequiredReason'
-  | 'verificationUrl'
-  | 'accountIneligible'
-  | 'accountIneligibleAt'
-  | 'accountIneligibleReason'
-  | 'eligibilityStateUpdatedAt'
   | 'dailyRequestCounts'
 >
 
@@ -333,30 +328,6 @@ function durableSelectionOf(row: VaultAccountRow): DurableSelection {
       : {}),
     ...(row.fingerprintHistory !== undefined
       ? { fingerprintHistory: structuredClone(row.fingerprintHistory) }
-      : {}),
-    ...(row.verificationRequired !== undefined
-      ? { verificationRequired: row.verificationRequired }
-      : {}),
-    ...(row.verificationRequiredAt !== undefined
-      ? { verificationRequiredAt: row.verificationRequiredAt }
-      : {}),
-    ...(row.verificationRequiredReason !== undefined
-      ? { verificationRequiredReason: row.verificationRequiredReason }
-      : {}),
-    ...(row.verificationUrl !== undefined
-      ? { verificationUrl: row.verificationUrl }
-      : {}),
-    ...(row.accountIneligible !== undefined
-      ? { accountIneligible: row.accountIneligible }
-      : {}),
-    ...(row.accountIneligibleAt !== undefined
-      ? { accountIneligibleAt: row.accountIneligibleAt }
-      : {}),
-    ...(row.accountIneligibleReason !== undefined
-      ? { accountIneligibleReason: row.accountIneligibleReason }
-      : {}),
-    ...(row.eligibilityStateUpdatedAt !== undefined
-      ? { eligibilityStateUpdatedAt: row.eligibilityStateUpdatedAt }
       : {}),
     ...(row.dailyRequestCounts !== undefined
       ? { dailyRequestCounts: { ...row.dailyRequestCounts } }
@@ -446,10 +417,13 @@ export interface VaultSelectionState {
   /**
    * Restores stored selection state onto fresh rows. A row takes state only
    * when that state was last written for the same asserted account, route
-   * and credential; state of another account, route or credential is left
-   * alone.
+   * and credential. For keys already in the pool, load only the evidence
+   * the pool uses to reconcile its live row.
    */
-  hydrate(rows: readonly VaultAccountRow[]): Promise<void>
+  hydrate(
+    rows: readonly VaultAccountRow[],
+    keptKeys?: ReadonlySet<string>,
+  ): Promise<void>
   /**
    * Writes each changed row's selection state, attributed to the receipt
    * that last served it. A row not yet served in this process has no
@@ -549,6 +523,7 @@ export function createVaultSelectionState(
   const attributions = new WeakMap<VaultAccountRow, VaultStateAttribution>()
   const changed = new Set<VaultAccountRow>()
   const clears = new WeakMap<VaultAccountRow, Set<string>>()
+  const accessVerdicts = new WeakMap<VaultAccountRow, AccessVerdict[]>()
   const legacyLoads = new Map<string, LegacyLimitStamps>()
   let writing: Promise<void> = Promise.resolve()
   const mark = (row: VaultAccountRow) => {
@@ -566,9 +541,12 @@ export function createVaultSelectionState(
     const attribution = attributions.get(row)
     if (attribution === undefined) return
     changed.delete(row)
-    const selection = durableSelectionOf(row)
+    const { coolingDownUntil, cooldownReason, ...selection } =
+      durableSelectionOf(row)
     const cleared = clears.get(row)
     clears.delete(row)
+    const verdicts = accessVerdicts.get(row)
+    accessVerdicts.delete(row)
     try {
       await options.source.commitState(attribution, (current) => {
         let metadata = applyRateLimitObservation(
@@ -592,6 +570,28 @@ export function createVaultSelectionState(
           selection.rateLimitResetTimes ?? {},
           selection.rateLimitWrittenAt ?? {},
         )
+        // Cooldown has no write time. Prefer the later expiry and its reason.
+        if (
+          coolingDownUntil != null &&
+          cooldownReason != null &&
+          (metadata.coolingDownUntil == null ||
+            coolingDownUntil > metadata.coolingDownUntil)
+        ) {
+          metadata = applyCooldownObservation(metadata, {
+            until: coolingDownUntil,
+            reason: cooldownReason,
+          })
+        }
+        for (const verdict of verdicts ?? []) {
+          const applied = applyAccessVerdict(metadata, verdict)
+          if (applied) {
+            metadata = applied.metadata
+            // A cleared verification verdict no longer has a verification
+            // timestamp. Keep its time so an older verdict cannot restore it.
+            if (verdict.kind === 'cleared')
+              metadata.eligibilityStateUpdatedAt = verdict.observedAt
+          }
+        }
         if (cleared) {
           const resets = { ...metadata.rateLimitResetTimes }
           const written = { ...metadata.rateLimitWrittenAt }
@@ -648,7 +648,12 @@ export function createVaultSelectionState(
       switched: mark,
       lastUsed: mark,
       usage: mark,
-      accessVerdict: mark,
+      accessVerdict(row, verdict) {
+        const pending = accessVerdicts.get(row)
+        if (pending) pending.push(verdict)
+        else accessVerdicts.set(row, [verdict])
+        mark(row)
+      },
       fingerprint: mark,
       requestSave: () => {
         void flush()
@@ -657,16 +662,21 @@ export function createVaultSelectionState(
     admitted(row, attribution) {
       attributions.set(row, attribution)
     },
-    async hydrate(rows) {
+    async hydrate(rows, keptKeys) {
       const file = await options.readState()
       for (const row of rows) {
         const identity = row.route.accountIdentity
         if (!Object.hasOwn(file.accounts, identity)) continue
         const state = file.accounts[identity]
         if (state === undefined || !stateBelongsTo(state, row)) continue
-        if (state.metadata !== undefined)
-          applyDurableSelection(row, state.metadata)
-        const stamped = stampRateLimitWrites(row, now())
+        const kept = keptKeys?.has(vaultAccountRowKey(row))
+        if (state.metadata !== undefined) {
+          if (kept)
+            row.rateLimitClearedAt =
+              state.metadata.rateLimitClearedAt ?? undefined
+          else applyDurableSelection(row, state.metadata)
+        }
+        const stamped = kept ? [] : stampRateLimitWrites(row, now())
         if (stamped.length) {
           const legacyKey = legacyLimitKey({
             ...state.observed,
@@ -796,8 +806,9 @@ export interface VaultAccountPool {
    * Brings the rows up to date with the source's roster: the first call
    * reads the roster from the vault, retrying a stalled read once after
    * `VAULT_REFRESH_STALL_MS` (a failed read is retried by the next call); later
-   * calls take the source's last committed routes. New rows
-   * get their stored state; kept rows keep their in-memory state.
+   * calls take the source's last committed routes. New rows get their stored
+   * state; kept rows reconcile newer stored quota and limit clears without
+   * replacing their in-memory selection state.
    */
   sync(signal?: AbortSignal): Promise<void>
   /** Uses only committed routes, without starting or waiting for discovery. */
@@ -852,25 +863,47 @@ export function createVaultAccountPool(
     credentials.emptyRosterRefusal = () =>
       refusal(source.emptyRosterCause?.() ?? 'unknown')
 
-  /** Fresh rows for the source's routes, with stored state on new ones. */
+  const clock = options.now ?? Date.now
+  const refreshKeptRow = (prior: VaultAccountRow, fresh: VaultAccountRow) => {
+    refreshVaultAccountRow(prior, fresh)
+    const clearedAt = fresh.rateLimitClearedAt
+    if (
+      clearedAt !== undefined &&
+      clearedAt > (prior.rateLimitClearedAt ?? 0)
+    ) {
+      prior.rateLimitClearedAt = clearedAt
+      reconcileManualLimitClear(prior)
+    }
+    const checkedAt = fresh.cachedQuotaUpdatedAt
+    if (
+      fresh.cachedQuota !== undefined &&
+      checkedAt !== undefined &&
+      checkedAt > (prior.cachedQuotaUpdatedAt ?? 0) &&
+      checkedAt <= clock()
+    ) {
+      prior.cachedQuota = fresh.cachedQuota
+      prior.cachedQuotaUpdatedAt = checkedAt
+      selector.reconcileQuotaReading(prior, false)
+    }
+  }
+
+  /** Stage stored evidence on fresh rows without changing the live pool. */
   const rowsFromSource = async (): Promise<VaultAccountRow[]> => {
     const rows = vaultAccountRows(source.routes())
-    if (state) {
+    if (state && rows.length > 0) {
       const kept = new Set(selector.rows.map(vaultAccountRowKey))
-      const added = rows.filter((row) => !kept.has(vaultAccountRowKey(row)))
-      if (added.length > 0) await state.hydrate(added)
+      await state.hydrate(rows, kept)
     }
     return rows
   }
   const replace = async () => {
     selector.replaceAccounts(await rowsFromSource(), {
       keyOf: vaultAccountRowKey,
-      refresh: refreshVaultAccountRow,
+      refresh: refreshKeptRow,
     })
   }
 
   let firstRead: Promise<void> | null = null
-  const clock = options.now ?? Date.now
   const schedule =
     options.schedule ??
     ((callback: () => void, delayMs: number) => {
@@ -904,7 +937,7 @@ export function createVaultAccountPool(
       if (current())
         selector.replaceAccounts(rows, {
           keyOf: vaultAccountRowKey,
-          refresh: refreshVaultAccountRow,
+          refresh: refreshKeptRow,
         })
     })().then(
       () => {

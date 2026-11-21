@@ -1,5 +1,9 @@
 # Changelog
 
+## [Unreleased]
+
+- On OpenCode 2 in vault mode, a workspace that hit a rate limit now picks up the background quota check's newer reading without a restart, and one workspace no longer overwrites another's newer cooldown ([#77](https://github.com/cortexkit/antigravity-auth/issues/77)).
+
 ## [3.1.11] - 2026-11-20
 
 - In vault mode, a Google login that needs browser verification or isn't eligible for Antigravity is marked in the vault, so routing skips it and the vault shows it needs action; the mark clears after that login serves again.

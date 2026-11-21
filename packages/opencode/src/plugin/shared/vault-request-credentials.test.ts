@@ -4,14 +4,22 @@
  * domain over an owned stand-in for the core vault account source.
  */
 
-import { describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type {
   VaultAccountState,
   VaultConditionInput,
   VaultProviderStateFile,
   VaultStateAttribution,
 } from '@cortexkit/antigravity-auth-core'
-import { AccountSelector } from '@cortexkit/antigravity-auth-core'
+import {
+  AccountSelector,
+  commitVaultProviderState,
+  loadCommonAuthFs,
+  readVaultProviderState,
+} from '@cortexkit/antigravity-auth-core'
 
 import {
   checkVaultQuota,
@@ -20,6 +28,7 @@ import {
   createVaultSelectionState,
   refreshVaultAccountRow,
   VAULT_REFRESH_STALL_MS,
+  type VaultAccountPool,
   type VaultAccountPoolOptions,
   type VaultRequestSource,
   vaultAccountRowKey,
@@ -525,6 +534,317 @@ describe('createVaultAccountPool', () => {
     expect(keptA?.coolingDownUntil).toBe(61_000)
     expect(addedB?.lastUsed).toBe(77)
     expect(refreshes).toBe(2)
+  })
+})
+
+describe('vault pools sharing one provider-state file', () => {
+  const model = 'gemini-3.8-flash'
+  const key = `gemini:${model}`
+  const limitMs = 5 * 60 * 60 * 1000
+  let f: Awaited<ReturnType<typeof fixture>>
+
+  beforeEach(async () => {
+    f = await fixture()
+  })
+
+  afterEach(async () => {
+    await f?.close()
+  })
+
+  async function fixture() {
+    const fs = await loadCommonAuthFs()
+    const dir = await mkdtemp(join(tmpdir(), 'agy-location-state-'))
+    const statePath = join(dir, 'state.json')
+    let by: VaultStateAttribution = {
+      routeId: 'vault:a',
+      credentialId: 'credential-a',
+      accountIdentity: 'account-a',
+      recordVersion: 1,
+    }
+    const route = () => ({
+      routeId: by.routeId,
+      credentialId: by.credentialId,
+      accountIdentity: by.accountIdentity,
+      label: 'Work',
+    })
+    let now = 1_000
+    const source: VaultRequestSource = {
+      refresh: async () => undefined,
+      routes: () => [route()],
+      admit: async () => ({
+        ...by,
+        accessToken: 'fixture-access',
+        projectId: 'fixture-project',
+        expiresAtMs: null,
+      }),
+      reportServedStatus: async () => false,
+    }
+    const readState = () => readVaultProviderState(statePath)
+    const durable: NonNullable<VaultAccountPoolOptions['durable']> = {
+      readState,
+      source: {
+        attribution: () => by,
+        commitState: (attribution, update) =>
+          commitVaultProviderState({
+            claustrum: {
+              isDeclined: () => false,
+              async mutateVaultRoster(_path, change) {
+                const outcome = await change(
+                  {
+                    version: 1,
+                    complete: true,
+                    declined: [],
+                    rows: [
+                      {
+                        ...route(),
+                        credentialType: 'oauth',
+                        state: 'active',
+                        enabled: true,
+                        addedAt: 1,
+                      },
+                    ],
+                  },
+                  { assertOwned: async () => undefined },
+                )
+                return outcome.result
+              },
+            },
+            fs,
+            rosterPath: join(dir, 'roster.json'),
+            statePath,
+            attribution,
+            verify: async () => undefined,
+            update,
+          }),
+      },
+    }
+    return {
+      now: () => now,
+      advance: (ms: number) => (now += ms),
+      read: async () => (await readState()).accounts[by.accountIdentity],
+      close: () => rm(dir, { recursive: true, force: true }),
+      replaceCredential: () => {
+        by = { ...by, credentialId: 'credential-b' }
+      },
+      async open() {
+        const pool = createVaultAccountPool({ source, durable, now: () => now })
+        await pool.sync()
+        const [row] = pool.selector.rows
+        if (!row) throw new Error('missing vault row')
+        await pool.credentials.admit({ account: row, signal: undefined })
+        return { pool, row }
+      },
+      async checkQuota(
+        pool: VaultAccountPool,
+        observedAt = now,
+        remainingFraction = 0.8,
+      ) {
+        expect(
+          await checkVaultQuota({
+            pool,
+            fetchReading: async () => ({
+              quota: {
+                groups: { gemini: { remainingFraction, modelCount: 1 } },
+                modelCount: 1,
+              },
+              quotaAttribution: by,
+              observedAt,
+            }),
+            signal: new AbortController().signal,
+            now: () => now,
+          }),
+        ).toEqual({ checked: 1, notChecked: 0 })
+        await pool.flush()
+      },
+      async writeUndatedQuota(pool: VaultAccountPool) {
+        const result = await pool.state?.recordQuota(by, {
+          schemaVersion: 1,
+          cachedQuota: { gemini: { remainingFraction: 0.8, modelCount: 1 } },
+        })
+        expect(result?.status).toBe('written')
+      },
+    }
+  }
+
+  it('issue77 a kept vault row becomes selectable after another pool checks quota', async () => {
+    const a = await f.open()
+    a.pool.selector.markRateLimited(a.row, limitMs, 'gemini', model)
+    await a.pool.flush()
+    expect((await f.read())?.metadata?.rateLimitResetTimes?.[key]).toBe(
+      f.now() + limitMs,
+    )
+    expect(
+      a.pool.selector.getCurrentOrNextForFamily('gemini', model),
+    ).toBeNull()
+
+    f.advance(10 * 60 * 1000)
+    const p = await f.open()
+    await f.checkQuota(p.pool)
+    expect(
+      (await f.read())?.metadata?.rateLimitResetTimes?.[key],
+    ).toBeUndefined()
+    await a.pool.sync()
+    expect(a.pool.selector.getCurrentOrNextForFamily('gemini', model)).toBe(
+      a.row,
+    )
+    expect(a.row.cachedQuotaUpdatedAt).toBe(f.now())
+  })
+
+  it('issue77 a stale vault writer cannot shorten another pool’s cooldown', async () => {
+    const a = await f.open()
+    a.pool.selector.markAccountCoolingDown(a.row, 100, 'auth-failure')
+    await a.pool.flush()
+    const b = await f.open()
+    expect(b.row.coolingDownUntil).toBe(1_100)
+
+    f.advance(200)
+    a.pool.selector.markAccountCoolingDown(a.row, 500, 'network-error')
+    await a.pool.flush()
+    const newer = { coolingDownUntil: 1_700, cooldownReason: 'network-error' }
+    expect((await f.read())?.metadata).toMatchObject(newer)
+
+    b.pool.selector.recordRequest(b.row.index, 'gemini')
+    await b.pool.flush()
+    expect((await f.read())?.metadata).toMatchObject(newer)
+  })
+
+  it('keeps a newer local reading and limit when stored quota is older', async () => {
+    const a = await f.open()
+    const p = await f.open()
+    const older = f.now()
+    const newer = f.advance(100)
+    await f.checkQuota(a.pool)
+    const markedAt = f.advance(100)
+    a.pool.selector.markRateLimited(a.row, limitMs, 'gemini', model)
+    await a.pool.flush()
+    await f.checkQuota(p.pool, older, 0.9)
+    expect((await f.read())?.quota?.cachedQuotaUpdatedAt).toBe(older)
+
+    await a.pool.sync()
+    expect(a.row.cachedQuotaUpdatedAt).toBe(newer)
+    expect(a.row.cachedQuota?.gemini?.remainingFraction).toBe(0.8)
+    expect(a.row.rateLimitResetTimes[key]).toBe(markedAt + limitMs)
+  })
+
+  it('adopts a newer reading without clearing a limit written after the reading', async () => {
+    const a = await f.open()
+    const p = await f.open()
+    const checkedAt = f.now()
+    const markedAt = f.advance(100)
+    a.pool.selector.markRateLimited(a.row, limitMs, 'gemini', model)
+    // The background poll writes before the request pool saves its new mark.
+    await f.checkQuota(p.pool, checkedAt)
+    await a.pool.sync()
+    expect(a.row.cachedQuotaUpdatedAt).toBe(checkedAt)
+    expect(a.row.rateLimitResetTimes[key]).toBe(markedAt + limitMs)
+    expect(
+      a.pool.selector.getCurrentOrNextForFamily('gemini', model),
+    ).toBeNull()
+    await a.pool.flush()
+    expect((await f.read())?.metadata?.rateLimitResetTimes?.[key]).toBe(
+      markedAt + limitMs,
+    )
+  })
+
+  it('ignores an undated reading on a kept row', async () => {
+    const a = await f.open()
+    a.pool.selector.markRateLimited(a.row, limitMs, 'gemini', model)
+    await a.pool.flush()
+    const p = await f.open()
+    await f.writeUndatedQuota(p.pool)
+
+    await a.pool.sync()
+    expect(a.row.cachedQuota).toBeUndefined()
+    expect(a.row.rateLimitResetTimes[key]).toBe(f.now() + limitMs)
+  })
+
+  it('adopts another pool’s explicit limit clear without dropping later marks', async () => {
+    const a = await f.open()
+    a.pool.selector.markRateLimited(a.row, limitMs, 'gemini', model)
+    await a.pool.flush()
+    const p = await f.open()
+    const clearedAt = f.advance(100)
+    await p.pool.clearLimits(p.row)
+    const markedAt = f.advance(100)
+    a.pool.selector.markRateLimited(a.row, limitMs, 'claude')
+
+    await a.pool.sync()
+    expect(a.row.rateLimitClearedAt).toBe(clearedAt)
+    expect(a.row.rateLimitResetTimes).toEqual({ claude: markedAt + limitMs })
+    await a.pool.flush()
+    expect((await f.read())?.metadata?.rateLimitResetTimes).toEqual({
+      claude: markedAt + limitMs,
+    })
+  })
+
+  it('does not adopt a reading written for the previous credential', async () => {
+    const a = await f.open()
+    const p = await f.open()
+    await f.checkQuota(p.pool)
+    expect((await f.read())?.quota?.cachedQuotaUpdatedAt).toBe(f.now())
+
+    f.replaceCredential()
+    await a.pool.sync()
+    const [replacement] = a.pool.selector.rows
+    expect(replacement?.route.credentialId).toBe('credential-b')
+    expect(replacement).not.toBe(a.row)
+    expect(replacement?.cachedQuota).toBeUndefined()
+    expect(replacement?.cachedQuotaUpdatedAt).toBeUndefined()
+  })
+
+  it('keeps newer ineligibility instead of a stale verification snapshot', async () => {
+    const a = await f.open()
+    a.pool.selector.markAccountVerificationRequired(
+      a.row.index,
+      'Verify login',
+      'https://example.com/verify',
+    )
+    await a.pool.flush()
+    const b = await f.open()
+    expect(b.row.verificationRequired).toBe(true)
+    const writtenAt = f.advance(100)
+    a.pool.selector.markAccountIneligible(a.row.index, 'Ineligible login')
+    await a.pool.flush()
+
+    b.pool.selector.recordRequest(b.row.index, 'gemini')
+    await b.pool.flush()
+    const metadata = (await f.read())?.metadata
+    expect(metadata).toMatchObject({
+      accountIneligible: true,
+      accountIneligibleAt: writtenAt,
+      accountIneligibleReason: 'Ineligible login',
+      eligibilityStateUpdatedAt: writtenAt,
+      verificationRequired: false,
+    })
+    expect(metadata?.verificationRequiredAt).toBeUndefined()
+    expect(metadata?.verificationRequiredReason).toBeUndefined()
+    expect(metadata?.verificationUrl).toBeUndefined()
+  })
+
+  it('keeps a newer verification clear when an older verdict arrives late', async () => {
+    const a = await f.open()
+    const b = await f.open()
+    a.pool.selector.markAccountVerificationRequired(a.row.index, 'Verify login')
+    await a.pool.flush()
+    const older = f.advance(100)
+    const clearedAt = f.advance(100)
+    a.pool.selector.clearAccountAccessBlocks(a.row.index, true)
+    await a.pool.flush()
+
+    b.pool.state?.sink.accessVerdict?.(b.row, {
+      kind: 'ineligible',
+      observedAt: older,
+      reason: 'Stale verdict',
+    })
+    await b.pool.flush()
+    const metadata = (await f.read())?.metadata
+    expect(metadata).toMatchObject({
+      verificationRequired: false,
+      accountIneligible: false,
+      eligibilityStateUpdatedAt: clearedAt,
+    })
+    expect(metadata?.verificationRequiredAt).toBeUndefined()
+    expect(metadata?.accountIneligibleAt).toBeUndefined()
   })
 })
 

@@ -126,7 +126,7 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
   'packages/opencode/src/plugin/shared/vault-quota-provenance.test.ts':
     'Real roster and provider-state locks, atomic writes, and private enrollment files for quota replacement regressions.',
   'packages/opencode/src/plugin/shared/vault-request-credentials.test.ts':
-    'Conservative: selector sync calls match the file-handle sync identifier fence.',
+    'Two vault pools share a provider-state file with real file locks and atomic writes.',
   'packages/opencode/src/plugin/vault-insula-quota.test.ts':
     'Real provider-state persistence and private-mode enrollment-token fixtures.',
   'packages/opencode/src/plugin/vault-quota-one-commit.test.ts':
