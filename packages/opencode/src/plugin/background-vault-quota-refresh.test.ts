@@ -963,7 +963,7 @@ describe('vault manual quota and durable sidebar projection', () => {
     }
   })
 
-  it('projects newer durable quota for an already-kept selector row without rehydrating selection state', async () => {
+  it('projects newer durable quota for an already-kept selector row and adopts it on sync', async () => {
     const f = fixture()
     try {
       await f.pool.sync()
@@ -985,7 +985,10 @@ describe('vault manual quota and durable sidebar projection', () => {
         },
       }
       await f.pool.sync()
-      expect(row.cachedQuotaUpdatedAt).toBe(10)
+      // A kept row takes a newer stored reading for the same route and
+      // credential at sync, so a running workspace sees it without a restart.
+      expect(row.cachedQuotaUpdatedAt).toBe(200)
+      expect(row.cachedQuota?.gemini?.remainingFraction).toBe(0.812345)
       const projection = buildVaultSidebarProjection(f.pool, f.stored, 300)
       expect(projection.accounts[0]?.quota.gemini).toMatchObject({
         remainingFraction: 0.812345,
