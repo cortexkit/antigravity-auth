@@ -146,6 +146,7 @@ export function acquireGaVaultCustody(
   const { custody } = held
   let released: Promise<void> | undefined
   return {
+    paths: custody.paths,
     readMode: () => custody.readMode(),
     menuSection: () => custody.menuSection(),
     readState: () => custody.readState(),
@@ -217,7 +218,12 @@ function sharedVaultQuota(
       source,
       pool: createOpenCodeVaultAccountPool({
         source,
-        durable: { source, readState: () => custody.readState() },
+        durable: {
+          source,
+          readState: () => custody.readState(),
+          ...(custody.paths ? { stateFile: custody.paths.stateFile } : {}),
+          onReadFailure: () => logger()?.debug('vault-state-read-skipped'),
+        },
       }),
     }
     return current

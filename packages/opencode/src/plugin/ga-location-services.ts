@@ -1110,6 +1110,7 @@ export interface GaLocationCustody
     OpenCodeVaultCustody,
     'readMode' | 'menuSection' | 'dispose' | 'readState'
   > {
+  readonly paths?: Pick<OpenCodeVaultCustody['paths'], 'stateFile'>
   startObservation?(): Promise<void>
   /** The enrollment name a request's no-account message names; see `OpenCodeVaultCustody`. */
   grantPrincipal?(): string
@@ -2010,6 +2011,8 @@ async function createGaVaultLocationServices(input: {
         durable: {
           source,
           readState: () => custody.readState(),
+          ...(custody.paths ? { stateFile: custody.paths.stateFile } : {}),
+          onReadFailure: () => vaultLogger.debug('vault-state-read-skipped'),
           onError: (error) =>
             vaultLogger.debug('vault-state-write-dropped', {
               error: error instanceof Error ? error.name : 'unknown',

@@ -16,6 +16,7 @@
  * core vault account source (or anything with the same operations).
  */
 
+import { stat } from 'node:fs/promises'
 import {
   type AccessVerdict,
   AccountSelector,
@@ -774,6 +775,10 @@ export interface VaultAccountPoolOptions {
   readonly durable?: {
     readonly source: VaultStateSource
     readonly readState: () => Promise<VaultProviderStateFile>
+    /** The file read by readState; without its path, kept rows cannot skip reads. */
+    readonly stateFile?: string
+    /** Reports a failed kept-row read without any error or file details. */
+    readonly onReadFailure?: () => void
     /** Receives a refused or failed state write. */
     readonly onError?: (error: unknown) => void
   }
@@ -833,6 +838,29 @@ export const VAULT_REFRESH_STALL_MS = 30_000
 // Keeps menus responsive while letting a quick first roster read show up.
 export const VAULT_DISPLAY_ROSTER_WAIT_MS = 2_000
 
+async function providerStateSignature(
+  path: string | undefined,
+): Promise<string | null> {
+  if (path === undefined) return null
+  try {
+    const info = await stat(path, { bigint: true })
+    // Atomic replacement changes the inode even if size and mtime match.
+    return info.isFile()
+      ? `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`
+      : null
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'code' in error &&
+      error.code === 'ENOENT'
+    )
+      return 'missing'
+    // Fall back to the normal read when the file could not be identified.
+    return null
+  }
+}
+
 export function createVaultAccountPool(
   options: VaultAccountPoolOptions,
 ): VaultAccountPool {
@@ -887,21 +915,41 @@ export function createVaultAccountPool(
     }
   }
 
+  let hydratedSignature: string | null = null
   /** Stage stored evidence on fresh rows without changing the live pool. */
-  const rowsFromSource = async (): Promise<VaultAccountRow[]> => {
+  const rowsFromSource = async () => {
     const rows = vaultAccountRows(source.routes())
-    if (state && rows.length > 0) {
-      const kept = new Set(selector.rows.map(vaultAccountRowKey))
+    if (!state || !durable || rows.length === 0) return { rows }
+    const signature = await providerStateSignature(durable.stateFile)
+    const kept = new Set(selector.rows.map(vaultAccountRowKey))
+    const added = rows.some((row) => !kept.has(vaultAccountRowKey(row)))
+    if (!added && signature !== null && signature === hydratedSignature)
+      return { rows }
+    try {
       await state.hydrate(rows, kept)
+    } catch (error) {
+      if (added) throw error
+      try {
+        durable.onReadFailure?.()
+      } catch {
+        // A diagnostic must not prevent selection from the live rows.
+      }
+      return { rows, signature: null }
     }
-    return rows
+    return { rows, signature }
   }
-  const replace = async () => {
-    selector.replaceAccounts(await rowsFromSource(), {
+  const install = ({
+    rows,
+    signature,
+  }: Awaited<ReturnType<typeof rowsFromSource>>) => {
+    selector.replaceAccounts(rows, {
       keyOf: vaultAccountRowKey,
       refresh: refreshKeptRow,
     })
+    // A first read abandoned after a stall never installs a signature.
+    if (signature !== undefined) hydratedSignature = signature
   }
+  const replace = async () => install(await rowsFromSource())
 
   let firstRead: Promise<void> | null = null
   const schedule =
@@ -933,12 +981,8 @@ export function createVaultAccountPool(
     firstReadStartedAt = clock()
     firstRead = (async () => {
       await source.refresh()
-      const rows = await rowsFromSource()
-      if (current())
-        selector.replaceAccounts(rows, {
-          keyOf: vaultAccountRowKey,
-          refresh: refreshKeptRow,
-        })
+      const loaded = await rowsFromSource()
+      if (current()) install(loaded)
     })().then(
       () => {
         if (current()) firstReadStartedAt = null

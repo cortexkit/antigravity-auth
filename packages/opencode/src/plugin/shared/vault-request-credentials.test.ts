@@ -580,8 +580,23 @@ describe('vault pools sharing one provider-state file', () => {
       reportServedStatus: async () => false,
     }
     const readState = () => readVaultProviderState(statePath)
+    let reads = 0
+    let readFailure: Error | undefined
+    const readDiagnostics: unknown[][] = []
     const durable: NonNullable<VaultAccountPoolOptions['durable']> = {
-      readState,
+      stateFile: statePath,
+      async readState() {
+        reads++
+        if (readFailure) {
+          const error = readFailure
+          readFailure = undefined
+          throw error
+        }
+        return readState()
+      },
+      onReadFailure: (...details) => {
+        readDiagnostics.push(details)
+      },
       source: {
         attribution: () => by,
         commitState: (attribution, update) =>
@@ -622,6 +637,11 @@ describe('vault pools sharing one provider-state file', () => {
       now: () => now,
       advance: (ms: number) => (now += ms),
       read: async () => (await readState()).accounts[by.accountIdentity],
+      reads: () => reads,
+      readDiagnostics,
+      failRead: (error: Error) => {
+        readFailure = error
+      },
       close: () => rm(dir, { recursive: true, force: true }),
       replaceCredential: () => {
         by = { ...by, credentialId: 'credential-b' }
@@ -673,6 +693,7 @@ describe('vault pools sharing one provider-state file', () => {
     expect((await f.read())?.metadata?.rateLimitResetTimes?.[key]).toBe(
       f.now() + limitMs,
     )
+    await a.pool.sync()
     expect(
       a.pool.selector.getCurrentOrNextForFamily('gemini', model),
     ).toBeNull()
@@ -683,11 +704,54 @@ describe('vault pools sharing one provider-state file', () => {
     expect(
       (await f.read())?.metadata?.rateLimitResetTimes?.[key],
     ).toBeUndefined()
+    const before = f.reads()
     await a.pool.sync()
+    expect(f.reads()).toBe(before + 1)
     expect(a.pool.selector.getCurrentOrNextForFamily('gemini', model)).toBe(
       a.row,
     )
     expect(a.row.cachedQuotaUpdatedAt).toBe(f.now())
+  })
+
+  it('issue77 sync reads the unchanged state file only once for 40 syncs', async () => {
+    const p = await f.open()
+    await f.checkQuota(p.pool)
+    const before = f.reads()
+    const a = await f.open()
+    for (let i = 0; i < 40; i++) await a.pool.sync()
+    expect(f.reads() - before).toBe(1)
+    expect(a.row.cachedQuotaUpdatedAt).toBe(f.now())
+  })
+
+  it('issue77 sync keeps live selection on a kept-row read failure and retries', async () => {
+    const a = await f.open()
+    const p = await f.open()
+    await f.checkQuota(p.pool)
+    const before = f.reads()
+    f.failRead(new Error('fixture error with file details'))
+
+    await a.pool.sync()
+    expect(f.reads()).toBe(before + 1)
+    expect(f.readDiagnostics).toEqual([[]])
+    expect(a.row.cachedQuota).toBeUndefined()
+    expect(a.pool.selector.getCurrentOrNextForFamily('gemini', model)).toBe(
+      a.row,
+    )
+
+    await a.pool.sync()
+    expect(f.reads()).toBe(before + 2)
+    expect(a.row.cachedQuotaUpdatedAt).toBe(f.now())
+    expect(f.readDiagnostics).toEqual([[]])
+  })
+
+  it('issue77 sync still rejects a state read failure when adding a row', async () => {
+    const a = await f.open()
+    f.replaceCredential()
+    const failure = new Error('fixture error for the new row')
+    f.failRead(failure)
+    await expect(a.pool.sync()).rejects.toBe(failure)
+    expect(a.pool.selector.rows).toEqual([a.row])
+    expect(f.readDiagnostics).toEqual([])
   })
 
   it('issue77 a stale vault writer cannot shorten another pool’s cooldown', async () => {
@@ -783,8 +847,11 @@ describe('vault pools sharing one provider-state file', () => {
     await f.checkQuota(p.pool)
     expect((await f.read())?.quota?.cachedQuotaUpdatedAt).toBe(f.now())
 
+    await a.pool.sync()
+    const before = f.reads()
     f.replaceCredential()
     await a.pool.sync()
+    expect(f.reads()).toBe(before + 1)
     const [replacement] = a.pool.selector.rows
     expect(replacement?.route.credentialId).toBe('credential-b')
     expect(replacement).not.toBe(a.row)
