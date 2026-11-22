@@ -8601,6 +8601,7 @@ describe('createRequestExecutor optional vault routing', () => {
     provider: string
     modelId: string
     refusals?: boolean
+    waits_for_capacity?: boolean
     mode?: 'continue'
     request_id?: string
     hold_wait_max_s?: number
@@ -9007,6 +9008,8 @@ describe('createRequestExecutor optional vault routing', () => {
                 provider: 'antigravity',
                 modelId: 'gemini-3-flash',
                 refusals: true,
+                waits_for_capacity: true,
+                request_id: expect.any(String),
                 candidates: {
                   accounts: [1, 2, 5, 7].map((index) => ({
                     account_id: `identity-${index}`,
@@ -9771,6 +9774,9 @@ describe('createRequestExecutor optional vault routing', () => {
                     : [],
               )
               if (continued) {
+                expect(state.asks[1]?.[0]).not.toHaveProperty(
+                  'waits_for_capacity',
+                )
                 expect(state.asks[1]?.[0].request_id).toMatch(/^[a-f\d-]{36}$/)
                 expect(state.asks[1]?.[0].exhausted).toEqual(
                   scenario === 'quota'
@@ -10051,7 +10057,7 @@ describe('createRequestExecutor optional vault routing', () => {
       }))
   }
 
-  for (const answer of ['unknown', 'undefined', 'timeout'] as const) {
+  for (const answer of ['unknown', 'undefined', 'timeout', 'outage'] as const) {
     it(`vault routing ${answer} answer falls back to the selector`, async () =>
       routing(
         async (state) => {
@@ -10081,11 +10087,13 @@ describe('createRequestExecutor optional vault routing', () => {
         () =>
           answer === 'timeout'
             ? new Promise(() => {})
-            : Promise.resolve(
-                answer === 'unknown'
-                  ? { account_id: 'not-eligible' }
-                  : undefined,
-              ),
+            : answer === 'outage'
+              ? Promise.reject(new Error('routing bridge unreachable'))
+              : Promise.resolve(
+                  answer === 'unknown'
+                    ? { account_id: 'not-eligible' }
+                    : undefined,
+                ),
       ))
   }
 
@@ -10411,6 +10419,136 @@ describe('createRequestExecutor optional vault routing', () => {
       () => new Promise(() => {}),
     )
   })
+
+  it('routing capacity waits for the reset and sends once on the admitted account', async () => {
+    const waitMs = 2_501
+    const resetsAtMs = FIXED_NOW + waitMs
+    const time = routedTime(waitMs)
+    const h = placementHarness()
+    const answers: Array<{ at: number; sends: number }> = []
+    try {
+      await routing(
+        async ({ asks }) => {
+          const executor = createRequestExecutor(
+            vaultDeps(h, async (account) => admission(account)),
+          )
+          try {
+            const response = await executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(),
+              session('capacity-admit'),
+            )
+            await response.text()
+            expect(wireBearers(h)).toEqual(['Bearer vault-token-1'])
+            expect(response.status).toBe(200)
+            expect(time.delays).toEqual([waitMs])
+            expect(answers).toEqual([
+              { at: FIXED_NOW, sends: 0 },
+              { at: resetsAtMs, sends: 0 },
+            ])
+            expect(asks).toHaveLength(2)
+            const firstAsk = asks[0]?.[0]
+            expect(firstAsk).toMatchObject({
+              request_id: expect.any(String),
+              waits_for_capacity: true,
+            })
+            expect(asks[0]?.[1]).toEqual({ deadlineMs: 2_000 })
+            expect(asks[1]).toEqual(asks[0])
+          } finally {
+            await executor.dispose()
+          }
+        },
+        async (_ask, count) => {
+          answers.push({ at: Date.now(), sends: h.calls.length })
+          return count === 1
+            ? {
+                refused: { code: 'concurrency_full', resets_at_ms: resetsAtMs },
+              }
+            : secondAccountAnswer()
+        },
+      )
+    } finally {
+      time.restore()
+    }
+  })
+
+  for (const stop of ['caller abort', 'pre-response deadline'] as const) {
+    it(`routing capacity stops at ${stop} without another ask or a send`, async () => {
+      const waitMs = 62_341
+      const date = spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
+      const waiting = Promise.withResolvers<string>()
+      const setTimer = globalThis.setTimeout
+      let capacityTimer: ReturnType<typeof setTimeout> | undefined
+      const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+        callback: () => void,
+        delay: number,
+      ) => {
+        const handle = setTimer(callback, delay)
+        if (delay === waitMs) {
+          capacityTimer = handle
+          waiting.resolve('waiting for capacity')
+        }
+        return handle
+      }) as typeof setTimeout)
+      const clearTimer = spyOn(globalThis, 'clearTimeout')
+      const clock = deadlineClock()
+      const caller = new AbortController()
+      const reason = new Error('cancelled during capacity wait')
+      try {
+        await routing(
+          async ({ asks, reports }) => {
+            const h = placementHarness()
+            const executor = createRequestExecutor({
+              ...vaultDeps(h, async (account) => admission(account)),
+              preResponseClock: clock,
+            })
+            try {
+              const request = executor.execute(
+                NON_STREAM_URL,
+                CHAT_INIT(caller.signal),
+                session(`capacity-stop-${stop}`),
+              )
+              expect(
+                await Promise.race([
+                  waiting.promise,
+                  request.then((response) => `settled with ${response.status}`),
+                ]),
+              ).toBe('waiting for capacity')
+              expect(h.calls).toEqual([])
+              if (stop === 'caller abort') {
+                caller.abort(reason)
+                await expect(request).rejects.toBe(reason)
+              } else {
+                clock.advance(PRE_RESPONSE_DEADLINE_MS)
+                const response = await request
+                expect(response.status).toBe(412)
+                expect(await response.text()).toContain(
+                  PRE_RESPONSE_TIMEOUT_MESSAGE,
+                )
+              }
+              expect(capacityTimer).toBeDefined()
+              expect(clearTimer).toHaveBeenCalledWith(capacityTimer)
+              expect(asks).toHaveLength(1)
+              expect(h.calls).toEqual([])
+              expect(reports).toEqual([])
+            } finally {
+              await executor.dispose()
+            }
+          },
+          async () => ({
+            refused: {
+              code: 'concurrency_full',
+              resets_at_ms: FIXED_NOW + waitMs,
+            },
+          }),
+        )
+      } finally {
+        clearTimer.mockRestore()
+        timer.mockRestore()
+        date.mockRestore()
+      }
+    })
+  }
 
   it('cancels a short first-placement refusal wait without another ask or send', async () => {
     const caller = new AbortController()

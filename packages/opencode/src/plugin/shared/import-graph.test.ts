@@ -176,6 +176,7 @@ describe('shared request engine import graph', () => {
       '../../common-auth-embedded/claustrum/host.js': ['hasVaultHost'],
       '../../common-auth-embedded/routing-accessor/index.js': [
         'askRouting',
+        'askRoutingUntilCapacity',
         'reportRouting as reportVaultRouting',
         'type AskRoutingInput',
         'type BillingRequestKind',
