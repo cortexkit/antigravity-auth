@@ -30,6 +30,10 @@ export interface TerminalScanFacts {
     readonly familyOf: FamilyOf;
     readonly maxAgeMs: number;
     readonly maxSameAccountWait?: unknown;
+    /** Set only when the user opts in to waiting for quota reset. Jitter must be a finite, non-negative integer. */
+    readonly waitForReset?: {
+        readonly jitterMs: number;
+    };
     readonly activity?: SessionActivity;
     /** Current session account, used to reject another account's cache record. */
     readonly accountKey?: AccountKey;
@@ -44,9 +48,9 @@ export interface TerminalReset {
  * A missing identity is compatible, but readings from before re-login are not.
  */
 export declare function scanTerminalReset(input: TerminalScanFacts, now: number): TerminalReset | undefined;
-export declare function terminalWaitDisabled(metadata: TerminalFacts, axes: LimitAxes): boolean;
+export declare function terminalWaitDisabled(metadata: TerminalFacts, axes: LimitAxes, now: number): boolean;
 /**
- * When no account is ready, cap the wait by the setting rather than cache expiry.
- * Unlike a same-account hold, this wait may proceed without a cache activity record.
+ * When no account is ready, an opt-in can wait for the full reset without a
+ * warm cache. Otherwise keep the preset's existing refusal and wait bounds.
  */
 export declare function terminalRefusalDecision(facts: PolicyFacts, axes: LimitAxes, history: RequestHistory, metadata: TerminalFacts): LimitDecision | undefined;

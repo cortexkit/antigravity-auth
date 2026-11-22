@@ -1,4 +1,5 @@
-import { type ClaustrumClientOptions as ClaustrumEnrollmentClientOptions, ClaustrumClient as ClaustrumWireClient, type EnrollmentPollOutcome, type EnrollmentTokenFile, writeEnrollmentTokenFile } from '@cortexkit/claustrum-client';
+import { ClaustrumClient as ClaustrumWireClient, type EnrollmentPollOutcome, type EnrollmentTokenFile, writeEnrollmentTokenFile } from '@cortexkit/claustrum-client';
+import { type CompatibleClaustrumClientOptions } from './client-options.js';
 /**
  * The code a vault without the enrollment ceremony answers a proposal with.
  * Setup reports it as "this vault cannot connect plugins" instead of waiting.
@@ -71,7 +72,7 @@ export interface ClaustrumEnrollmentConnection extends ClaustrumEnrollmentClient
  * does. `connectionFile` is required because this library reads no
  * environment and knows no host paths.
  */
-export declare function connectClaustrumEnrollmentClient(options: ClaustrumEnrollmentClientOptions & {
+export declare function connectClaustrumEnrollmentClient(options: CompatibleClaustrumClientOptions & {
     connectionFile: string;
 }): Promise<ClaustrumEnrollmentConnection>;
 export type ClaustrumEnrollmentStatus = {

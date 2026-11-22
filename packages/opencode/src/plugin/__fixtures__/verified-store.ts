@@ -5,7 +5,7 @@ import { loadCommonAuthStoreModules } from '@cortexkit/antigravity-auth-core'
 
 const PIN = {
   package: '@cortexkit/common-auth',
-  version: '0.56.1',
+  version: '0.57.0',
   tarballSha256:
     '32ce3a411b3a8f8034e4c5eb5b79550d7529834567520943ca962d1b13512aa0',
 } as const

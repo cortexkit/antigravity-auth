@@ -12,15 +12,15 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.56.1.tgz'
-export const producerVersion = '0.56.1'
-export const artifactStatus = 'published'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.57.0.tgz'
+export const producerVersion = '0.57.0'
+export const artifactStatus = 'candidate'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  archiveBytes: 505365,
-  shasum: 'f8b2504321810ab59a448effc2c485c601a039de',
-  sha256: '32ce3a411b3a8f8034e4c5eb5b79550d7529834567520943ca962d1b13512aa0',
-  sri: 'sha512-5JTuezeHbodZacTXEB6mjoicODWsCYh6J/APShcB11/92KAz8xJjcLG+MVmDK+QtL2VmBNwa7yhHCFiKqqIKww==',
+  archiveBytes: 508072,
+  shasum: '5a0cc73bc91244009c62d41c709530cd2a4fb7f6',
+  sha256: '7902ec9097ffaca11e9fc40fc944545f2782bd699f383bf4536ed507575320fe',
+  sri: 'sha512-Eo5X0x5zJ2OUe0E9xyn2zufkO5Jgq5hvW4jXpnkGwTvLewvMXvx1uaB55+rWvdPbON8T8zc/aVHGHaxdTmQ3Tw==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -222,6 +222,16 @@ const canonical: readonly (readonly [string, number, string])[] = [
     '848f2c5224a37b903b186cd5dd43710ad0d5cfe590600263b613b0ea22ff1585',
   ],
   [
+    'claustrum/client-options.d.ts',
+    499,
+    '196df2f76d53eb75b6d6bfc613abbb53e3bef3b934179160758405827fef44aa',
+  ],
+  [
+    'claustrum/client-options.js',
+    852,
+    '19bd32cac65b55a6809e85df35d18580c217e88a2405ad1001df9357bcb426e7',
+  ],
+  [
     'claustrum/consumer.d.ts',
     15756,
     '3118eb0112ebb100c4f0ec8528eae840fee076b99e39d30c9c204042a9e2fc5e',
@@ -243,13 +253,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/enrollment.d.ts',
-    9919,
-    'e36a399598468967b7267c2c501455b993e632d5f23cf3d706c15495ba7bca56',
+    9931,
+    'cdade6fae37199c34f800b490ca03f1889e90846e125093ee212e27f652ff058',
   ],
   [
     'claustrum/enrollment.js',
-    42429,
-    '27b88d4d81355a24fdb69f67ee3c72e10fa883d33e6a62e63e3ed1c5a8bc074c',
+    42512,
+    '107ad9e4880b18b05f28ba084bf83c36b84d9b70128c0660bb452ec365f83c33',
   ],
   [
     'claustrum/errors.d.ts',
@@ -293,23 +303,23 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'claustrum/index.d.ts',
-    5128,
-    '522249e709781475b8458130a72ea6885e16e8ea59821100bead9f23ae34ddcb',
+    5140,
+    '0002b27d76690c13e480f1c8c992f241fba4d191878d80d12d5771af358cefe8',
   ],
   [
     'claustrum/index.js',
-    4168,
-    'a770d6b8d5f8f50d1e4a4043f79c3660962add6fe2a6ec12552847ea0be04ca2',
+    4250,
+    '909bc14aeb16f3f9dedc47e7065b506eefa080bfc9a10ce6d9b10602fc206d60',
   ],
   [
     'claustrum/insula.d.ts',
-    5463,
-    'e1c9ecf858b7ecbb21c1f954cbd35b5ea77494e5aca9dbd198fe5e2cd0a3a95f',
+    5475,
+    '4377a8d86f2e58eeb66fe3762ad2e83dc824b9a2fe9ac917caad644acc0fd6c6',
   ],
   [
     'claustrum/insula.js',
-    20137,
-    'e2a2625cdad490cf24aa0badf66c842becd806738f8b137ebcf2b01e296eb0d2',
+    20059,
+    '3c030fa706c3e33ba45bb5c79855600b7de0cf78092f0da4c405144682e5a9b9',
   ],
   [
     'claustrum/interlock.d.ts',
@@ -518,8 +528,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'limits/decide.d.ts',
-    5403,
-    '3cb7bf311d69e97f07233dca412eb2650e1ada6afc5a15b579fc14f34cd3e5eb',
+    5408,
+    '9b1d16185591e9a35d1bf2e5353b4418dbd705dcaecd65fae6002b5d22a2b92f',
   ],
   [
     'limits/duration.d.ts',
@@ -530,6 +540,16 @@ const canonical: readonly (readonly [string, number, string])[] = [
     'limits/families.d.ts',
     2565,
     '8d4f3cbdd4a3ad62e099419d568a3ff72c4ba22816851bcf0ad4669a24f8f8ca',
+  ],
+  [
+    'limits/hold-bounds.d.ts',
+    203,
+    'e99fce5cb49ca73c93acab170fd24b964d170b001ee305db2a8640fc231af5fc',
+  ],
+  [
+    'limits/hold-bounds.js',
+    197,
+    '1917a0766676cf2fb9b127ff51c613e8295e65bac81e60f3f07279e309cec073',
   ],
   [
     'limits/marker.d.ts',
@@ -553,8 +573,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'limits/terminal.d.ts',
-    2379,
-    'b525a8de4e08d7043b9a5fdd078f47e06a57aa6c7a00051264d1a6f6b8470dfa',
+    2566,
+    'e4e858b0bf90b4480340ec8bb38ca53b415f60b4dd8062303614242fac151e5b',
   ],
   [
     'limits/wake.d.ts',
@@ -628,13 +648,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'opencode2/install.d.ts',
-    4212,
-    'edb14a4f60ef24c85b5e4f41f94b66b5594f38628c65145841fa4bcf1bf319f6',
+    4107,
+    'dca0f18a11e6f5d2589103b236a67b66b4b1626ba41b4fdbe27296759945ef07',
   ],
   [
     'opencode2/install.js',
-    65592,
-    'fc98e6bd26a6835d118666b1f27fc0598dbe9f929d793b2fe619d3be7375b988',
+    67892,
+    'd4e704c52db78e24161f4de3b01125d7e77278cbab081617e49fdf7e3ee12adb',
   ],
   [
     'opencode2/integration.d.ts',
@@ -1417,15 +1437,15 @@ const routingAccessorCanonical: readonly CanonicalEntry[] = [
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.d.ts',
     output: 'routing-accessor/index.d.ts',
-    bytes: 10377,
-    hash: '9273612fe071bfdf502d38cc07f5eeca8ecc60d082fa5f578788c7e856a1b15e',
+    bytes: 11314,
+    hash: 'cddcfe78b1cf9e66cae96dab4ff825e155e47408b1dc89800bced597fc0b9841',
   },
   {
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.js',
     output: 'routing-accessor/index.js',
-    bytes: 23158,
-    hash: '728aa2d9dd16d7e71ff3583aa767b74818850bdd4dbdca1f15e85d0c0c1b09bd',
+    bytes: 26451,
+    hash: '9b5895bd2fa1249b9c6e587339d89916a9796b7aff7f68a198077df106ac4e02',
   },
 ]
 
@@ -1552,9 +1572,9 @@ export function validatePublication(
   )
     throw new Error('publication: license')
   if (
-    entries.size !== 371 ||
+    entries.size !== 375 ||
     sha256(`${[...entries.keys()].sort().join('\n')}\n`) !==
-      '4c51b6fe88b8328d03d095e996ad2ae1c8283853fd7b1ea5f2012e3cd7606393'
+      '089fc4e10c10a1d20ea9a55d010111053ad19657232e453ee6200547774545c5'
   )
     throw new Error('publication: inventory')
   for (const { source, output, bytes, hash } of canonicalEntries('opencode')) {
@@ -1564,7 +1584,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    'b87a3ff7a596bd92bb16c387cbef26e79d4cc80bb8b1b8726f07d183da29fae9'
+    'b2ec06df6bb33963c2ac26b4839e344ba275403447f484dcf8b7685934e62d49'
   )
     throw new Error('publication: manifest bytes')
 }

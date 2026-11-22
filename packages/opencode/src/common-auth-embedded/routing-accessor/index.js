@@ -4,9 +4,10 @@
  * rows. Nothing is persisted here; plugins on routes the runner does not serve
  * get no turn notes.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { isCacheWarmStopReason, } from './cache-policy.js';
 import { routingHandle } from './handle.js';
+const REQUEST_ID_MAX_LENGTH = 128;
 export { CACHE_WARM_STOP_REASONS, isCacheWarmStopReason, reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
 /** Keep this closed list aligned with the routing contract when adding a reason. */
 export const PLUGIN_WAIT_REASONS = [
@@ -221,7 +222,8 @@ function refusalFor(value) {
     const code = value.code;
     if (code !== 'account_limit_exhausted' &&
         code !== 'account_selection_refused' &&
-        code !== 'account_selection_final') {
+        code !== 'account_selection_final' &&
+        code !== 'concurrency_full') {
         return undefined;
     }
     const refused = { code };
@@ -242,18 +244,24 @@ function refusalFor(value) {
         resetsAtMs > 0) {
         refused.resetsAtMs = resetsAtMs;
     }
+    else if (code === 'concurrency_full') {
+        return undefined;
+    }
     return { refused };
 }
-export async function askRouting(input) {
+export function askRouting(input) {
+    return askRoutingOnce(input, false);
+}
+async function askRoutingOnce(input, waitsForCapacity) {
     let timer;
     try {
         const request = {
             provider: input.provider,
             modelId: input.modelId,
         };
+        const { requestId } = input;
         if (input.mode === 'continue') {
-            const { requestId } = input;
-            if (!isBoundedControlFreeString(requestId, 128))
+            if (!isBoundedControlFreeString(requestId, REQUEST_ID_MAX_LENGTH))
                 return undefined;
             const exhausted = continueExhaustion(input.exhausted);
             if (!exhausted)
@@ -261,6 +269,10 @@ export async function askRouting(input) {
             request.mode = 'continue';
             request.request_id = requestId;
             request.exhausted = exhausted;
+        }
+        else if (input.mode === undefined &&
+            isBoundedControlFreeString(requestId, REQUEST_ID_MAX_LENGTH)) {
+            request.request_id = requestId;
         }
         const handle = routingHandle(input.sessionId);
         if (!handle)
@@ -282,6 +294,8 @@ export async function askRouting(input) {
         }
         if (input.refusals === true)
             request.refusals = true;
+        if (waitsForCapacity)
+            request.waits_for_capacity = true;
         const warmCredentialId = input.warmCredentialId;
         if (isBoundedControlFreeString(warmCredentialId, 256) &&
             input.candidates.some((candidate) => candidate.credentialId === warmCredentialId)) {
@@ -310,6 +324,76 @@ export async function askRouting(input) {
     finally {
         clearTimeout(timer);
     }
+}
+async function sleepForCapacity(ms, signal) {
+    do {
+        signal?.throwIfAborted();
+        // A delay above the platform timer limit would fire almost immediately.
+        const delay = Math.min(ms, 2_147_483_647);
+        await new Promise((resolve, reject) => {
+            function onAbort() {
+                clearTimeout(timer);
+                reject(signal?.reason);
+            }
+            const timer = setTimeout(() => {
+                signal?.removeEventListener('abort', onAbort);
+                resolve();
+            }, delay);
+            timer.unref();
+            signal?.addEventListener('abort', onAbort, { once: true });
+        });
+        ms -= delay;
+    } while (ms > 0);
+}
+/**
+ * Retry the same routing question until capacity opens or routing gives a
+ * different answer. There is no overall deadline: a capacity wait is never
+ * terminal. Pass an AbortSignal when available; OpenCode 2's WebSocket
+ * handshake has no AbortSignal.
+ *
+ * Each ask sends `waits_for_capacity: true`. Without that flag, the relay
+ * maps a capacity refusal to `account_selection_final` so a caller that
+ * cannot wait does not send past the cap.
+ */
+export async function askRoutingUntilCapacity(input, options) {
+    const { signal, now = Date.now, sleep = sleepForCapacity } = options;
+    signal?.throwIfAborted();
+    const request = input.mode === 'continue'
+        ? { ...input, refusals: true }
+        : {
+            ...input,
+            refusals: true,
+            requestId: isBoundedControlFreeString(input.requestId, REQUEST_ID_MAX_LENGTH)
+                ? input.requestId
+                : randomUUID(),
+        };
+    async function askUntilReady() {
+        while (true) {
+            signal?.throwIfAborted();
+            const answer = await askRoutingOnce(request, true);
+            signal?.throwIfAborted();
+            if (answer && 'refused' in answer) {
+                const { code, resetsAtMs } = answer.refused;
+                if (code === 'concurrency_full' && resetsAtMs !== undefined) {
+                    const remainingMs = resetsAtMs - now();
+                    signal?.throwIfAborted();
+                    await sleep(remainingMs < 0 ? 1000 : remainingMs, signal);
+                    continue;
+                }
+            }
+            return answer;
+        }
+    }
+    if (!signal)
+        return askUntilReady();
+    // An in-flight routing ask or an injected sleep may not observe the signal.
+    return new Promise((resolve, reject) => {
+        const onAbort = () => reject(signal.reason);
+        signal.addEventListener('abort', onAbort, { once: true });
+        void askUntilReady()
+            .finally(() => signal.removeEventListener('abort', onAbort))
+            .then(resolve, reject);
+    });
 }
 /**
  * Report a vault request, account backoff, billing result, plugin wait or

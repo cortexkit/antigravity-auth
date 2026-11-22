@@ -1,4 +1,4 @@
-import type { ClaustrumClientOptions } from '@cortexkit/claustrum-client';
+import { type CompatibleClaustrumClientOptions } from './client-options.js';
 import { type WatchMode } from './watch.js';
 /** Insula's window fields are open: plugins choose which limits they understand. */
 export interface InsulaUsageWindow {
@@ -88,7 +88,7 @@ export interface InsulaUsageTransport {
     watchUsage?(onNotice: (body: Uint8Array) => void): InsulaUsageWatch;
 }
 /** Constructing this transport opens no connection; getUsage opens one per call. */
-export declare function insulaUsageTransport(options: ClaustrumClientOptions & {
+export declare function insulaUsageTransport(options: CompatibleClaustrumClientOptions & {
     connectionFile: string;
 }): InsulaUsageTransport;
 export interface InsulaWatchOptions {
