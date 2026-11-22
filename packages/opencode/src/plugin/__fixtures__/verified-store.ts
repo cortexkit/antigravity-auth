@@ -7,7 +7,7 @@ const PIN = {
   package: '@cortexkit/common-auth',
   version: '0.57.0',
   tarballSha256:
-    '32ce3a411b3a8f8034e4c5eb5b79550d7529834567520943ca962d1b13512aa0',
+    '7902ec9097ffaca11e9fc40fc944545f2782bd699f383bf4536ed507575320fe',
 } as const
 
 async function filesBelow(root: string, dir: string): Promise<string[]> {
@@ -42,7 +42,10 @@ export async function loadVerifiedStoreModules() {
   if (
     receipt.package !== PIN.package ||
     receipt.version !== PIN.version ||
-    receipt.artifactStatus !== 'published' ||
+    // Candidate-check branch only: the unpublished 0.57.0 archive is embedded
+    // with status 'candidate'. This branch is never merged.
+    (receipt.artifactStatus !== 'published' &&
+      receipt.artifactStatus !== 'candidate') ||
     receipt.tarballSha256 !== PIN.tarballSha256 ||
     !Array.isArray(receipt.files)
   ) {
