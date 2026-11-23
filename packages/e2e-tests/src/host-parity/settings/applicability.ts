@@ -2,10 +2,16 @@ import { ANTIGRAVITY_SETTINGS } from '../../../../core/src/settings/definition.t
 import { type Custody, custodies, type Host } from '../cases.ts'
 
 type Key = keyof typeof ANTIGRAVITY_SETTINGS.settings
-export const hosts = ['opencode1', 'opencode2', 'pi'] as const satisfies Host[]
+const hosts = ['opencode1', 'opencode2', 'pi'] as const satisfies Host[]
 
-export type Proof =
-  | { status: 'applied'; file: string; test: string; binding?: string }
+type Proof =
+  | {
+      status: 'applied'
+      file: string
+      test: string
+      binding?: string
+      titleFragment?: string
+    }
   | {
       status: 'host-limited'
       package: string
@@ -16,12 +22,13 @@ export type Proof =
   | { status: 'single account by design' | 'not applicable'; reason: string }
   | { status: null; reason: string }
 
-export const applied = (
+const applied = (
   file: string,
   test: string,
   binding?: string,
-): Proof => ({ status: 'applied', file, test, binding })
-export const pending = (reason: string): Proof => ({ status: null, reason })
+  titleFragment?: string,
+): Proof => ({ status: 'applied', file, test, binding, titleFragment })
+const pending = (reason: string): Proof => ({ status: null, reason })
 const notApplicable = (reason: string): Proof => ({
   status: 'not applicable',
   reason,
@@ -82,9 +89,17 @@ const piDiagnostic = (custody: 'local' | 'vault') =>
       ? 'keeps credentials out of Pi transport refusals and masks the plugin diagnostic'
       : 'uses the genuinely served opaque vault token at the Pi transport boundary',
     `${piEngine}:194`,
+    custody === 'local'
+      ? 'refusals and masks the plugin diagnostic'
+      : 'uses the genuinely served opaque vault token at the Pi',
   )
 const requestSettings = (host: Host, test: string, binding: string) =>
-  applied(`${e2e}settings/request-settings.test.ts`, `${host} ${test}`, binding)
+  applied(
+    `${e2e}settings/request-settings.test.ts`,
+    `${host} ${test}`,
+    binding,
+    test,
+  )
 
 const modelPolicy = `${oc}shared/model-access-requests.test.ts`
 const ocLocalModels = applied(
@@ -216,6 +231,7 @@ const matrix = {
       `${e2e}engine/warmup.test.ts`,
       'Pi does not count an auxiliary HTTP 422 without a terminal as a successful warmup',
       piEngine,
+      'without a terminal as a successful warmup',
     ),
   ),
   cache_warmup_on_switch: pool(
@@ -275,6 +291,7 @@ const matrix = {
       engine,
       'concurrent cold round-robin sessions reserve the selector placement before slow advice',
       ocExecutor,
+      'sessions reserve the selector placement before slow advice',
     ),
   ),
   pid_offset_enabled: pool(

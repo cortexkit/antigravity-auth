@@ -88,13 +88,24 @@ for (const host of ['opencode2', 'pi'] as const) {
         host,
         { request_jitter_max_ms: max },
         async (env, adapter) => {
-          // The shared engine draws from Math.random; a fixed draw gives a known wait.
+          // Hold the random draw fixed and observe the timer before the transport runs.
           const random = spyOn(Math, 'random').mockReturnValue(0.5)
+          const setTimer = globalThis.setTimeout
+          const sendsAtJitter: number[] = []
+          const schedule = spyOn(globalThis, 'setTimeout').mockImplementation(((
+            callback: () => void,
+            delay: number,
+            ...args: unknown[]
+          ) => {
+            if (delay === 100) sendsAtJitter.push(env.physicalSends.length)
+            return setTimer(callback, delay, ...args)
+          }) as typeof setTimeout)
           try {
-            await env.timed(() => adapter.run(flash, 'jitter'))
+            await adapter.run(flash, 'jitter')
             expect(env.physicalSends).toHaveLength(1)
-            expect(env.delays).toEqual(max === 0 ? [] : [100])
+            expect(sendsAtJitter).toEqual(max === 0 ? [] : [0])
           } finally {
+            schedule.mockRestore()
             random.mockRestore()
           }
         },

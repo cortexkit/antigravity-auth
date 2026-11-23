@@ -24,7 +24,7 @@ const accounts: Parameters<typeof createGaLocationMenu>[0]['repository'] = {
   setEnabled: async (ref) => ({ ref }),
   remove: async () => {},
   selectAccount: async () => {},
-  updateMetadata: async (ref) => ({ ref }),
+  updateMetadata: async (ref) => ({ ref, outcome: 'unchanged' }),
 }
 
 test('the commands guide matches the local menus issued on both OpenCode hosts', async () => {
@@ -99,7 +99,7 @@ test('the Pi and commands guides match the Pi menu without quota or limits actio
             hosted: false,
             enrollment: { state: 'idle' as const },
           }),
-        }) as PiVaultSetup,
+        }) as unknown as PiVaultSetup,
       accounts() {
         throw new Error('Local menu must not open the vault')
       },

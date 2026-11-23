@@ -34,17 +34,11 @@ test('every applied setting names an existing test and every exception has evide
       if (!sources.has(proof.file))
         sources.set(proof.file, await text(proof.file))
       const source = sources.get(proof.file)!
-      // Loop-generated cases contain literal parts of the test name rather than its expansion.
-      const title = proof.test
-        .replace(/^opencode2 |^pi /, '')
-        .replace('cold round-robin sessions', `cold \${strategy} sessions`)
-        .replace('Pi transport refusals', `Pi \${source} refusals`)
-        .replace('Pi transport boundary', `Pi \${source} boundary`)
-        .replace(
-          'auxiliary HTTP 422 without',
-          `auxiliary HTTP \${failure.status} without`,
-        )
-      expect(source).toContain(title)
+      expect(source).toContain(proof.titleFragment ?? proof.test)
+      for (const binding of proof.binding?.split('; ') ?? []) {
+        const path = binding.split(':')[0]!
+        expect(await Bun.file(new URL(path, root)).exists()).toBe(true)
+      }
     } else if (proof.status === 'host-limited') {
       expect(proof.package).toBe('@opencode/plugin')
       expect(proof.version).toBe('2.0.22')
