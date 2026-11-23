@@ -64,9 +64,9 @@ const REQUIRED_PUBLIC_MODEL_FIELDS = [
 ] as const
 
 describe('model registry', () => {
-  it('preserves the pre-Carbon public catalog after Gemini 3.5 Flash removal', () => {
-    // Keep the old catalog's frozen hash: additive Carbon, Hydrogen and Neon have
-    // separate contract tests, while every field of older models stays pinned.
+  it('preserves the remaining pre-Carbon public catalog', () => {
+    // Pin the older definitions separately from Carbon, Hydrogen and Neon.
+    // The expected hash removes only the retired image model from that snapshot.
     const baseline = Object.fromEntries(
       Object.entries(getPublicModelDefinitions()).filter(
         ([id]) =>
@@ -79,7 +79,7 @@ describe('model registry', () => {
       .update(JSON.stringify(baseline))
       .digest('hex')
     expect(digest).toBe(
-      'd191a730e44e99c6ff645385a80c84615b1821412f57866234327a88c4076e5f',
+      'd85607a79e61876b511c41f3354114494cc5ce6ff4fb0ae00d76830091fe8994',
     )
   })
 

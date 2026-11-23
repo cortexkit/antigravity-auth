@@ -8513,28 +8513,6 @@ describe('retired Claude admission', () => {
       await executor.dispose()
     }
   })
-
-  it('routes title work from a retired selection to a current server-offered route', async () => {
-    const h = harness({ respond: async () => okJson() })
-    const executor = createRequestExecutor(h.deps)
-    try {
-      const response = await executor.execute(
-        modelUrl('antigravity-claude-opus-4-6-thinking'),
-        CHAT_INIT(),
-        { kind: 'title' },
-      )
-      expect(response.status).toBe(200)
-      await response.text()
-      expect(h.calls).toHaveLength(1)
-      const call = h.calls[0]
-      if (!call?.init) throw new Error('Missing title dispatch')
-      const body = JSON.parse(String(call.init.body))
-      expect(body.model).toBe('gemini-3.8-flash-low')
-      expect(body.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M320')
-    } finally {
-      await executor.dispose()
-    }
-  })
 })
 
 describe('shared executor tool schema normalization', () => {

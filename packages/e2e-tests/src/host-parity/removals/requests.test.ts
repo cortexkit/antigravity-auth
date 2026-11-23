@@ -1,4 +1,7 @@
 import { expect, mock, test } from 'bun:test'
+import { access } from 'node:fs/promises'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { RETIRED_AGY_MODEL_MESSAGE } from '@cortexkit/antigravity-auth-core'
 import { placeholderSecret } from '../../../../opencode/src/common-auth-embedded/opencode2/index.js'
 import {
@@ -8,7 +11,10 @@ import {
   rewriteGaHttpRequest,
 } from '../../../../opencode/src/ga/server/index.ts'
 import { createGaJobExecutor } from '../../../../opencode/src/plugin/ga-location-services.ts'
-import { prepareAntigravityRequest } from '../../../../opencode/src/plugin/request.ts'
+import {
+  prepareAntigravityRequest,
+  transformAntigravityResponse,
+} from '../../../../opencode/src/plugin/request.ts'
 import { conversation, models, requestCases } from '../cases.ts'
 import { bodyOf, candidate, sse } from '../fixtures.ts'
 import { google2 } from '../native-google.ts'
@@ -24,9 +30,33 @@ import {
 const nativeUrl = (model: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse`
 
-test.each(
-  hosts,
-)('%s refuses the removed image chat before any upstream send', async (subject) => {
+test('a reply containing inlineData is no longer saved to a generated image file', async () => {
+  const response = await transformAntigravityResponse(
+    new Response(
+      sse(
+        candidate(
+          [
+            { inlineData: { mimeType: 'image/png', data: 'Zml4dHVyZQ==' } },
+            { text: 'Text reply.' },
+          ],
+          'STOP',
+        ),
+      ),
+      { headers: { 'content-type': 'text/event-stream' } },
+    ),
+    true,
+  )
+  const text = await response.text()
+  expect(text).toContain('Text reply.')
+  expect(text).not.toContain('Antigravity image saved')
+  await expect(
+    access(join(homedir(), '.opencode', 'generated-images')),
+  ).rejects.toMatchObject({ code: 'ENOENT' })
+})
+
+test.each([
+  ...hosts,
+])('%s refuses the removed image chat before any upstream send', async (subject) => {
   const result = await runConversation({
     subject,
     custody: 'local',

@@ -199,11 +199,12 @@ export function createPiModelAccess(
         }
       }
     }
-    policy =
+    const nextPolicy =
       protection.accountModels === 'deny-all'
         ? rules.compileModelAccess(undefined, { unusable: true })
         : rules.compileModelAccess(protection.accountModels)
-    for (const issue of policy.issues) {
+    policy = nextPolicy
+    for (const issue of nextPolicy.issues) {
       if (issue.reason === 'retired-model')
         log.warn(
           `Ignored retired model in account_models: ${JSON.stringify(issue.modelId)}`,
