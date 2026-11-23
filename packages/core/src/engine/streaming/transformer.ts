@@ -315,9 +315,14 @@ function transformSseLineWithMetadata(
 
   try {
     const parsed = JSON.parse(json) as {
+      error?: unknown
       response?: unknown
       responseId?: unknown
     }
+    // Keep a wrapper-level error for the refusal stream before unwrapping the
+    // reply. A finish reason in the same frame does not make it successful.
+    if (parsed?.error !== undefined)
+      return { line, hasToolCall: false, hasFinishReason: false }
     if (parsed.response !== undefined) {
       const hasToolCall = responseHasToolCall(parsed.response)
       const hasFinishReason = responseHasFinishReason(parsed.response)
