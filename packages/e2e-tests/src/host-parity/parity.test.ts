@@ -18,10 +18,7 @@ if (capturePath) {
         'The capture checkout does not match the frozen source commit',
       )
     const result = await recordCorpus(revision, mode)
-    await Bun.write(
-      capturePath,
-      `${JSON.stringify(mode === 'baseline' ? result.requests : result, null, 2)}\n`,
-    )
+    await Bun.write(capturePath, `${JSON.stringify(result, null, 2)}\n`)
   }, 180_000)
 }
 

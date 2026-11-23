@@ -43,21 +43,21 @@ export async function recordCorpus(
       }
     }
   }
-  if (mode === 'observe') {
-    for (const scenario of responseScenarios) {
-      for (const subject of subjects) {
-        for (const custody of custodies) {
-          const reply = (_wire: unknown, n: number) =>
-            scenario.replies[Math.min(n, scenario.replies.length - 1)]!
-          responses[key(scenario.input.id, subject, custody)] =
-            await runConversation({
-              subject,
-              custody,
-              input: scenario.input,
-              reply,
-              timed: true,
-            })
-        }
+  for (const scenario of responseScenarios) {
+    for (const subject of mode === 'baseline'
+      ? (['opencode1'] as const)
+      : subjects) {
+      for (const custody of custodies) {
+        const reply = (_wire: unknown, n: number) =>
+          scenario.replies[Math.min(n, scenario.replies.length - 1)]!
+        responses[key(scenario.input.id, subject, custody)] =
+          await runConversation({
+            subject,
+            custody,
+            input: scenario.input,
+            reply,
+            timed: true,
+          })
       }
     }
   }

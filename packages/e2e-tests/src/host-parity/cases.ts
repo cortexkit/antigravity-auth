@@ -44,7 +44,7 @@ export const models = {
   neon: 'antigravity-gemini-4-neon',
   hydrogen: 'antigravity-gemini-4-hydrogen',
   flash: 'antigravity-gemini-3.8-flash',
-  claude: 'antigravity-claude-sonnet-4-6-thinking',
+  claude: 'antigravity-claude-sonnet-5-5',
 } as const
 
 export type Conversation = {
@@ -63,6 +63,8 @@ export type Conversation = {
     raw?: boolean
   }
   sessions: (string | undefined)[]
+  steps?: Partial<Pick<Conversation, 'model' | 'messages' | 'options'>>[]
+  replayText?: boolean
   oracle: 'opencode1' | 'opencode2'
 }
 
@@ -138,7 +140,7 @@ const user: Turn = {
   role: 'user',
   parts: [{ type: 'text', text: 'Look up the value.' }],
 }
-const call: Call = {
+export const call: Call = {
   type: 'call',
   id: 'lookup-1',
   name: tool.name,
@@ -176,6 +178,9 @@ export const requestCases: readonly Conversation[] = [
   conversation('Gemini tool loop', {
     tools: [tool],
     messages: toolTurns([call], [result]),
+    sessions: ['parity-session', 'parity-session'],
+    steps: [{ messages: [user] }, {}],
+    replayText: true,
   }),
   conversation('parallel calls', {
     tools: [tool],
@@ -189,6 +194,13 @@ export const requestCases: readonly Conversation[] = [
     messages: toolTurns([{ ...call, signature: undefined }], [result]),
   }),
   conversation('Gemini → Claude → Gemini', {
+    sessions: ['parity-session', 'parity-session', 'parity-session'],
+    steps: [
+      { messages: [user] },
+      { model: models.claude, messages: [user, followup] },
+      {},
+    ],
+    replayText: true,
     messages: [
       user,
       {

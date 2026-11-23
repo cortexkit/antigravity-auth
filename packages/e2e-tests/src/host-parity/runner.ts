@@ -1,7 +1,14 @@
 import type { Conversation, Custody, Subject } from './cases.ts'
-import { Environment, type Reply, type Wire } from './environment.ts'
+import {
+  candidate,
+  Environment,
+  type Reply,
+  sse,
+  type Wire,
+} from './environment.ts'
 import { openCode1, openCode2 } from './open-code.ts'
 import { piAdapter } from './pi-surface.ts'
+import { signature } from './scenarios.ts'
 
 export async function runConversation({
   subject,
@@ -16,7 +23,20 @@ export async function runConversation({
   reply?: (wire: Wire, attempt: number) => Reply
   timed?: boolean
 }) {
-  const environment = new Environment(reply)
+  const environment = new Environment(
+    reply ??
+      (input.replayText
+        ? () => ({
+            body: sse(
+              candidate(
+                [{ text: 'Four.' }, { text: '', thoughtSignature: signature }],
+                'STOP',
+              ),
+            ),
+          })
+        : undefined),
+  )
+  const scope = `${input.id}:${subject}:${custody}:`
   const accessor = Symbol.for('cortexkit.routing')
   const prior = Reflect.getOwnPropertyDescriptor(globalThis, accessor)
   if (custody !== 'local') {
@@ -24,7 +44,10 @@ export async function runConversation({
       configurable: true,
       value: (sessionId: string) => ({
         report: (report: unknown) => {
-          environment.reports.push({ sessionId, report })
+          environment.reports.push({
+            sessionId: sessionId.replace(scope, ''),
+            report,
+          })
         },
       }),
     })
@@ -38,8 +61,36 @@ export async function runConversation({
     try {
       const operation = async () => {
         const turns = []
-        for (const session of input.sessions)
-          turns.push(await host.run(input, session))
+        for (const [index, session] of input.sessions.entries()) {
+          const step = { ...input, ...input.steps?.[index] }
+          const previous = turns.at(-1)
+          if (input.replayText && previous?.text) {
+            // Replay exactly what the host exposed, including the absence of
+            // a signature if its public decoder dropped the signature delta.
+            step.messages = [
+              step.messages[0]!,
+              {
+                role: 'assistant',
+                parts: [
+                  {
+                    type: 'text',
+                    text: previous.text,
+                    signature: previous.signatures.find(
+                      ({ channel }) => channel === 'text',
+                    )?.value,
+                  },
+                ],
+              },
+              ...step.messages.slice(1),
+            ]
+          }
+          turns.push(
+            await host.run(
+              step,
+              session === undefined ? undefined : `${scope}${session}`,
+            ),
+          )
+        }
         return turns
       }
       const turns = await (timed ? environment.timed(operation) : operation())

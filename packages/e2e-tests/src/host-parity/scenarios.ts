@@ -1,4 +1,10 @@
-import { type Conversation, conversation, models } from './cases.ts'
+import {
+  type Conversation,
+  call,
+  conversation,
+  models,
+  requestCases,
+} from './cases.ts'
 import { candidate, type Reply, sse, success } from './environment.ts'
 
 export type Scenario = {
@@ -89,6 +95,14 @@ const signatureError = jsonError(
   'INVALID_ARGUMENT',
   'Function call is missing a thought_signature',
 )
+const recoveryHistory = requestCases.find(
+  ({ id }) => id === 'Gemini tool loop',
+)!
+const signatureRequest = {
+  model: models.claude,
+  messages: recoveryHistory.messages,
+  tools: recoveryHistory.tools,
+}
 const overflow = jsonError(
   400,
   'INVALID_ARGUMENT',
@@ -152,11 +166,12 @@ export const responseScenarios: readonly Scenario[] = [
   ),
   scenario('503 then success', 'response-errors:D3', [capacity, success], {
     sends: 2,
+    delays: [1000],
   }),
   scenario(
     'daily failure then prod success',
     'request-wire:D7',
-    [jsonError(503, 'UNAVAILABLE', 'Fixture daily unavailable'), success],
+    [{ transportError: 'Fixture daily unavailable' }, success],
     { sends: 2 },
   ),
   scenario(
@@ -175,6 +190,7 @@ export const responseScenarios: readonly Scenario[] = [
     {
       sessions: ['parity-session', 'parity-session', 'parity-session'],
       model: models.flash,
+      steps: [{}, {}, { model: models.hydrogen }],
     },
   ),
   scenario(
@@ -188,12 +204,14 @@ export const responseScenarios: readonly Scenario[] = [
     'response-errors:D11',
     [signatureError, success],
     { sends: 2 },
+    signatureRequest,
   ),
   scenario(
     'thinking-signature terminal refusal',
     'response-errors:D11',
     [signatureError, signatureError],
     { sends: 2, ...refusal('signature_recovery_failed') },
+    signatureRequest,
   ),
   scenario('prompt too long', 'response-errors:D1', [overflow], {
     ...refusal('context_overflow'),
@@ -204,7 +222,7 @@ export const responseScenarios: readonly Scenario[] = [
     [
       candidate([
         {
-          functionCall: { name: 'lookup', args: { key: 'value' } },
+          functionCall: { name: call.name, args: call.args },
           thoughtSignature: signature,
         },
       ]),

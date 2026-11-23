@@ -23,6 +23,7 @@ export type Reply = {
   headers?: Record<string, string>
   body?: string
   stall?: 'before-headers' | 'after-body'
+  transportError?: string
 }
 
 export const sse = (...frames: (object | string)[]) =>
@@ -213,6 +214,10 @@ export class Environment {
           done()
           queueMicrotask(() => {
             if (socket.destroyed || reply.stall === 'before-headers') return
+            if (reply.transportError) {
+              socket.destroy(new Error(reply.transportError))
+              return
+            }
             const body = Buffer.from(reply.body ?? '')
             const headers = new Headers(reply.headers)
             if (!headers.has('content-type'))
