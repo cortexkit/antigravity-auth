@@ -3,7 +3,7 @@
 ## [Unreleased]
 
 - When vault routing has no room for a new request, OpenCode waits for capacity before sending it to Google. Cancelling or reaching the pre-response time limit stops the wait without sending the request.
-- Update the shared authentication library to common-auth 0.57.0. OpenCode 2 no longer switches Google accounts when retrying a response that has already started streaming.
+- Update the shared authentication library to common-auth 0.57.0. Its other changes are opt-in or don't apply to antigravity-auth.
 
 ## [3.1.12] - 2026-11-21
 
