@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test'
 import { conversation, models } from '../cases.ts'
 import { Environment } from '../environment.ts'
 import { bodyOf, candidate, credential, sse, success } from '../fixtures.ts'
+import { openCode1 } from '../open-code.ts'
 import { piAdapter } from '../pi-surface.ts'
 
 const input = conversation('Pi single account settings')
@@ -22,6 +23,8 @@ const missing = {
     error: { status: 'NOT_FOUND', message: 'Fixture model not found' },
   }),
 }
+const modelUnavailable =
+  'Antigravity request failed: HTTP 412 {"error":{"code":412,"status":"FAILED_PRECONDITION","message":"The requested Antigravity model is not available to the configured accounts. Choose another model."}}'
 
 for (const [gate, settings] of [
   [
@@ -392,7 +395,7 @@ test('an outstanding NOT_FOUND marks its original native credential, not the rep
     await replaceLogin(pi.nativeAuthPath, 'new-slot')
     expect((await pi.run(input, 'new-request')).terminal).toEqual(['stop'])
     oldReply.resolve(new Response(missing.body, missing))
-    expect((await pending).terminal).toEqual(['failure:model_not_found'])
+    expect((await pending).errors).toEqual([modelUnavailable])
     expect((await pi.run(input, 'new-request')).terminal).toEqual(['stop'])
     expect(sent).toEqual([
       `Bearer ${credential.accessToken}`,
@@ -412,11 +415,11 @@ test('NOT_FOUND for the native login does not follow a Pi activation into vault 
   )
   const pi = await piAdapter(env, 'local', false)
   try {
-    expect((await pi.run(input, 'switch-custody')).terminal).toEqual([
-      'failure:model_not_found',
+    expect((await pi.run(input, 'switch-custody')).errors).toEqual([
+      modelUnavailable,
     ])
-    expect((await pi.run(input, 'switch-custody')).terminal).toEqual([
-      'failure:model_not_found',
+    expect((await pi.run(input, 'switch-custody')).errors).toEqual([
+      modelUnavailable,
     ])
     expect(env.physicalSends).toHaveLength(1)
     await pi.switchToVault()
@@ -434,11 +437,11 @@ test('NOT_FOUND for a vault route does not apply to a later record version on th
   )
   const pi = await piAdapter(env, 'vault', false)
   try {
-    expect((await pi.run(input, 'vault-version')).terminal).toEqual([
-      'failure:model_not_found',
+    expect((await pi.run(input, 'vault-version')).errors).toEqual([
+      modelUnavailable,
     ])
-    expect((await pi.run(input, 'vault-version')).terminal).toEqual([
-      'failure:model_not_found',
+    expect((await pi.run(input, 'vault-version')).errors).toEqual([
+      modelUnavailable,
     ])
     expect(env.physicalSends).toHaveLength(1)
     pi.replaceVaultRecord()
@@ -448,4 +451,56 @@ test('NOT_FOUND for a vault route does not apply to a later record version on th
     await pi.dispose()
     await env.dispose()
   }
+})
+
+test('Pi and OpenCode 1 share the structured same-account rate-limit trace', async () => {
+  const structured = {
+    status: 429,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      error: {
+        code: 429,
+        message: 'Request refused',
+        details: [
+          {
+            '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+            reason: 'RATE_LIMIT_EXCEEDED',
+          },
+        ],
+      },
+    }),
+  }
+  async function capture(subject: 'pi' | 'opencode1') {
+    const env = new Environment(() => structured)
+    const host =
+      subject === 'pi'
+        ? await piAdapter(env, 'local', false)
+        : await openCode1(env, 'local', input)
+    try {
+      const started = Date.now()
+      const result = await env.timed(() => host.run(input, 'same-account'))
+      expect(result.text).toBe('')
+      const beforeFinalWait = env.delays.reduce(
+        (total, delay) => total + delay,
+        0,
+      )
+      return {
+        sends: env.physicalSends,
+        waits: [...env.delays, Date.now() - started - beforeFinalWait],
+      }
+    } finally {
+      await host.dispose()
+      await env.dispose()
+    }
+  }
+  const expected = {
+    sends: Array.from({ length: 3 }, () => ({
+      endpoint: 'https://daily-cloudcode-pa.googleapis.com',
+      model: 'gemini-3.8-flash-medium',
+      route: credential.projectId,
+    })),
+    waits: [1000, 1000, 2000],
+  }
+  expect(await capture('opencode1')).toEqual(expected)
+  expect(await capture('pi')).toEqual(expected)
 })

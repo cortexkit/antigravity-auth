@@ -210,7 +210,7 @@ describe('shared request engine import graph', () => {
         'ANTIGRAVITY_ENDPOINT_FALLBACKS',
       ],
       '../model-access.ts': ['type ModelAccessPolicy'],
-      './errors.ts': ['AntigravityKillswitchError'],
+      './errors.ts': ['AntigravityKillswitchError', 'ResponseBodyReadError'],
       './fetch/retry-state.ts': [
         'createRetryState',
         'type RateLimitBackoffResult',
@@ -255,7 +255,9 @@ describe('shared request engine import graph', () => {
         'type CapturedLocalGrant',
       ],
       './request-cancellation.ts': [
+        'attachResponseCleanup',
         'createRequestCancellation',
+        'getResponseCleanup',
         'retainResponseLifetime',
       ],
       './routing-port.ts': [

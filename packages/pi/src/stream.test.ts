@@ -486,7 +486,7 @@ describe('selected credential boundary', () => {
     expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
   })
 
-  it('keeps the structured HTTP refusal after the engine quick retry', async () => {
+  it('keeps the structured HTTP refusal after the engine same-account waits', async () => {
     const body = JSON.stringify({
       error: {
         code: 429,
@@ -500,9 +500,9 @@ describe('selected credential boundary', () => {
       },
     })
     const { result, waits } = await runRateLimit(body)
-    // The structured rate limit gets one quick retry and retains its HTTP body.
-    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(2)
-    expect(waits).toEqual([1000])
+    // Replies within the two-second deduplication window share a quick retry; the final refusal backs off.
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(3)
+    expect(waits).toEqual([1000, 1000, 2000])
     expect(result.errorMessage).toBe(
       `Antigravity request failed: HTTP 429 ${body}`,
     )
