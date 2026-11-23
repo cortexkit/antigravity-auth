@@ -249,6 +249,7 @@ describe('shared request engine import graph', () => {
         'extractAntigravityError',
         'resolveRetryMetadata',
       ],
+      './account-access.ts': ['googleForbiddenRefusal'],
       './after-handoff.ts': [
         'createAfterHandoff',
         'type RegisterResponseHandoff',
