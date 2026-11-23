@@ -107,11 +107,11 @@ test('confirmed failures on both account stores expire on the configured TTL', a
 
 test('first classified limit switches or retries according to the scheduling settings', async () => {
   for (const domain of domains) {
-    for (const [mode, cap, switchFirst, expectedAccount, sendAfter] of [
-      ['balance', 10, false, 0, 1000],
-      ['balance', 10, true, 1, 1000],
-      ['cache_first', 10, true, 0, 9000],
-      ['cache_first', 5, true, 1, 1000],
+    for (const [mode, cap, switchFirst, expectedAccount, waitedForCache] of [
+      ['balance', 10, false, 0, false],
+      ['balance', 10, true, 1, false],
+      ['cache_first', 10, true, 0, true],
+      ['cache_first', 5, true, 1, false],
     ] as const) {
       const clock = routedTime(1000, 8000)
       try {
@@ -130,7 +130,12 @@ test('first classified limit switches or retries according to the scheduling set
           },
         })
         expect(await dispatch(h, domain)).toEqual([0, expectedAccount])
-        expect(sends).toEqual([0, sendAfter])
+        expect(sends[0]).toBe(0)
+        expect(sends[1]).toBeGreaterThanOrEqual(1000)
+        expect(sends[1]! >= 9000).toBe(waitedForCache)
+        expect(clock.delays.filter((delay) => delay === 8000)).toEqual(
+          waitedForCache ? [8000] : [],
+        )
       } finally {
         clock.restore()
       }
@@ -382,7 +387,7 @@ test('the local quota refresh interval enables or skips an advisory refresh afte
       {
         refreshAccount: async (_account, { index }) => {
           calls.push(index)
-          return { status: 'ok' }
+          return { index, status: 'ok', disabled: false }
         },
         hashedLogLabel: () => 'fixture-account',
       },

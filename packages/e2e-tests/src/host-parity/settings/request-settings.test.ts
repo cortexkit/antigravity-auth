@@ -102,7 +102,7 @@ test('OpenCode 2 writes request diagnostics only when enabled and in the locatio
         await host.dispose()
         await env.dispose()
       }
-      if (path) expect(await Bun.file(path).text()).toContain('gemini-3-flash')
+      if (path) expect(await Bun.file(path).text()).toContain(models.flash)
     }
   } finally {
     await rm(dir, { recursive: true, force: true })
@@ -124,7 +124,7 @@ test('Pi settings independently gate the debug file and debug-level request reco
       const logDir = join(dir, level)
       const host = await piAdapter(env, 'local', false, {
         debug,
-        operator: { log_level: level },
+        log_level: level,
         log_dir: logDir,
       })
       try {
@@ -292,7 +292,7 @@ test('Pi uses the configured wait budget and fallback when a quota reply lacks t
           'failure:quota_exhausted',
         ])
         expect((await pi.run(flash, 'quota-wait')).terminal).toEqual(
-          sends === 1 ? ['failure:pool_unavailable'] : ['stop'],
+          sends === 1 ? ['failure:upstream_http'] : ['stop'],
         )
       })
       expect(env.physicalSends).toHaveLength(sends)

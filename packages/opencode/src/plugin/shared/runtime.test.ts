@@ -292,24 +292,34 @@ describe('location runtime', () => {
   })
 
   it('location log level filters debug records without losing warnings', async () => {
-    const sink: LocationLogRecord[] = []
-    const runtime = await start(
-      options(location('log-level', { debug_tui: true }), {
-        logSink: (record) => void sink.push(record),
-      }),
-    )
-    const log = runtime.logger.createLogger('settings-probe')
-    log.debug('hidden at info')
-    await runtime.operatorSettings.update((draft) => {
-      draft.log_level = 'debug'
-    })
-    log.debug('shown at debug')
-    log.warn('warning')
-    expect(
-      sink
-        .filter(({ service }) => service === 'antigravity.settings-probe')
-        .map(({ message }) => message),
-    ).toEqual(['shown at debug', 'warning'])
+    for (const level of ['info', 'debug'] as const) {
+      const userDir = join(root, `user-${level}`)
+      mkdirSync(userDir, { recursive: true })
+      process.env.OPENCODE_CONFIG_DIR = userDir
+      writeFileSync(
+        join(userDir, 'antigravity.json'),
+        JSON.stringify({ operator: { log_level: level } }),
+      )
+      const sink: LocationLogRecord[] = []
+      const runtime = await start(
+        options(location(level, { debug_tui: true }), {
+          logSink: (record) => void sink.push(record),
+        }),
+      )
+      try {
+        expect(runtime.operatorSettings.get().log_level).toBe(level)
+        const log = runtime.logger.createLogger('settings-probe')
+        log.debug('debug record')
+        log.warn('warning')
+        expect(
+          sink
+            .filter(({ service }) => service === 'antigravity.settings-probe')
+            .map(({ message }) => message),
+        ).toEqual(level === 'debug' ? ['debug record', 'warning'] : ['warning'])
+      } finally {
+        await runtime.dispose()
+      }
+    }
   })
 
   it('builds each location from its own configuration and fresh defaults', async () => {
