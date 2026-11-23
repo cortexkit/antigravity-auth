@@ -1375,6 +1375,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       agyMetadataIdentity(requestSessionIdentity, kind),
     )
     const agyRequestSession = agyRequestScope.session
+    const displayedThinkingScope = JSON.stringify([
+      requestSessionIdentity.sessionId,
+      agyRequestSession.conversationId,
+    ])
     const accountSessionIdentity = requestSessionIdentity.sessionId
       ? {
           id: requestSessionIdentity.sessionId,
@@ -1490,7 +1494,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           context.toolDebugSummary,
           debugLines,
           context.dumpContext,
-          agyRequestSession.conversationId,
+          displayedThinkingScope,
         )
       }
       log.debug(fallbackMessage, {
@@ -4012,7 +4016,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 prepared.toolDebugSummary,
                 debugLines,
                 dumpContext,
-                agyRequestSession.conversationId,
+                displayedThinkingScope,
               ),
             )
 

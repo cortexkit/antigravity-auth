@@ -50,6 +50,7 @@ import {
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
 import { expectNoOpenCodeRetryHints } from '../../plugin/__fixtures__/opencode-retry-hints.test.ts'
 import { RELEASE_MODEL_IDS } from '../../plugin/__fixtures__/release-model-ids'
+import { AgySessionRegistry } from '../../plugin/session-context.ts'
 
 type SenderCall = {
   url: string
@@ -1760,6 +1761,8 @@ describe('setup against a host context', () => {
     let controller!: ReadableStreamDefaultController<HostEvent>
     let subscriptionSignal: AbortSignal | undefined
     let stopped = false
+    let scopes = new AgySessionRegistry()
+    const factory = fakeServices(log)
     const stream = new ReadableStream<HostEvent>({
       start: (value) => {
         controller = value
@@ -1785,9 +1788,25 @@ describe('setup against a host context', () => {
           },
         },
       },
-      fakeServices(log),
+      async (args) => {
+        const services = await factory(args)
+        return {
+          ...services,
+          start(input) {
+            scopes = input.runtime.agySessions ?? scopes
+            return services.start(input)
+          },
+        }
+      },
     )
     if (cleanup) cleanups.push(cleanup)
+    const identities = [
+      'ses_prepared',
+      'ses_prepared#title',
+      'ses_prepared#compaction',
+      'ses_prepared#generate',
+    ].map((sessionId) => ({ sessionId, parentSessionId: null }))
+    const before = identities.map((identity) => scopes.getOrCreate(identity))
     await hooks['http.request']?.(preparedEvent(placeholderSecret('google')))
     expect((await hostRetry(hooks)).decision).toEqual({ retry: false })
     controller.enqueue(
@@ -1795,12 +1814,20 @@ describe('setup against a host context', () => {
     )
     await new Promise((resolve) => setImmediate(resolve))
     expect((await hostRetry(hooks)).decision).toEqual({ retry: false })
+    expect(identities.map((identity) => scopes.getOrCreate(identity))).toEqual(
+      before,
+    )
     controller.enqueue(
       JSON.parse(
         '{"type":"session.deleted","data":{"sessionID":"ses_prepared"}}',
       ),
     )
     await new Promise((resolve) => setImmediate(resolve))
+    expect(scopes.size).toBe(0)
+    for (const [index, identity] of identities.entries())
+      expect(scopes.getOrCreate(identity).conversationId).not.toBe(
+        before[index]?.conversationId,
+      )
     expect((await hostRetry(hooks)).decision).toEqual({
       retry: true,
       delay: 1234,
