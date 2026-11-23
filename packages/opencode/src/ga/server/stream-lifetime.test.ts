@@ -12,6 +12,8 @@ import {
 const firstFrame = 'data: {"text":"first owned frame"}\n\n'
 const secondFrame = 'data: {"text":"second owned frame"}\n\n'
 const decoder = new TextDecoder()
+const TRANSPORT_REFUSAL =
+  'Antigravity could not communicate with Google. Check the plugin log for details.'
 const released = { unclaimed: 0, claimed: 0, failures: 0, timers: 0 }
 const job: GaBridgeJob = {
   sessionID: 'ses_stream_lifetime',
@@ -170,7 +172,7 @@ async function openStream(holdFailure = false) {
   }
 }
 
-it('delivers the identical native upstream failure after every sent byte', async () => {
+it('delivers the fixed refusal after every sent byte of a failed native stream', async () => {
   const stream = await openStream()
   try {
     await stream.bufferSecond()
@@ -180,7 +182,7 @@ it('delivers the identical native upstream failure after every sent byte', async
     stream.fail()
     const failure = await stream.nativeFailure
     expect(failure).toBeInstanceOf(Error)
-    expect(await terminal).toBe(failure)
+    expect(await terminal).toHaveProperty('message', TRANSPORT_REFUSAL)
     expect(stream.cleaned).toBe(true)
     expect(stream.bridge.retainedResponses()).toEqual(released)
   } finally {
@@ -188,7 +190,7 @@ it('delivers the identical native upstream failure after every sent byte', async
   }
 })
 
-it('retains a claimed native failure beyond the former 60-second lease', async () => {
+it('retains a claimed fixed refusal beyond the former 60-second lease', async () => {
   const stream = await openStream()
   try {
     await stream.bufferSecond()
@@ -202,9 +204,9 @@ it('retains a claimed native failure beyond the former 60-second lease', async (
     const second = await stream.consumer.read()
     expect(second.done).toBe(false)
     expect(decoder.decode(second.value)).toBe(secondFrame)
-    expect(await stream.consumer.read().catch((error: unknown) => error)).toBe(
-      failure,
-    )
+    expect(
+      await stream.consumer.read().catch((error: unknown) => error),
+    ).toHaveProperty('message', TRANSPORT_REFUSAL)
     expect(stream.bridge.retainedResponses()).toEqual(released)
   } finally {
     await stream.close()
@@ -318,7 +320,7 @@ it('does not turn a paused claimed failure into clean EOF on disposal', async ()
   try {
     await stream.bufferSecond()
     stream.fail()
-    const failure = await stream.nativeFailure
+    expect(await stream.nativeFailure).toBeInstanceOf(Error)
     await stream.nativeFinished
     await setImmediate()
     expect(stream.loopbackEof).toBe(false)
@@ -331,7 +333,7 @@ it('does not turn a paused claimed failure into clean EOF on disposal', async ()
     const terminal = await stream.consumer
       .read()
       .catch((error: unknown) => error)
-    expect(terminal).toBe(failure)
+    expect(terminal).toHaveProperty('message', TRANSPORT_REFUSAL)
   } finally {
     await stream.close()
   }

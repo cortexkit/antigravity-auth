@@ -343,6 +343,8 @@ async function rows(f: Awaited<ReturnType<typeof fixture>>) {
 }
 
 const FAILED = 'The Antigravity pool login could not be completed.'
+const AUTHORITY_CHANGED =
+  'Antigravity credential authority changed. No further local account operations were performed.'
 
 describe('GA redirect URL pool login', () => {
   function oauthState(url: string) {
@@ -593,8 +595,11 @@ describe('GA redirect URL pool login', () => {
         }
         const before = tree(f.root)
         const refuse = async () => {
-          await expect(f.authorize(GA_POOL_PASTE_METHOD_ID)).rejects.toThrow(
-            FAILED,
+          await expect(
+            f.authorize(GA_POOL_PASTE_METHOD_ID),
+          ).rejects.toHaveProperty(
+            'message',
+            authority === 'host' ? FAILED : AUTHORITY_CHANGED,
           )
         }
         if (authority === 'host') {
@@ -720,10 +725,11 @@ describe('GA existing local pool reconnect', () => {
       expect(refusal).toBeInstanceOf(core.AccountStoreBusyError)
       expect((refusal as Error).message).toBe(busy)
       const response = gaPreHeaderFailureResponse(refusal)
-      expect(response.status).toBe(502)
+      expect(response.status).toBe(412)
       expect(response.headers.has('retry-after')).toBe(false)
+      expect(response.headers.get('x-should-retry')).toBe('false')
       expect(await response.json()).toEqual({
-        error: { code: 502, status: 'UNAVAILABLE', message: busy },
+        error: { code: 412, status: 'FAILED_PRECONDITION', message: busy },
       })
       // A busy refusal must not prevent a later request from serving.
       f.gateAdmission(async () => {})
@@ -1152,7 +1158,10 @@ describe('GA pool login durability', () => {
       try {
         f.mode(mode)
         const before = tree(f.root)
-        await expect(f.login()).rejects.toThrow(FAILED)
+        await expect(f.login()).rejects.toHaveProperty(
+          'message',
+          AUTHORITY_CHANGED,
+        )
         expect(tree(f.root)).toEqual(before)
       } finally {
         await f.cleanup()
@@ -1172,7 +1181,10 @@ describe('GA pool login durability', () => {
       return outcome
     })
     try {
-      await expect(f.login()).rejects.toThrow(FAILED)
+      await expect(f.login()).rejects.toHaveProperty(
+        'message',
+        AUTHORITY_CHANGED,
+      )
       expect(initializer).toHaveBeenCalledTimes(1)
       expect(initializer.mock.calls[0]?.[1]?.legacyPath).toBe(f.legacyPath)
       expect(
@@ -1216,7 +1228,9 @@ describe('GA pool login durability', () => {
         if (action === 'revoke') f.mode('custody')
         else disposal = f.registration.dispose()
         release.resolve()
-        expect(await pending).toBe(FAILED)
+        expect(await pending).toBe(
+          action === 'revoke' ? AUTHORITY_CHANGED : FAILED,
+        )
         await disposal
         f.mode('local')
         expect(

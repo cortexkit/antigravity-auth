@@ -156,6 +156,21 @@ export function extractAntigravityError(
   return null
 }
 
+export function extractRateLimitErrorInfoReason(details: unknown) {
+  if (!Array.isArray(details)) return undefined
+  for (const detail of details) {
+    if (!detail || typeof detail !== 'object' || Array.isArray(detail)) continue
+    const type = (detail as Record<string, unknown>)['@type']
+    const reason = (detail as Record<string, unknown>).reason
+    if (
+      typeof type === 'string' &&
+      type.includes('google.rpc.ErrorInfo') &&
+      typeof reason === 'string'
+    )
+      return reason
+  }
+}
+
 const MAX_FINITE_WAIT_MS = BigInt(Math.ceil(Number.MAX_VALUE))
 const MAX_FINITE_WAIT_SECONDS = (MAX_FINITE_WAIT_MS + 999n) / 1000n
 const MAX_FINITE_FORWARDING_MS = MAX_FINITE_WAIT_SECONDS * 1000n

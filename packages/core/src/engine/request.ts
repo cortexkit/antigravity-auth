@@ -30,6 +30,7 @@ import {
   rewriteSystemInstruction,
   supportsGeminiXHigh,
 } from '../index.ts'
+import { parseRateLimitReason } from '../rotation.ts'
 import { sanitizeCrossModelPayloadInPlace } from '../transform/cross-model-sanitizer.ts'
 import {
   appendClaudeThinkingHint,
@@ -81,6 +82,7 @@ import {
 } from './request-helpers.ts'
 import {
   extractAntigravityError,
+  extractRateLimitErrorInfoReason,
   resolveRetryMetadata,
 } from './retry-metadata.ts'
 import {
@@ -2635,7 +2637,14 @@ async function transformAntigravityResponseIn(
   dumpContext?: GeminiDumpContext | null,
   displayedThinkingScope?: string,
   allowThinkingOnly = false,
+  diagnosticCredential?: string,
 ): Promise<Response> {
+  const redactDiagnostic = (text: string) =>
+    redactCredentialText(
+      text,
+      diagnosticCredential,
+      projectId ? [projectId] : undefined,
+    )
   const contentType = response.headers.get('content-type') ?? ''
   const isJsonResponse = contentType.includes('application/json')
   const isEventStreamResponse =
@@ -2717,14 +2726,7 @@ async function transformAntigravityResponseIn(
     const body = enforceStreamRefusals(
       rawDumpTransformer?.readable ?? response.body,
       {
-        log: (diagnostic) =>
-          wire.logger.debug(
-            redactCredentialText(
-              diagnostic,
-              undefined,
-              projectId ? [projectId] : undefined,
-            ),
-          ),
+        log: (diagnostic) => wire.logger.debug(redactDiagnostic(diagnostic)),
         transformLine,
         allowEmpty: allowThinkingOnly,
         onUsage(usage) {
@@ -2765,11 +2767,7 @@ async function transformAntigravityResponseIn(
       text = await response.text()
     } catch (error) {
       wire.logger.debug('Failed to read Antigravity refusal', {
-        error: redactCredentialText(
-          String(error),
-          undefined,
-          projectId ? [projectId] : undefined,
-        ),
+        error: redactDiagnostic(String(error)),
       })
       return engineRefusalResponse('transport_error')
     }
@@ -2777,11 +2775,7 @@ async function transformAntigravityResponseIn(
     effects.dump.appendResponseText(dumpContext, text)
     wire.logger.debug('Antigravity upstream refusal', {
       status: response.status,
-      message: redactCredentialText(
-        text,
-        undefined,
-        projectId ? [projectId] : undefined,
-      ),
+      message: redactDiagnostic(text),
     })
     if (response.status === 403)
       return engineRefusalResponse(googleForbiddenRefusal(text))
@@ -2818,6 +2812,15 @@ async function transformAntigravityResponseIn(
       return engineRefusalResponse('context_overflow')
     }
     if (response.status === 429) {
+      const reason = parseRateLimitReason(
+        extractRateLimitErrorInfoReason(upstream?.details),
+        message,
+        response.status,
+      )
+      if (reason === 'MODEL_CAPACITY_EXHAUSTED')
+        return engineRefusalResponse('capacity_exhausted')
+      if (reason !== 'QUOTA_EXHAUSTED' && reason !== 'RATE_LIMIT_EXCEEDED')
+        return engineRefusalResponse('quota_wait_exhausted')
       const retry = resolveRetryMetadata({
         details: upstream?.details,
         message,
@@ -2825,9 +2828,12 @@ async function transformAntigravityResponseIn(
         headers: response.headers,
         allowZero: false,
       })
-      return engineRefusalResponse('quota_exhausted', {
-        resetAfterMs: retry?.delayMs,
-      })
+      return engineRefusalResponse(
+        reason === 'QUOTA_EXHAUSTED'
+          ? 'quota_exhausted'
+          : 'rate_limit_exceeded',
+        { resetAfterMs: retry?.delayMs },
+      )
     }
     const refusal = engineRefusalResponse(
       response.status === 401

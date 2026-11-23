@@ -108,6 +108,7 @@ import {
 } from './request-helpers.ts'
 import {
   extractAntigravityError,
+  extractRateLimitErrorInfoReason,
   createNativeGoogleErrorResponse as nativeErrorResponse,
   resolveRetryMetadata,
 } from './retry-metadata.ts'
@@ -1268,9 +1269,20 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     const assertAdmission = async (): Promise<void> => {
       await deadline.wait(() => deps.assertAdmission?.(deadline.signal))
     }
+    const redactDiagnostic = (text: string) =>
+      redactCredentialText(
+        text,
+        [...selectedCredentials],
+        [...selectedProjectIds],
+      )
     const logResponseBody = (
-      ...args: Parameters<typeof debug.logResponseBody>
-    ) => deadline.wait(() => debug.logResponseBody(...args))
+      context: Parameters<typeof debug.logResponseBody>[0],
+      response: Response,
+      status: number,
+    ) =>
+      deadline.wait(() =>
+        debug.logResponseBody(context, response, status, redactDiagnostic),
+      )
     await assertAdmission()
     // Normalize Request/URL inputs to (urlString, init) so the string-based
     // transform pipeline sees the real method/headers/body. Without this,
@@ -1474,6 +1486,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       debugContext: ReturnType<RequestDebug['startAntigravityDebugRequest']>
       requestedModel?: string
       projectId?: string
+      diagnosticCredential: string
       endpoint?: string
       effectiveModel?: string
       sessionId?: string
@@ -1514,6 +1527,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           debugLines,
           context.dumpContext,
           displayedThinkingScope,
+          false,
+          context.diagnosticCredential,
         )
       }
       log.debug(fallbackMessage, {
@@ -2773,6 +2788,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               undefined,
               agyRequestSession.conversationId,
               true,
+              warmupSend.admission?.accessToken ?? localGrant?.accessToken,
             ),
           )
           await deadline.wait(() => transformed.text())
@@ -3018,6 +3034,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               debugContext,
               requestedModel: prepared.requestedModel,
               projectId: prepared.projectId,
+              diagnosticCredential: sendAccessToken,
               endpoint: prepared.endpoint,
               effectiveModel: prepared.effectiveModel,
               sessionId: prepared.sessionId,
@@ -3560,7 +3577,16 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 family,
                 response.status,
                 effectiveDelayMs,
-                reasonInfo,
+                {
+                  ...reasonInfo,
+                  message:
+                    reasonInfo.message && redactDiagnostic(reasonInfo.message),
+                  quotaResetTime:
+                    reasonInfo.quotaResetTime &&
+                    redactDiagnostic(reasonInfo.quotaResetTime),
+                  reason:
+                    reasonInfo.reason && redactDiagnostic(reasonInfo.reason),
+                },
               )
               await logResponseBody(debugContext, response, 429)
               trackers.health.recordRateLimit(account.index)
@@ -4038,6 +4064,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 debugLines,
                 dumpContext,
                 displayedThinkingScope,
+                false,
+                sendAccessToken,
               ),
             )
 
@@ -4594,21 +4622,7 @@ function extractRateLimitBodyInfo(
       ? errorRecord.details
       : undefined
 
-  let reason: string | undefined
-  if (Array.isArray(details)) {
-    for (const detail of details) {
-      if (!detail || typeof detail !== 'object' || Array.isArray(detail))
-        continue
-      const type = (detail as { '@type'?: string })['@type']
-      if (typeof type === 'string' && type.includes('google.rpc.ErrorInfo')) {
-        const detailReason = (detail as { reason?: string }).reason
-        if (typeof detailReason === 'string') {
-          reason = detailReason
-          break
-        }
-      }
-    }
-  }
+  const reason = extractRateLimitErrorInfoReason(details)
 
   const resolved = resolveRetryMetadata({
     details,

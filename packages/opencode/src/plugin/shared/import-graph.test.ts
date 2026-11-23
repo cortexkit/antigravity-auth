@@ -249,6 +249,7 @@ describe('shared request engine import graph', () => {
       './retry-metadata.ts': [
         'createNativeGoogleErrorResponse as nativeErrorResponse',
         'extractAntigravityError',
+        'extractRateLimitErrorInfoReason',
         'resolveRetryMetadata',
       ],
       './account-access.ts': ['googleForbiddenRefusal'],

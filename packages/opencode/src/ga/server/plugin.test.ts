@@ -453,7 +453,7 @@ describe('loopback bridge', () => {
     })
   })
 
-  it('answers 502 with the original message for a failure before upstream headers', async () => {
+  it('answers 502 with fixed text for a bridge failure before upstream headers', async () => {
     const active = await start(async () => {
       throw realCore.markUpstreamFailure(
         new Error('connect ECONNREFUSED fake-endpoint'),
@@ -466,7 +466,8 @@ describe('loopback bridge', () => {
     expect(await response.json()).toEqual({
       error: {
         code: 502,
-        message: 'connect ECONNREFUSED fake-endpoint',
+        message:
+          'Antigravity could not communicate with Google. Check the plugin log for details.',
         status: 'UNAVAILABLE',
       },
     })
@@ -999,7 +1000,7 @@ describe('hook bodies', () => {
     expect(active.pendingJobs()).toBe(0)
   })
 
-  it('fails an owned response read with the genuine post-header error, never a success', async () => {
+  it('fails an owned response read with a fixed post-header refusal, never a success', async () => {
     const genuine = new Error('upstream reset after 1 frame')
     const firstFrame = 'data: {"a":1}\n\n'
     // The upstream fails only after this gate opens. The test opens it once
@@ -1048,7 +1049,10 @@ describe('hook bodies', () => {
         (result) => result,
         (error: unknown) => error,
       )
-      expect(failure).toBe(genuine)
+      expect(failure).toHaveProperty(
+        'message',
+        'Antigravity could not communicate with Google. Check the plugin log for details.',
+      )
     } finally {
       // Settle the upstream and the client stream whatever failed above, so
       // the bridge disposal in afterEach never waits on a pending upstream
@@ -1058,7 +1062,7 @@ describe('hook bodies', () => {
     }
   })
 
-  it('delivers a first chunk and then the genuine error when the upstream fails immediately after it', async () => {
+  it('delivers a first chunk and then a fixed refusal when the upstream fails immediately after it', async () => {
     const genuine = new Error('upstream reset right after the first frame')
     const firstFrame = 'data: {"a":1}\n\n'
     // No barrier: the upstream errors on the very next read after its first
@@ -1103,16 +1107,18 @@ describe('hook bodies', () => {
         if (!chunk || chunk.done) break
         received += decoder.decode(chunk.value, { stream: true })
       }
-      // The real content arrives first, then the original error, never a
-      // clean end.
+      // The real content arrives first, then a refusal rather than a clean end.
       expect(received).toBe(firstFrame)
-      expect(failure).toBe(genuine)
+      expect(failure).toHaveProperty(
+        'message',
+        'Antigravity could not communicate with Google. Check the plugin log for details.',
+      )
     } finally {
       await reader.cancel().catch(() => undefined)
     }
   })
 
-  it('delivers the genuine error when the upstream body fails before any byte', async () => {
+  it('delivers a fixed refusal when the upstream body fails before any byte', async () => {
     const genuine = new Error('upstream reset before the first frame')
     const active = await startBridge(
       async () =>
@@ -1134,7 +1140,10 @@ describe('hook bodies', () => {
       (text) => text,
       (error: unknown) => error,
     )
-    expect(failure).toBe(genuine)
+    expect(failure).toHaveProperty(
+      'message',
+      'Antigravity could not communicate with Google. Check the plugin log for details.',
+    )
   })
 
   it('leaves responses to requests it does not own unchanged', async () => {

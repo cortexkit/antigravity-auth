@@ -334,6 +334,7 @@ export interface LocationDebug {
     context: AntigravityDebugContext | null | undefined,
     response: Response,
     status: number,
+    redact?: (text: string) => string,
   ): Promise<string | undefined>
   logModelFamily(
     url: string,
@@ -555,20 +556,24 @@ function createDebugHandle(
       })
     },
 
-    async logResponseBody(context, response, status) {
+    async logResponseBody(context, response, status, redact) {
       const state = readState()
       if (!state.debugEnabled || !context) return undefined
 
       try {
         const text = await response.clone().text()
-        const preview = truncateTextForLog(text, MAX_BODY_LOG_CHARS)
+        const preview = truncateTextForLog(
+          redact?.(text) ?? text,
+          MAX_BODY_LOG_CHARS,
+        )
         logDebug(
           `[Antigravity Debug ${context.id}] Response Body (${status}): ${preview}`,
         )
         return text
       } catch (e) {
+        const detail = formatErrorForLog(e)
         logDebug(
-          `[Antigravity Debug ${context.id}] Failed to read response body: ${formatErrorForLog(e)}`,
+          `[Antigravity Debug ${context.id}] Failed to read response body: ${redact?.(detail) ?? detail}`,
         )
         return undefined
       }
@@ -832,8 +837,9 @@ export async function logResponseBody(
   context: AntigravityDebugContext | null | undefined,
   response: Response,
   status: number,
+  redact?: (text: string) => string,
 ): Promise<string | undefined> {
-  return legacyDebug.logResponseBody(context, response, status)
+  return legacyDebug.logResponseBody(context, response, status, redact)
 }
 
 export function logModelFamily(

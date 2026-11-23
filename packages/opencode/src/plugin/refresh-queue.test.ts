@@ -269,8 +269,6 @@ describe('ProactiveRefreshQueue disposal', () => {
     expect(events).toEqual([
       'refresh:started',
       'refresh:resolved',
-      'manager:update',
-      'manager:save',
       'queue:disposed-returned',
     ])
     expect(jest.getTimerCount()).toBe(0)
@@ -347,7 +345,7 @@ describe('location refresh queue', () => {
   })
 })
 
-it('finishes an admitted refresh and saves its successor but admits no second account after enrollment', async () => {
+it('drains the admitted refresh without updating, saving, or admitting a second account after enrollment', async () => {
   jest.useFakeTimers()
   const now = Date.now()
   const manager = new AccountManager(undefined, {
@@ -419,8 +417,8 @@ it('finishes an admitted refresh and saves its successor but admits no second ac
     await new Promise<void>((resolve) => nextRealTurn(resolve))
     expect(queue.getStats().isRefreshing).toBe(false)
     expect(calls).toEqual([0])
-    expect(updates).toEqual([successor])
-    expect(saves).toBe(1)
+    expect(updates).toEqual([])
+    expect(saves).toBe(0)
   } finally {
     finishRefresh(successor)
     await queue.dispose()
