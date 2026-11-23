@@ -36,7 +36,7 @@ export async function runConversation({
           })
         : undefined),
   )
-  const scope = `${input.id}:${subject}:${custody}:`
+  const scope = `${encodeURIComponent(input.id)}:${subject}:${custody}:`
   const accessor = Symbol.for('cortexkit.routing')
   const prior = Reflect.getOwnPropertyDescriptor(globalThis, accessor)
   if (custody !== 'local') {
