@@ -71,6 +71,7 @@ import {
   createRequestCancellation,
   EngineRefusalError,
   type LocalRequestCredentials,
+  type RequestNoticeVariant,
   type RequestRoutingEntry,
   retiredModelResponse,
 } from '@cortexkit/antigravity-auth-core/engine'
@@ -1032,6 +1033,7 @@ export interface GaRequestPipelineInput {
   readonly overrides: GaPluginOverrides
   /** Where the engine records each session's route for `state`. */
   readonly routes: GaRouteBook
+  readonly notify?: GaRpcActivation['notify']
 }
 
 /** The request pipeline for one activation, as the shared engine builds it. */
@@ -1537,6 +1539,7 @@ export function createGaRouteBook(limit = 256): GaRouteBook {
 export function createGaJobExecutor(
   executor: Pick<AntigravityRequestExecutor, 'execute'>,
   overrides: Pick<GaPluginOverrides, 'send'> = {},
+  notify?: GaRpcActivation['notify'],
 ): GaJobExecutor {
   const send = overrides.send
   return async (job, context) =>
@@ -1559,6 +1562,17 @@ export function createGaJobExecutor(
           sessionId: job.sessionID,
           parentSessionId: job.parentSessionID,
         },
+        ...(notify
+          ? {
+              notify: (message: string, variant: RequestNoticeVariant) =>
+                scopeInvocation(
+                  job.sessionID
+                    ? { kind: 'session', sessionID: job.sessionID }
+                    : { kind: 'sessionless' },
+                  notify,
+                ).notify?.(message, variant === 'success' ? 'info' : variant),
+            }
+          : {}),
         ...(send
           ? {
               transport: async (url, init, options) => {
@@ -1705,7 +1719,7 @@ export async function createGaLocalRequestPipeline(
     ...(quotaFetch ? { transport: () => quotaFetch } : {}),
   })
   return {
-    execute: createGaJobExecutor(executor, input.overrides),
+    execute: createGaJobExecutor(executor, input.overrides, input.notify),
     refreshQuota: (refs) => storeQuota.checkStoreQuota(refs),
     refreshAccounts: () => manager.refreshFromRepository(),
     async dispose() {
@@ -1740,6 +1754,7 @@ export async function createGaVaultRequestPipeline(input: {
   readonly runtime: GaStartInput['runtime']
   readonly overrides: GaPluginOverrides
   readonly routes: GaRouteBook
+  readonly notify?: GaRpcActivation['notify']
 }): Promise<
   GaRequestPipeline & {
     rows(signal: AbortSignal): Promise<readonly VaultAccountRow[]>
@@ -1769,7 +1784,7 @@ export async function createGaVaultRequestPipeline(input: {
     },
   })
   return {
-    execute: createGaJobExecutor(executor, input.overrides),
+    execute: createGaJobExecutor(executor, input.overrides, input.notify),
     rows: async (signal) => {
       const cancellation = createRequestCancellation([signal, shutdown.signal])
       try {
@@ -2012,6 +2027,7 @@ async function createGaVaultLocationServices(input: {
         runtime: location,
         overrides,
         routes,
+        notify: start.notify,
       })
       const fetchVaultQuota = input.bindings.fetchVaultQuota
       const quotaLogger = location.logger.createLogger('vault-quota')
@@ -2486,6 +2502,7 @@ export function createGaLocationServicesFactory(
                 generation: input.generation,
                 overrides,
                 routes,
+                notify: input.notify,
                 assertAdmission: assertLocal,
               })
               const started = pipeline

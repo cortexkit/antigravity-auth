@@ -667,6 +667,8 @@ export interface RequestExecuteOptions {
    * session header reader supplies it.
    */
   readonly session?: RequestSessionIdentity
+  /** A host may bind notice delivery to this request's session. */
+  readonly notify?: (message: string, variant: RequestNoticeVariant) => unknown
   /**
    * The host's request kind. `title` routes the request as a session title
    * (see `routeTitleModel`); every kind other than `primary` keeps its own
@@ -1608,7 +1610,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       }
 
       try {
-        await deadline.wait(() => notify?.(message, variant))
+        await deadline.wait(() =>
+          (options.notify ?? notify)?.(message, variant),
+        )
       } catch {
         checkAborted()
         // TUI may not be available

@@ -797,15 +797,20 @@ export function scopeKey(scope: GaScope): string {
 export type GaPullResult =
   | { readonly kind: 'snapshot'; readonly snapshot: GaSnapshot }
   | { readonly kind: 'server-disposed' }
-  /** The answer arrived after a rebind or disposal and was dropped unread. */
+  /** The answer was not shown, or the view changed before delivery finished. */
   | { readonly kind: 'dropped' }
+
+interface GaSnapshotDelivery {
+  readonly onSnapshot: (snapshot: GaSnapshot) => boolean
+  readonly onNotification: (notification: GaNotification) => boolean
+}
 
 export interface GaLocationClient {
   /** The generation the client is bound to, or null before the first answer. */
   generation(): string | null
   /** The next cursor this client sends for `scope`. */
   cursor(scope: GaScope): number
-  pull(scope: GaScope): Promise<GaPullResult>
+  pull(scope: GaScope, delivery?: GaSnapshotDelivery): Promise<GaPullResult>
   apply(scope: GaScope, body: GaApplyBody): Promise<MenuApplyResult>
   dispose(): void
   disposed(): boolean
@@ -838,11 +843,13 @@ export function createGaLocationClient(options: {
     epoch += 1
   }
 
-  // State pulls run one at a time, so two pulls can never send the same
-  // cursor and hand the same notification over twice.
+  // Serialize delivery with the pull so the next RPC sees what was shown.
   let pullChain: Promise<unknown> = Promise.resolve()
 
-  const pullNow = async (scope: GaScope): Promise<GaPullResult> => {
+  const pullNow = async (
+    scope: GaScope,
+    delivery?: GaSnapshotDelivery,
+  ): Promise<GaPullResult> => {
     if (isDisposed) throw new GaClientDisposedError()
     const sentEpoch = epoch
     const key = scopeKey(scope)
@@ -874,7 +881,21 @@ export function createGaLocationClient(options: {
     if (output.generation !== generation) {
       rebind(output.generation)
     }
-    cursors.set(key, { cursor: output.cursor, queueID: output.queueID ?? null })
+    const acknowledge = (cursor: number) => {
+      if (!isDisposed)
+        cursors.set(key, { cursor, queueID: output.queueID ?? null })
+    }
+    if (delivery) {
+      if (!delivery.onSnapshot(output)) return { kind: 'dropped' }
+      for (const notification of [...output.notifications].sort(
+        (a, b) => a.cursor - b.cursor,
+      )) {
+        if (!delivery.onNotification(notification)) return { kind: 'dropped' }
+        acknowledge(notification.cursor)
+      }
+    }
+    if (delivery || output.notifications.length === 0)
+      acknowledge(output.cursor)
     return { kind: 'snapshot', snapshot: output }
   }
 
@@ -886,8 +907,8 @@ export function createGaLocationClient(options: {
       isDisposed = true
       epoch += 1
     },
-    pull(scope) {
-      const run = pullChain.then(() => pullNow(scope))
+    pull(scope, delivery) {
+      const run = pullChain.then(() => pullNow(scope, delivery))
       pullChain = run.catch(() => undefined)
       return run
     },
@@ -1109,6 +1130,7 @@ export function currentScope(route: GaRoute): GaScope {
 export interface GaPollerOptions {
   readonly client: GaLocationClient
   readonly scope: () => GaScope
+  readonly isCurrent: () => boolean
   readonly onSnapshot: (snapshot: GaSnapshot) => void
   readonly onNotification: (
     notification: GaNotification,
@@ -1127,7 +1149,18 @@ export async function pollGaOnce(options: GaPollerOptions): Promise<void> {
   for (let pulls = 0; pulls < MAX_PULLS_PER_TICK; pulls += 1) {
     let result: GaPullResult
     try {
-      result = await options.client.pull(scope)
+      result = await options.client.pull(scope, {
+        onSnapshot: (snapshot) => {
+          if (!options.isCurrent()) return false
+          options.onSnapshot(snapshot)
+          return true
+        },
+        onNotification: (notification) => {
+          if (!options.isCurrent()) return false
+          options.onNotification(notification, scope)
+          return true
+        },
+      })
     } catch (error) {
       if (!(error instanceof GaClientDisposedError)) {
         options.logger?.warn('ga-pull-failed', {
@@ -1136,16 +1169,7 @@ export async function pollGaOnce(options: GaPollerOptions): Promise<void> {
       }
       return
     }
-    if (result.kind !== 'snapshot') return
-    const { snapshot } = result
-    options.onSnapshot(snapshot)
-    for (const notification of [...snapshot.notifications].sort(
-      (a, b) => a.cursor - b.cursor,
-    )) {
-      if (options.client.disposed()) return
-      options.onNotification(notification, snapshot.scope)
-    }
-    if (!snapshot.more) return
+    if (result.kind !== 'snapshot' || !result.snapshot.more) return
   }
 }
 
@@ -1360,13 +1384,10 @@ export function setupGaTui(
     await pollGaOnce({
       client,
       scope: () => scope,
-      onSnapshot: (snapshot) => {
-        if (isCurrent(client, scope)) showSnapshot(snapshot)
-      },
-      onNotification: (notification) => {
-        if (isCurrent(client, scope))
-          onNotification(client, notification, scope)
-      },
+      isCurrent: () => isCurrent(client, scope),
+      onSnapshot: showSnapshot,
+      onNotification: (notification) =>
+        onNotification(client, notification, scope),
       ...(logger ? { logger } : {}),
     })
   }

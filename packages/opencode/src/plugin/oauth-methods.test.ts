@@ -10,6 +10,7 @@ import {
 import type { AuthOAuthResult } from '@opencode-ai/plugin'
 import { lifetimeHooks } from '../../../../test/fixtures/lifetime-hooks.ts'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
+import { createOAuthCallbackValidator } from '../antigravity/oauth'
 import { managedStoreModules } from './__fixtures__/managed-store.test.ts'
 import { loadVerifiedStoreModules } from './__fixtures__/verified-store'
 import {
@@ -19,7 +20,7 @@ import {
 } from './account-access'
 import { DEFAULT_CONFIG } from './config'
 import type { PluginLifecycle } from './lifecycle'
-import { createOAuthMethods, parseOAuthCallbackInput } from './oauth-methods'
+import { createOAuthMethods } from './oauth-methods'
 import { commitLogins } from './persist-account-pool'
 import type { OAuthListener } from './server'
 import type { AccountStorageV4 } from './storage'
@@ -130,12 +131,14 @@ function createAccountAccess(initial: AccountStorageV4 | null = null): {
 const hooks = lifetimeHooks()
 const { it, afterEach } = hooks
 
-describe('parseOAuthCallbackInput', () => {
+describe('OAuth callback validation', () => {
   it('rejects a callback URL whose state does not match the authorization', () => {
+    const callback = createOAuthCallbackValidator(
+      `https://accounts.google.test/authorize?state=${EXPECTED_STATE}`,
+    )
     expect(
-      parseOAuthCallbackInput(
+      callback.claim(
         'http://localhost:51121/oauth-callback?code=code&state=wrong-state',
-        EXPECTED_STATE,
       ),
     ).toEqual({ error: 'OAuth state mismatch' })
   })

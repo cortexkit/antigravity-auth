@@ -1,17 +1,15 @@
-import type {
-  AntigravityAuthorization,
-  AntigravityExchangeOptions,
-  AntigravityTokenExchangeResult,
+import {
+  type AntigravityAuthorization,
+  type AntigravityExchangeOptions,
+  type AntigravityTokenExchangeResult,
+  createOAuthCallbackValidator,
 } from '../antigravity/oauth'
 import type { CommandAccountRow } from './command-data'
-import { parseOAuthCallbackInput } from './oauth-methods'
 
 type OAuthSuccess = Extract<AntigravityTokenExchangeResult, { type: 'success' }>
 
 interface OAuthPendingEntry {
-  state: string
-  verifier: string
-  redirectUri: string
+  claim: ReturnType<typeof createOAuthCallbackValidator>['claim']
   createdAt: number
 }
 
@@ -103,10 +101,8 @@ export function createAccountCommandOAuthService(
       await options.admit?.()
       const authorization = await options.authorize()
       await options.admit?.()
-      const url = new URL(authorization.url)
-      const state = url.searchParams.get('state')
-      const redirectUri = url.searchParams.get('redirect_uri')
-      if (!state || !redirectUri) {
+      const { state, claim } = createOAuthCallbackValidator(authorization.url)
+      if (!state) {
         throw new Error('OAuth authorization URL is missing required state')
       }
 
@@ -119,9 +115,7 @@ export function createAccountCommandOAuthService(
         pendingBySession.delete(oldest[0])
       }
       pendingBySession.set(sessionId, {
-        state,
-        verifier: authorization.verifier,
-        redirectUri,
+        claim,
         createdAt: now(),
       })
       return { url: authorization.url, accounts: await safeListAccounts() }
@@ -137,17 +131,7 @@ export function createAccountCommandOAuthService(
         }
       }
 
-      // Stage 1: parse the callback URL/code. Failures here mean the
-      // user pasted a malformed callback — exchange has not started.
-      let callback: ReturnType<typeof parseOAuthCallbackInput>
-      try {
-        callback = parseOAuthCallbackInput(callbackInput, pending.state)
-      } catch {
-        return {
-          text: 'OAuth authentication failed: could not parse the callback. Please start a new OAuth flow.',
-          accounts: await safeListAccounts(),
-        }
-      }
+      const callback = pending.claim(callbackInput)
       if ('error' in callback) {
         return {
           text: `OAuth authentication failed: ${callback.error}. Please start a new OAuth flow.`,

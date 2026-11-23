@@ -4,10 +4,12 @@
 
 ### Added
 
+- The thinking picker offers XHigh for Gemini 4 Neon and Hydrogen and no adjustable levels for fixed-tier GPT-OSS.
 - In vault mode, Pi applies the per-account model lists in `antigravity-auth.jsonc` (#67): a model the vault account's list leaves out is refused before anything is sent, and `/antigravity` → Accounts shows and sets each vault account's list. Pi's own login serves every model.
 
 ### Fixed
 
+- Pasted Google sign-in links must match the sign-in you started. Pasting just the authorization code still works.
 - When Gemini ends a response with a malformed tool call before any reply text, the request is sent once more instead of failing (#79).
 - Tool arguments and results with an object named `thinking` are sent intact (#81).
 - User and assistant messages that start with thinking or debug marker text are no longer replaced by a period (#82).

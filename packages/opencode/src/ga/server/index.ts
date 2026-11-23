@@ -1729,6 +1729,10 @@ export async function rewriteGaHttpRequest(
     readonly isRegisteredModel: (modelID: string) => boolean
     readonly env: LoopbackProxyEnv
     readonly ownership: GaRequestOwnership
+    readonly parentSession?: (
+      sessionID: string,
+      signal: AbortSignal,
+    ) => Promise<string | null>
   },
 ): Promise<void> {
   if (event.model.providerID !== GA_PROVIDER_ID) return
@@ -1758,9 +1762,19 @@ export async function rewriteGaHttpRequest(
       offCatalogModelRefusal(event.model.id, input.isRegisteredModel),
     )
   }
+  // The request hook has no parent field. Use host session info when the
+  // request headers don't already supply the parent.
+  const parentSessionID =
+    headerValue(original, PARENT_SESSION_HEADERS) ??
+    (event.sessionID
+      ? await input
+          .parentSession?.(event.sessionID, original.signal)
+          .catch(() => null)
+      : null)
+  original.signal.throwIfAborted()
   const job: GaBridgeJob = {
     sessionID: event.sessionID,
-    parentSessionID: headerValue(original, PARENT_SESSION_HEADERS),
+    parentSessionID: parentSessionID ?? null,
     kind: event.kind,
     modelID: event.model.id,
     variant:
@@ -1828,7 +1842,8 @@ export function decideGaRetry(
  */
 export interface GaHostContext {
   readonly location: Pick<Plugin.Context['location'], 'directory'>
-  readonly session: Pick<Plugin.Context['session'], 'hook'>
+  readonly session: Pick<Plugin.Context['session'], 'hook'> &
+    Partial<Pick<Plugin.Context['session'], 'get'>>
   readonly rpc: Pick<Plugin.Context['rpc'], 'register'>
   readonly provider: Pick<Plugin.Context['provider'], 'transform' | 'reload'>
   readonly command: Pick<Plugin.Context['command'], 'transform' | 'reload'>
@@ -2023,6 +2038,11 @@ async function setupGaActivationRuntime(
     },
     services,
   )
+  runtime.logger
+    .createLogger('settings')
+    .debug(
+      'auto_update does not apply on OpenCode 2; the host manages plugin updates.',
+    )
 
   // Everything below is registered on the runtime scope as a producer. The
   // scope stops producers newest first, so teardown runs: request, retry
@@ -2203,6 +2223,9 @@ async function setupGaActivationRuntime(
           isRegisteredModel,
           env: process.env,
           ownership,
+          parentSession: async (sessionID, signal) =>
+            (await context.session.get?.({ sessionID }, { signal }))
+              ?.parentID ?? null,
         }).catch((error: unknown) => {
           if (
             event.request.signal.aborted &&

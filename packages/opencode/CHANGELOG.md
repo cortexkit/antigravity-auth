@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- On OpenCode 2, the Antigravity menu still opens when you return to a session you switched away from while it was loading (#83).
+- Pasted Google sign-in links must match the sign-in you started. You can also paste just the authorization code on either OpenCode host.
 - When Gemini ends a response with a malformed tool call before any reply text, the request is sent once more instead of failing (#79).
 - A rate limit cleared in the OpenCode 2 vault menu no longer comes back when another workspace saves an older limit (#80).
 - Tool arguments and results with an object named `thinking` are sent intact (#81).

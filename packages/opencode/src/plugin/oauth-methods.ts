@@ -1,6 +1,7 @@
 import { exec } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import {
+  createOAuthCallbackValidator,
   formatAntigravityQuota,
   type RowRef,
   sameRowRef,
@@ -105,8 +106,6 @@ interface CreateOAuthMethodsOptions {
   getAuth?: (() => Promise<AuthDetails | undefined>) | null
   dependencies?: Partial<OAuthMethodDependencies>
 }
-
-type OAuthCallbackParams = { code: string; state: string }
 
 /**
  * Build the user-facing failure surfaced when a freshly-exchanged
@@ -227,55 +226,6 @@ async function defaultPromptCallback(message: string): Promise<string> {
     return (await rl.question(message)).trim()
   } finally {
     rl.close()
-  }
-}
-
-function getStateFromAuthorizationUrl(authorizationUrl: string): string {
-  try {
-    return new URL(authorizationUrl).searchParams.get('state') ?? ''
-  } catch {
-    return ''
-  }
-}
-
-function extractOAuthCallbackParams(
-  url: URL,
-  expectedState: string,
-): OAuthCallbackParams | { error: string } {
-  const code = url.searchParams.get('code')
-  const state = url.searchParams.get('state')
-  if (!code || !state) return { error: 'Missing code or state in callback URL' }
-  if (expectedState && state !== expectedState) {
-    return { error: 'OAuth state mismatch' }
-  }
-  return { code, state }
-}
-
-export function parseOAuthCallbackInput(
-  value: string,
-  fallbackState: string,
-): OAuthCallbackParams | { error: string } {
-  const trimmed = value.trim()
-  if (!trimmed) return { error: 'Missing authorization code' }
-
-  try {
-    const url = new URL(trimmed)
-    const code = url.searchParams.get('code')
-    const state = url.searchParams.get('state') ?? fallbackState
-    if (!code) return { error: 'Missing code in callback URL' }
-    if (!state) return { error: 'Missing state in callback URL' }
-    if (fallbackState && state !== fallbackState) {
-      return { error: 'OAuth state mismatch' }
-    }
-    return { code, state }
-  } catch {
-    if (!fallbackState) {
-      return {
-        error:
-          'Missing state. Paste the full redirect URL instead of only the code.',
-      }
-    }
-    return { code: trimmed, state: fallbackState }
   }
 }
 
@@ -426,7 +376,7 @@ export function createOAuthMethods({
   const startOAuthListener = deps.startListener
   const promptOAuthCallbackValue = deps.promptCallback
   const promptManualOAuthInput = async (
-    fallbackState: string,
+    claim: ReturnType<typeof createOAuthCallbackValidator>['claim'],
   ): Promise<AntigravityTokenExchangeResult> => {
     console.log(
       '1. Open the URL above in your browser and complete Google sign-in.',
@@ -438,7 +388,7 @@ export function createOAuthMethods({
     const callbackInput = await promptOAuthCallbackValue(
       'Paste the redirect URL (or just the code) here: ',
     )
-    const params = parseOAuthCallbackInput(callbackInput, fallbackState)
+    const params = claim(callbackInput)
     if ('error' in params) return { type: 'failed', error: params.error }
     return exchangeAntigravity(params.code, params.state)
   }
@@ -1395,7 +1345,7 @@ export function createOAuthMethods({
                 }
 
                 const authorization = await authorizeAntigravity(projectId)
-                const fallbackState = getStateFromAuthorizationUrl(
+                const { claim } = createOAuthCallbackValidator(
                   authorization.url,
                 )
 
@@ -1409,7 +1359,7 @@ export function createOAuthMethods({
                       'Please open the URL above manually in your local browser.\n',
                     )
                   }
-                  return promptManualOAuthInput(fallbackState)
+                  return promptManualOAuthInput(claim)
                 }
 
                 let listener: OAuthListener | null = null
@@ -1460,15 +1410,12 @@ export function createOAuthMethods({
                           await listener.close()
                         } catch {}
 
-                        return promptManualOAuthInput(fallbackState)
+                        return promptManualOAuthInput(claim)
                       }
                       throw err
                     }
 
-                    const params = extractOAuthCallbackParams(
-                      callbackUrl,
-                      fallbackState,
-                    )
+                    const params = claim(callbackUrl)
                     if ('error' in params) {
                       return {
                         type: 'failed',
@@ -1501,7 +1448,7 @@ export function createOAuthMethods({
                   }
                 }
 
-                return promptManualOAuthInput(fallbackState)
+                return promptManualOAuthInput(claim)
               })()
 
             if (result.type === 'failed') {
@@ -1685,7 +1632,7 @@ export function createOAuthMethods({
         }
 
         const authorization = await authorizeAntigravity(projectId)
-        const fallbackState = getStateFromAuthorizationUrl(authorization.url)
+        const { claim } = createOAuthCallbackValidator(authorization.url)
 
         if (!useManualFlow) {
           const browserOpened = await openBrowser(authorization.url)
@@ -1732,10 +1679,7 @@ export function createOAuthMethods({
                   throw err
                 }
 
-                const params = extractOAuthCallbackParams(
-                  callbackUrl,
-                  fallbackState,
-                )
+                const params = claim(callbackUrl)
                 if ('error' in params) {
                   return {
                     type: 'failed',
@@ -1802,7 +1746,7 @@ export function createOAuthMethods({
           callback: async (
             codeInput: string,
           ): Promise<AntigravityTokenExchangeResult> => {
-            const params = parseOAuthCallbackInput(codeInput, fallbackState)
+            const params = claim(codeInput)
             if ('error' in params) {
               return { type: 'failed', error: params.error }
             }

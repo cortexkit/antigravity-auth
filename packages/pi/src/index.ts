@@ -3,6 +3,7 @@ import {
   ANTIGRAVITY_PROVIDER_ID,
   authorizeAntigravity,
   createLogger,
+  createOAuthCallbackValidator,
   exchangeAntigravity,
   getPublicModelDefinitions,
   hostFailure,
@@ -16,6 +17,7 @@ import { EngineRefusalError } from '@cortexkit/antigravity-auth-core/engine'
 import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
+  ThinkingLevelMap,
 } from '@earendil-works/pi-ai'
 import {
   type ExtensionAPI,
@@ -73,29 +75,16 @@ async function loginAntigravity(
   admit: () => Promise<void>,
 ): Promise<OAuthCredentials> {
   const auth = await authorizeAntigravity()
+  const validator = createOAuthCallbackValidator(auth.url)
   await admit()
   callbacks.onAuth({ url: auth.url })
   const code = await callbacks.onPrompt({
     message: 'Paste the Antigravity OAuth callback URL or code:',
   })
 
-  // The state (PKCE verifier + project) is carried in the authorize URL; reuse
-  // it so the code exchange can recover the verifier.
-  const authState = new URL(auth.url).searchParams.get('state') ?? ''
-
-  // Accept either a raw code or a full redirect URL with ?code= and &state=.
-  let rawCode = code.trim()
-  let state = authState
-  try {
-    const url = new URL(rawCode)
-    const codeParam = url.searchParams.get('code')
-    const stateParam = url.searchParams.get('state')
-    if (codeParam) rawCode = codeParam
-    if (stateParam) state = stateParam
-  } catch {
-    // Not a URL — treat the input as a bare authorization code.
-  }
-
+  const callback = validator.claim(code)
+  if ('error' in callback) throw new EngineRefusalError('account_reauthorize')
+  const { code: rawCode, state } = callback
   await admit()
   const result = await exchangeAntigravity(rawCode, state, { admit })
   await admit()
@@ -137,15 +126,33 @@ async function refreshAntigravityCredentials(
 }
 
 function publicModels(): NonNullable<ProviderConfig['models']> {
-  return Object.values(getPublicModelDefinitions()).map((model) => ({
-    id: model.id,
-    name: model.name,
-    reasoning: model.reasoning,
-    input: textImageInput(),
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: model.limit.context,
-    maxTokens: model.limit.output,
-  }))
+  return Object.values(getPublicModelDefinitions()).map((model) => {
+    // Pi otherwise offers generic levels, even for a fixed-tier model.
+    const thinkingLevelMap: ThinkingLevelMap = {
+      off: null,
+      minimal: null,
+      low: null,
+      medium: null,
+      high: null,
+      xhigh: null,
+      max: null,
+    }
+    for (const variant of Object.values(model.variants ?? {})) {
+      if (variant.thinkingLevel) {
+        thinkingLevelMap[variant.thinkingLevel] = variant.thinkingLevel
+      }
+    }
+    return {
+      id: model.id,
+      name: model.name,
+      reasoning: model.reasoning,
+      thinkingLevelMap,
+      input: textImageInput(),
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: model.limit.context,
+      maxTokens: model.limit.output,
+    }
+  })
 }
 
 function localProviderConfig(

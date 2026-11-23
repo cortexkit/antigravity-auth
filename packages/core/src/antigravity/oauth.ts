@@ -181,6 +181,59 @@ export async function authorizeAntigravity(
   }
 }
 
+type OAuthCallback = { code: string; state: string } | { error: string }
+
+/** Give each authorization one callback claim, shared by browser and paste flows. */
+export function createOAuthCallbackValidator(authorizationUrl: string) {
+  const state = new URL(authorizationUrl).searchParams.get('state')
+  const redirect = new URL(ANTIGRAVITY_REDIRECT_URI)
+  let closed = false
+
+  return {
+    state,
+    claim(input: string | URL): OAuthCallback {
+      if (closed || !state)
+        return { error: 'OAuth sign-in is no longer pending' }
+      const value = typeof input === 'string' ? input.trim() : input.href
+      const url = URL.canParse(value) ? new URL(value) : null
+      let code: string
+      if (url) {
+        if (
+          url.origin !== redirect.origin ||
+          url.pathname !== redirect.pathname ||
+          url.username ||
+          url.password ||
+          url.hash ||
+          url.searchParams.has('error')
+        ) {
+          return { error: 'Invalid OAuth redirect URL' }
+        }
+        const states = url.searchParams.getAll('state')
+        if (states.length !== 1 || states[0] !== state) {
+          return { error: 'OAuth state mismatch' }
+        }
+        const codes = url.searchParams.getAll('code')
+        if (codes.length !== 1 || !codes[0]) {
+          return { error: 'Missing authorization code' }
+        }
+        code = codes[0]
+      } else {
+        // Do not treat a broken or relative redirect as a bare code.
+        if (!value || value.startsWith('//') || /[\s:?#&\\]/.test(value)) {
+          return { error: 'Invalid authorization code' }
+        }
+        code = value
+      }
+      // Claim synchronously, before an adapter can await the exchange.
+      closed = true
+      return { code, state }
+    },
+    close() {
+      closed = true
+    },
+  }
+}
+
 export interface AntigravityExchangeOptions {
   readonly signal?: AbortSignal
   readonly admit?: () => Promise<void> | void

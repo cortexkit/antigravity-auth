@@ -1,9 +1,9 @@
 import {
   AccountStoreBusyError,
   ANTIGRAVITY_PROVIDER_ID,
-  ANTIGRAVITY_REDIRECT_URI,
   type AntigravityTokenExchangeResult,
   authorizeAntigravity,
+  createOAuthCallbackValidator,
   exchangeAntigravity,
 } from '@cortexkit/antigravity-auth-core'
 import { EngineRefusalError } from '@cortexkit/antigravity-auth-core/engine'
@@ -106,39 +106,15 @@ export function createGaPoolLogin(input: {
           }
         })()
         await admit()
-        const state = new URL(authorization.url).searchParams.get('state')
+        const validator = createOAuthCallbackValidator(authorization.url)
+        const { state } = validator
         if (!state) throw new Error(LOGIN_FAILED)
-        const redirect = new URL(ANTIGRAVITY_REDIRECT_URI)
-        const parse = (value: string): string => {
-          try {
-            const url = new URL(value)
-            const code = url.searchParams.get('code')
-            if (
-              url.origin !== redirect.origin ||
-              url.pathname !== redirect.pathname ||
-              url.username ||
-              url.password ||
-              url.hash ||
-              url.searchParams.has('error') ||
-              url.searchParams.getAll('state').length !== 1 ||
-              url.searchParams.get('state') !== state ||
-              url.searchParams.getAll('code').length !== 1 ||
-              !code
-            )
-              throw new Error(LOGIN_FAILED)
-            return code
-          } catch {
-            // URL parser errors contain the input, including its authorization code.
-            throw new Error(LOGIN_FAILED)
-          }
-        }
         let listener: OAuthListener | undefined
         const code = Promise.withResolvers<string>()
-        let claimed = false
-        const claim = (value: string) => {
-          if (claimed) throw new Error(LOGIN_FAILED)
-          claimed = true
-          code.resolve(value)
+        const claim = (value: string | URL) => {
+          const result = validator.claim(value)
+          if ('error' in result) throw new Error(LOGIN_FAILED)
+          code.resolve(result.code)
         }
         const waitForCode = input.oauth?.waitForCode
         if (listen && waitForCode) {
@@ -152,7 +128,7 @@ export function createGaPoolLogin(input: {
           listeners.add(listener)
           void listener
             .waitForCallback()
-            .then((url) => claim(parse(url.href)), code.reject)
+            .then(claim, code.reject)
             .catch(code.reject)
         }
         // Handle callback rejection even if local sign-in is refused before the code is awaited.
@@ -197,7 +173,7 @@ export function createGaPoolLogin(input: {
               if (error instanceof EngineRefusalError) throw error
               throw new Error(LOGIN_FAILED)
             } finally {
-              claimed = true
+              validator.close()
               clearTimeout(timeout)
               if (ownedListener) await close(ownedListener)
             }
@@ -210,12 +186,12 @@ export function createGaPoolLogin(input: {
           completion: callback,
           async paste(value) {
             await admitAttempt()
-            if (!value.trim()) return callback
-            claim(parse(value))
+            if (listen && !value.trim()) return callback
+            claim(value)
             return callback
           },
           async cancel() {
-            claimed = true
+            validator.close()
             cancellation.abort(new Error(LOGIN_FAILED))
             code.reject(new Error(LOGIN_FAILED))
             if (ownedListener) await close(ownedListener)

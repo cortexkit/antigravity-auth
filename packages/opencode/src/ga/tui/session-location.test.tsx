@@ -54,7 +54,7 @@ async function settle() {
   for (let i = 0; i < 40; i += 1) await Promise.resolve()
 }
 
-function host() {
+function host(state?: (input: GaRpcCallInput) => Promise<unknown>) {
   let route: GaRoute = { type: 'session', sessionID: 'ses_b' }
   let tick = () => {}
   let lookup: (id: string) => Promise<{ location: GaLocationRef }> = async (
@@ -79,6 +79,7 @@ function host() {
       rpc: {
         call: async (input) => {
           calls.push(input)
+          if (state) return state(input)
           const directory = input.location?.directory ?? ''
           const notified = queues.delete(directory)
           return answer(input, notified)
@@ -261,6 +262,53 @@ describe('GA session location polling', () => {
       expect(fake.calls.map((call) => call.location)).toEqual([B, B, B])
       expect(fake.menus).toEqual(['Antigravity'])
     } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it('shows a held menu exactly once after returning to its session in the same location', async () => {
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    let holdFirst = true
+    const fake = host(async (input) => {
+      if (holdFirst) {
+        holdFirst = false
+        entered.resolve()
+        await release.promise
+      }
+      const { scope, cursor } = input.input as {
+        scope: GaScope
+        cursor: number
+      }
+      return answer(
+        input,
+        scope.kind === 'session' && scope.sessionID === 'ses_b' && cursor === 0,
+      )
+    })
+    try {
+      await entered.promise
+      fake.lookup(async () => ({ location: B }))
+      fake.route({ type: 'session', sessionID: 'ses_b_other' })
+      release.resolve()
+      await settle()
+      fake.tick()
+      await settle()
+      expect(fake.menus).toEqual([])
+
+      fake.route({ type: 'session', sessionID: 'ses_b' })
+      fake.tick()
+      await settle()
+      expect(fake.menus).toEqual(['Antigravity'])
+
+      fake.tick()
+      await settle()
+      expect(fake.calls.map((call) => call.location)).toEqual([B, B, B, B])
+      expect(
+        fake.calls.map((call) => (call.input as { cursor: number }).cursor),
+      ).toEqual([0, 0, 0, 1])
+      expect(fake.menus).toEqual(['Antigravity'])
+    } finally {
+      release.resolve()
       await fake.cleanup()
     }
   })
