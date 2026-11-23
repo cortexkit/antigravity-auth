@@ -64,6 +64,11 @@ export const ENGINE_REFUSALS = {
     401,
     { rpcStatus: 'UNAUTHENTICATED' },
   ),
+  account_suspended: refusal(
+    'account_suspended',
+    'Google has suspended Antigravity access for this account. See the antigravity-auth README for details.',
+    412,
+  ),
   signature_recovery_failed: refusal(
     'signature_recovery_failed',
     "Antigravity could not repair the conversation's thinking blocks. Start a new session.",

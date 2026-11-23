@@ -53,6 +53,7 @@ import {
   type VaultConditionOutcome,
 } from '../index.ts'
 import type { ModelAccessPolicy } from '../model-access.ts'
+import { googleForbiddenRefusal } from './account-access.ts'
 import {
   createAfterHandoff,
   type RegisterResponseHandoff,
@@ -3699,8 +3700,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                       .text()
                       .catch(() => ''),
                   )
+              const forbidden = googleForbiddenRefusal(errorBodyText)
               const extracted =
-                errorBodyText === undefined
+                errorBodyText === undefined || forbidden === 'account_suspended'
                   ? undefined
                   : classifyAccessError(errorBodyText)
               const served = sendAdmission
@@ -3765,7 +3767,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 retainHttpFailure(response)
                 shouldSwitchAccount = true
                 reportCondition('provider_ineligible')
-                if (deps.reauthorize) throw deps.reauthorize()
+                if (forbidden === 'account_reauthorize' && deps.reauthorize)
+                  throw deps.reauthorize()
                 break
               }
 
@@ -3809,19 +3812,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 retainHttpFailure(response)
                 shouldSwitchAccount = true
                 reportCondition('provider_verification_required')
-                if (deps.reauthorize) throw deps.reauthorize()
+                if (forbidden === 'account_reauthorize' && deps.reauthorize)
+                  throw deps.reauthorize()
                 break
-              }
-              if (deps.reauthorize) {
-                accountManager.markAccountVerificationRequired(
-                  account.index,
-                  'Antigravity did not authorize the account.',
-                )
-                await showToast(
-                  `Run '${authCommand}' to reauthorize Antigravity.`,
-                  'warning',
-                )
-                throw deps.reauthorize()
               }
             }
 

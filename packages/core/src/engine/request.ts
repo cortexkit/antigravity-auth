@@ -44,6 +44,7 @@ import {
   type ThinkingTier,
 } from '../transform/index.ts'
 import type { GoogleSearchConfig } from '../transform/types.ts'
+import { googleForbiddenRefusal } from './account-access.ts'
 import { isCanonicalGoogleOrigin } from './google-origin.ts'
 import type {
   AntigravityDebugContext,
@@ -2802,6 +2803,16 @@ async function transformAntigravityResponseIn(
     }
     effects.dump.noteResponse(dumpContext, response)
     effects.dump.appendResponseText(dumpContext, text)
+    wire.logger.debug('Antigravity upstream refusal', {
+      status: response.status,
+      message: redactCredentialText(
+        text,
+        undefined,
+        projectId ? [projectId] : undefined,
+      ),
+    })
+    if (response.status === 403)
+      return engineRefusalResponse(googleForbiddenRefusal(text))
 
     let parsed: unknown
     for (const candidate of [
@@ -2819,14 +2830,6 @@ async function transformAntigravityResponseIn(
     const upstream = extractAntigravityError(parsed)
     const message =
       typeof upstream?.message === 'string' ? upstream.message : text
-    wire.logger.debug('Antigravity upstream refusal', {
-      status: response.status,
-      message: redactCredentialText(
-        text,
-        undefined,
-        projectId ? [projectId] : undefined,
-      ),
-    })
 
     if (detectErrorType(message) === 'thinking_block_order') {
       // The executor can rebuild the history once; only the eventual refusal
@@ -2855,7 +2858,7 @@ async function transformAntigravityResponseIn(
       })
     }
     const refusal = engineRefusalResponse(
-      response.status === 401 || response.status === 403
+      response.status === 401
         ? 'account_reauthorize'
         : response.status === 404 && upstream?.status === 'NOT_FOUND'
           ? 'model_not_found'

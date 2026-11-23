@@ -18,6 +18,7 @@ const entries = [
   ['capacity_exhausted', 412, 412],
   ['model_not_found', 412, 412],
   ['account_reauthorize', 401, 401],
+  ['account_suspended', 412, 412],
   ['signature_recovery_failed', 400, 400],
   ['stopped_by_google', 400, 400],
   ['incomplete', 400, 400],

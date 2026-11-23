@@ -1,3 +1,42 @@
+import { extractAntigravityError } from './retry-metadata.ts'
+
+/** Provider prose is diagnostic, not evidence of suspension or a need to reauthorize. */
+export function googleForbiddenRefusal(bodyText: string | undefined) {
+  if (bodyText === undefined) return 'upstream_http' as const
+  let requiresReauthorization = false
+  for (const payload of [
+    bodyText,
+    ...bodyText.split('\n').flatMap((raw) => {
+      const line = raw.trimStart()
+      return line.startsWith('data:') ? [line.slice(5)] : []
+    }),
+  ]) {
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(payload)
+    } catch {
+      continue
+    }
+    const details = extractAntigravityError(parsed)?.details
+    if (!Array.isArray(details)) continue
+    for (const detail of details) {
+      if (!detail || typeof detail !== 'object') continue
+      const { '@type': type, reason } = detail as Record<string, unknown>
+      if (
+        type === 'type.googleapis.com/google.rpc.ErrorInfo' &&
+        reason === 'TOS_VIOLATION'
+      )
+        return 'account_suspended' as const
+      if (
+        typeof reason === 'string' &&
+        /^(?:VALIDATION_REQUIRED|ACCOUNT_INELIGIBLE)$/i.test(reason)
+      )
+        requiresReauthorization = true
+    }
+  }
+  return requiresReauthorization ? 'account_reauthorize' : 'upstream_http'
+}
+
 function decodeEscapedText(input: string): string {
   return input
     .replace(/&amp;/g, '&')
