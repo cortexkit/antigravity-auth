@@ -259,7 +259,7 @@ function repository(): AccountRepository {
   } as unknown as AccountRepository
 }
 
-let locationSetupId = 0
+let locationSetupId = 0x100_0000_0000
 
 export async function openCode2(
   environment: Environment,
@@ -308,7 +308,7 @@ export async function openCode2(
     )
     // Runtime bookkeeping does not advance the captured request timeline.
     environment.nextNodeId = () =>
-      `00000000-0000-4000-8001-${(++locationSetupId).toString(16).padStart(12, '0')}`
+      `00000000-0000-4000-8000-${(++locationSetupId).toString(16).padStart(12, '0')}`
     runtime = await createLocationRuntime({
       directory,
       quotaSnapshots: createMemoryQuotaSnapshots(),
