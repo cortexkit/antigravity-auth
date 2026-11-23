@@ -68,7 +68,6 @@ import {
   type AntigravityRequestExecutor,
   createLocalQuotaRefresh,
   createRequestCancellation,
-  createRequestWireLocation,
   type LocalRequestCredentials,
   type RequestRoutingEntry,
   retiredModelResponse,
@@ -1634,13 +1633,7 @@ function gaEngineCollaborators(input: {
       }
       return fetchWithAgyCliTransport(url, init, transportOptions)
     },
-    wire: createRequestWire(
-      createRequestWireLocation({
-        signatures: runtime.signatures,
-        debug: runtime.debug,
-        logger: input.logger,
-      }),
-    ),
+    wire: createRequestWire(runtime.requestWireLocation),
     debug: runtime.debug,
     dump: runtime.dump,
     logger: input.logger,

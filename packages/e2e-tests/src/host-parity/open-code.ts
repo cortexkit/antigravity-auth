@@ -321,6 +321,7 @@ export async function openCode2(
       }),
       refreshToken: noNetwork,
     })
+    finishSetup()
     const common = {
       runtime,
       overrides: {
@@ -350,7 +351,6 @@ export async function openCode2(
             ...common,
             pool: createVaultAccountPool({ source: source(environment) }),
           })
-    finishSetup()
     const bridge = await startGaLoopbackBridge({
       execute: pipeline.execute,
       send: noNetwork,
