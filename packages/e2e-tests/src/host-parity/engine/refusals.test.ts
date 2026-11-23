@@ -30,6 +30,8 @@ const entries = [
   ['retired_model', 412, 412],
   ['model_not_allowed', 412, 412],
   ['busy_store', 503, 412],
+  ['vault_unreachable', 412, 412],
+  ['vault_grant_denied', 412, 412],
   ['authority_changed', 412, 412],
   ['context_overflow', 413, 413],
 ] as const

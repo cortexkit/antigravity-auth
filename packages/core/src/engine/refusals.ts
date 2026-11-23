@@ -116,6 +116,16 @@ export const ENGINE_REFUSALS = {
     412,
     { openCode1Status: 503 },
   ),
+  vault_unreachable: refusal(
+    'vault_unreachable',
+    'Claustrum vault could not be reached',
+    412,
+  ),
+  vault_grant_denied: refusal(
+    'vault_grant_denied',
+    'The vault refused access to the selected account. Check the plugin log for details.',
+    412,
+  ),
   authority_changed: refusal(
     'authority_changed',
     'Antigravity credential authority changed. No further local account operations were performed.',

@@ -812,6 +812,24 @@ function formatWaitTime(ms: number): string {
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
 }
 
+function vaultAdmissionRefusal(error: unknown) {
+  // The hosts can supply different copies of common-auth. Match its error
+  // names and machine-readable kinds, never the supplied diagnostic text.
+  if (!(error instanceof Error)) return
+  if (
+    error.name === 'ClaustrumUnreachableError' &&
+    'kind' in error &&
+    error.kind === 'unavailable'
+  )
+    return 'vault_unreachable' as const
+  if (
+    error.name === 'ClaustrumCredentialError' &&
+    'code' in error &&
+    error.code === 'grant_denied'
+  )
+    return 'vault_grant_denied' as const
+}
+
 /**
  * Sleep for `ms` milliseconds, rejecting with the abort reason when the
  * supplied signal fires before the timer elapses.
@@ -1488,6 +1506,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           [...selectedProjectIds],
         ),
       })
+      if (credentials.domain === 'vault' && physicalSendCount === 0) {
+        const refusal = vaultAdmissionRefusal(lastError)
+        if (refusal) return engineRefusalResponse(refusal)
+      }
       return engineRefusalResponse(
         failure?.kind === 'transport' &&
           failure.error instanceof AgyResponseHeaderTimeoutError
@@ -2865,7 +2887,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   ))
               } catch (error) {
                 checkAborted()
-                if (routedPlacement) return failedRoutedPick()
+                if (routedPlacement) {
+                  const refusal =
+                    physicalSendCount === 0 && vaultAdmissionRefusal(error)
+                  return refusal
+                    ? engineRefusalResponse(refusal)
+                    : failedRoutedPick()
+                }
                 throw error
               }
               if (
