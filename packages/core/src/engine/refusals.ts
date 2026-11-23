@@ -123,12 +123,12 @@ export const ENGINE_REFUSALS = {
   ),
   vault_unreachable: refusal(
     'vault_unreachable',
-    'Claustrum vault could not be reached',
+    'The Claustrum vault could not be reached. No request was sent.',
     412,
   ),
   vault_grant_denied: refusal(
     'vault_grant_denied',
-    'The vault refused access to the selected account. Check the plugin log for details.',
+    'The Claustrum vault has not granted this account to Antigravity. No request was sent.',
     412,
   ),
   authority_changed: refusal(
