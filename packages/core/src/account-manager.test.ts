@@ -898,6 +898,7 @@ describe('repository-backed AccountManager', () => {
       addedAt: 10,
       lastUsed: 20,
       rateLimitResetTimes: { claude: now + 9_000, other: 1 },
+      rateLimitWrittenAt: { claude: now - 1_000 },
       label: 'kept',
     }
     const update = await mutator(stored, repositoryRow(refA, 0))
@@ -907,9 +908,9 @@ describe('repository-backed AccountManager', () => {
         addedAt: 10,
         lastUsed: 20,
         label: 'kept',
-        // The stored later reset wins over this process's earlier one.
+        // The newer observation replaces both timestamps, even with a shorter reset.
         rateLimitResetTimes: {
-          claude: now + 9_000,
+          claude: now + 5_000,
           other: 1,
           gemini: now + 2_000,
         },
