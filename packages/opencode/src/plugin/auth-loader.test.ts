@@ -1264,6 +1264,54 @@ describe('createAuthLoader on the account store', () => {
     }
   })
 
+  it('OpenCode 1 applies tracker settings to repository managers on load and reload', async () => {
+    const { root, open } = await activeStore()
+    const { lifecycle } = createOwnedLifecycle()
+    const managers: CoreAccountManager[] = []
+    try {
+      const loader = createAuthLoader({
+        client: { tui: { showToast: async () => {} } } as never,
+        providerId: 'google',
+        config: {
+          ...DEFAULT_CONFIG,
+          proactive_token_refresh: false,
+          health_score: { ...DEFAULT_CONFIG.health_score!, initial: 58 },
+          token_bucket: { ...DEFAULT_CONFIG.token_bucket!, initial_tokens: 12 },
+        },
+        lifecycle,
+        createFetch: ({ accountManager }) => {
+          managers.push(accountManager)
+          return {
+            fetch: async () => new Response('ok'),
+            async retire() {},
+            dispose() {},
+          }
+        },
+        dependencies: { openAccountStore: open },
+      })
+      const auth = async () => ({
+        type: 'oauth' as const,
+        refresh: 'fixture',
+        access: '',
+        expires: 0,
+      })
+      await loader(auth, provider)
+      await loader.reload(auth)
+      expect(
+        managers.map((manager) => [
+          manager.healthTracker.getScore(0),
+          manager.tokenTracker.getTokens(0),
+        ]),
+      ).toEqual([
+        [58, 12],
+        [58, 12],
+      ])
+    } finally {
+      await lifecycle.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("refreshes proactively through the repository on the due account's own ref, never the host client", async () => {
     const exchanged: string[] = []
     const { root, open } = await activeStore(async ({ refreshToken }) => {

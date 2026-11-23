@@ -2834,11 +2834,6 @@
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"opencode2\",\"local\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"opencode2\",\"local\",\"terminal\"]",
     "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
     "response-errors:D5"
@@ -2886,11 +2881,6 @@
   [
     "[\"thinking-only then STOP\",\"opencode2\",\"vault\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"opencode2\",\"vault\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
     "response-errors:D5"
   ],
   [
@@ -2951,11 +2941,6 @@
   [
     "[\"thinking-only then STOP\",\"opencode2\",\"host\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"opencode2\",\"host\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
     "response-errors:D5"
   ],
   [
@@ -3309,11 +3294,6 @@
     "response-errors:D6"
   ],
   [
-    "[\"duplicate thinking\",\"opencode2\",\"local\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D6"
-  ],
-  [
     "[\"duplicate thinking\",\"pi\",\"local\",\"thinking\"]",
     "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
     "response-errors:D6"
@@ -3351,11 +3331,6 @@
   [
     "[\"duplicate thinking\",\"opencode2\",\"vault\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"opencode2\",\"vault\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
     "response-errors:D6"
   ],
   [
@@ -3409,11 +3384,6 @@
     "response-errors:D6"
   ],
   [
-    "[\"duplicate thinking\",\"opencode2\",\"host\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D6"
-  ],
-  [
     "[\"duplicate thinking\",\"pi\",\"host\",\"reports\"]",
     "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D6"
@@ -3460,7 +3430,7 @@
   ],
   [
     "[\"identical thinking in two sessions\",\"opencode2\",\"local\",\"thinking\"]",
-    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
+    "835f31cf10f41e6babaf935c0d0da886f0ed6ca6eb083ca3796c7bb99e391c1d",
     "response-errors:D6"
   ],
   [
@@ -3495,7 +3465,7 @@
   ],
   [
     "[\"identical thinking in two sessions\",\"opencode2\",\"vault\",\"thinking\"]",
-    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
+    "835f31cf10f41e6babaf935c0d0da886f0ed6ca6eb083ca3796c7bb99e391c1d",
     "response-errors:D6"
   ],
   [
@@ -3540,7 +3510,7 @@
   ],
   [
     "[\"identical thinking in two sessions\",\"opencode2\",\"host\",\"thinking\"]",
-    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
+    "835f31cf10f41e6babaf935c0d0da886f0ed6ca6eb083ca3796c7bb99e391c1d",
     "response-errors:D6"
   ],
   [

@@ -1,3 +1,5 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import type {
   AccountRepository,
   AccountRow,
@@ -10,9 +12,11 @@ import {
   startGaLoopbackBridge,
 } from '../../../opencode/src/ga/server/index.ts'
 import { AccountManager } from '../../../opencode/src/plugin/accounts.ts'
-import { DEFAULT_CONFIG } from '../../../opencode/src/plugin/config/index.ts'
+import {
+  type AntigravityConfig,
+  DEFAULT_CONFIG,
+} from '../../../opencode/src/plugin/config/index.ts'
 import { initRuntimeConfig } from '../../../opencode/src/plugin/config/loader.ts'
-import * as debug from '../../../opencode/src/plugin/debug.ts'
 import {
   createFetchInterceptor,
   createVaultFetchInterceptor,
@@ -23,6 +27,11 @@ import {
   createGaVaultRequestPipeline,
 } from '../../../opencode/src/plugin/ga-location-services.ts'
 import { AgySessionRegistry } from '../../../opencode/src/plugin/session-context.ts'
+import {
+  createLocationRuntime,
+  createMemoryQuotaSnapshots,
+  type LocationRuntime,
+} from '../../../opencode/src/plugin/shared/runtime.ts'
 import { createVaultAccountPool } from '../../../opencode/src/plugin/shared/vault-request-credentials.ts'
 import type { Conversation, Custody } from './cases.ts'
 import type { Environment } from './environment.ts'
@@ -250,89 +259,152 @@ function repository(): AccountRepository {
   } as unknown as AccountRepository
 }
 
+let locationSetupId = 0x100_0000_0000
+
 export async function openCode2(
   environment: Environment,
   custody: Custody,
   input: Conversation,
+  overrides: Partial<AntigravityConfig> = {},
 ) {
   initRuntimeConfig(config())
-  const settings = config(input.options.keepThinking)
-  const logger = { debug: noop, info: noop, warn: noop, error: noop }
-  const runtime = {
-    config: { config: settings, keepThinking: settings.keep_thinking },
-    settings: { modelAccess: () => undefined },
-    logger: { createLogger: () => logger },
-    debug,
-    dump: { dumpRequest: noop },
-    replaceAccounts: async () => {},
-    quotaManager: {
-      refreshAccount: async () => ({ status: 'ok' }),
-      hashedLogLabel: () => 'parity',
-    },
-  } as unknown as Parameters<typeof createGaLocalRequestPipeline>[0]['runtime']
-  const common = {
-    runtime,
-    overrides: {
-      ensureProjectContext: async (resolvedAuth) => ({
-        auth: resolvedAuth,
-        effectiveProjectId: credential.projectId,
-      }),
-    } satisfies GaPluginOverrides,
-    routes: createGaRouteBook(),
+  const root = process.env.ANTIGRAVITY_TEST_ROOT
+  if (!root) throw new Error('Host parity requires the root test preload')
+  const directory = await mkdtemp(join(root, 'host-parity-ga-'))
+  const previousConfig = process.env.OPENCODE_CONFIG_DIR
+  const nextRequestId = environment.nextNodeId
+  const finishSetup = () => {
+    environment.nextNodeId = nextRequestId
+    if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfig
   }
-  const pipeline =
-    custody === 'local'
-      ? await createGaLocalRequestPipeline({
-          ...common,
-          accounts: { current: null, quotaLogger: null },
-          repository: repository(),
-          send: noNetwork,
-          generation: 'parity',
-        })
-      : await createGaVaultRequestPipeline({
-          ...common,
-          pool: createVaultAccountPool({ source: source(environment) }),
-        })
-  const bridge = await startGaLoopbackBridge({
-    execute: pipeline.execute,
-    send: noNetwork,
-  })
-  const ownership = new GaRequestOwnership()
-  return {
-    run: (conversation: Conversation, session?: string, signal?: AbortSignal) =>
-      google2(
-        conversation,
-        async (native) => {
-          const request = await ingress(native, conversation, session)
-          const event = {
-            sessionID: session ?? '',
-            kind: 'primary' as const,
-            model: {
-              id: conversation.model,
-              providerID: 'google',
-              variant: conversation.options.level,
-            },
-            request,
-          }
-          await rewriteGaHttpRequest(event, {
-            bridge,
-            env: {},
-            ownership,
-            isRegisteredModel: (model) => model === conversation.model,
+  let runtime: LocationRuntime | undefined
+  let pipeline:
+    | Awaited<ReturnType<typeof createGaLocalRequestPipeline>>
+    | undefined
+  const disposeLocation = async () => {
+    try {
+      await pipeline?.dispose()
+    } finally {
+      try {
+        await runtime?.dispose()
+      } finally {
+        await rm(directory, { recursive: true, force: true })
+      }
+    }
+  }
+  try {
+    // The fixture has its own user settings, including keys projects cannot set.
+    process.env.OPENCODE_CONFIG_DIR = directory
+    await writeFile(
+      join(directory, 'antigravity.json'),
+      JSON.stringify({
+        ...config(input.options.keepThinking),
+        background_quota_refresh: false,
+        proactive_token_refresh: false,
+        signature_cache: { ...DEFAULT_CONFIG.signature_cache, enabled: false },
+        ...overrides,
+      }),
+    )
+    // Runtime bookkeeping does not advance the captured request timeline.
+    environment.nextNodeId = () =>
+      `00000000-0000-4000-8000-${(++locationSetupId).toString(16).padStart(12, '0')}`
+    runtime = await createLocationRuntime({
+      directory,
+      quotaSnapshots: createMemoryQuotaSnapshots(),
+      fetchAccountQuota: async (account) => ({
+        index: 0,
+        email: account.email,
+        status: 'ok',
+        disabled: false,
+        quota: { groups: {}, modelCount: 0 },
+      }),
+      refreshToken: noNetwork,
+    })
+    finishSetup()
+    const common = {
+      runtime,
+      overrides: {
+        ensureProjectContext: async (resolvedAuth) => ({
+          auth: resolvedAuth,
+          effectiveProjectId: credential.projectId,
+        }),
+      } satisfies GaPluginOverrides,
+      routes: createGaRouteBook(),
+    }
+    const accounts: Parameters<
+      typeof createGaLocalRequestPipeline
+    >[0]['accounts'] = {
+      current: null,
+      quotaLogger: null,
+    }
+    pipeline =
+      custody === 'local'
+        ? await createGaLocalRequestPipeline({
+            ...common,
+            accounts,
+            repository: repository(),
+            send: noNetwork,
+            generation: 'parity',
           })
-          if (new URL(event.request.url).origin !== bridge.origin)
-            throw new Error('OpenCode 2 bypassed the parity bridge')
-          const response = await fetch(event.request)
-          const adapted = bridge.adaptResponse(event.request, response)
-          if (!adapted) throw new Error('The bridge did not own the response')
-          return adapted
-        },
-        signal,
-        placeholderSecret('google'),
-      ),
-    async dispose() {
-      await bridge.dispose()
-      await pipeline.dispose()
-    },
+        : await createGaVaultRequestPipeline({
+            ...common,
+            pool: createVaultAccountPool({ source: source(environment) }),
+          })
+    const bridge = await startGaLoopbackBridge({
+      execute: pipeline.execute,
+      send: noNetwork,
+    })
+    const ownership = new GaRequestOwnership()
+    return {
+      runtime,
+      accounts,
+      run: (
+        conversation: Conversation,
+        session?: string,
+        signal?: AbortSignal,
+      ) =>
+        google2(
+          conversation,
+          async (native) => {
+            const request = await ingress(native, conversation, session)
+            const event = {
+              sessionID: session ?? '',
+              kind: 'primary' as const,
+              model: {
+                id: conversation.model,
+                providerID: 'google',
+                variant: conversation.options.level,
+              },
+              request,
+            }
+            await rewriteGaHttpRequest(event, {
+              bridge,
+              env: {},
+              ownership,
+              isRegisteredModel: (model) => model === conversation.model,
+            })
+            if (new URL(event.request.url).origin !== bridge.origin)
+              throw new Error('OpenCode 2 bypassed the parity bridge')
+            const response = await fetch(event.request)
+            const adapted = bridge.adaptResponse(event.request, response)
+            if (!adapted) throw new Error('The bridge did not own the response')
+            return adapted
+          },
+          signal,
+          placeholderSecret('google'),
+        ),
+      async dispose() {
+        try {
+          await bridge.dispose()
+        } finally {
+          await disposeLocation()
+        }
+      },
+    }
+  } catch (error) {
+    finishSetup()
+    await disposeLocation()
+    throw error
   }
 }

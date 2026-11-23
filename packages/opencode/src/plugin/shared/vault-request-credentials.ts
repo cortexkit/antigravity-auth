@@ -20,6 +20,7 @@ import { stat } from 'node:fs/promises'
 import {
   type AccessVerdict,
   AccountSelector,
+  type AccountSelectorOptions,
   type AntigravityQuotaCheckReport,
   type AntigravityVaultAccountSource,
   applyAccessVerdict,
@@ -790,6 +791,8 @@ export function createVaultSelectionState(
 
 export interface VaultAccountPoolOptions {
   readonly source: VaultRequestSource
+  readonly healthTracker?: AccountSelectorOptions<VaultAccountRow>['healthTracker']
+  readonly tokenTracker?: AccountSelectorOptions<VaultAccountRow>['tokenTracker']
   /**
    * Makes the pool's selection state durable (see
    * `createVaultSelectionState`): the same source's attribution and fenced
@@ -899,6 +902,8 @@ export function createVaultAccountPool(
     : undefined
   const selector = new AccountSelector<VaultAccountRow>({
     ...(options.now ? { now: options.now } : {}),
+    ...(options.healthTracker ? { healthTracker: options.healthTracker } : {}),
+    ...(options.tokenTracker ? { tokenTracker: options.tokenTracker } : {}),
     ...(state ? { sink: state.sink } : {}),
   })
   const credentials = createVaultRequestCredentials(

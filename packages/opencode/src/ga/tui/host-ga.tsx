@@ -33,20 +33,18 @@
  * The wire shapes mirror the facade's `ga/rpc/protocol.ts` (clean v1:
  * accounts carry opaque `selector`s and every snapshot carries the location's
  * settings). Notifications and apply answers carry the server's shared menu.
- * The drawer keeps its presentation while submitting the issued menu item
- * and action ids, never a sidebar selector or an account position.
+ * The drawer renders the issued menu and submits its item and action ids,
+ * never a sidebar selector or an account position.
  *
  * Nothing here imports account storage, tokens, OAuth, the vault client or
  * server code, and nothing writes to the terminal or forces a theme.
  */
 
 import { createSignal, type JSX } from 'solid-js'
-import {
-  type ProjectionAccount,
-  type ProjectionRoute,
-  type ProjectionStatus,
-  projectAccount,
-  projectSidebar,
+import type {
+  ProjectionAccount,
+  ProjectionRoute,
+  ProjectionStatus,
 } from '../../sidebar-projection'
 import {
   MenuRefusedError,
@@ -54,15 +52,12 @@ import {
 } from '../../tui/command-dialogs'
 import {
   ANTIGRAVITY_MENU_COMMAND,
-  ANTIGRAVITY_MENU_TITLE,
-  type MenuAction,
   type MenuApplyRequest,
   type MenuApplyResult,
   type MenuDialogPayload,
   type MenuModel,
   type MenuNotifyPayload,
   type MenuParseResult,
-  type MenuSection,
   type MenuUi,
   parseMenuApplyResult,
   parseMenuDialogPayload,
@@ -964,246 +959,6 @@ export function createGaLocationClients(options: {
 
 // ── Menu over the native state ──────────────────────────────────────────────
 
-const ACCOUNT_ITEM_PREFIX = 'account:'
-
-function onOff(value: boolean): string {
-  return value ? 'on' : 'off'
-}
-
-function quotaLine(account: GaAccount, now: number): string {
-  const projected = projectSidebar({
-    accounts: [account],
-    route: null,
-    status: { checkedAt: 0, quotaBackoffUntil: null },
-    now,
-  }).accounts[0]
-  const pools = (projected?.quota ?? [])
-    .map(
-      (row) =>
-        `${row.label} ${row.figure}${row.reset ? ` · ${row.reset}` : ''}`,
-    )
-    .join(' · ')
-  return `${account.label}: ${pools}`
-}
-
-export function buildGaMenu(snapshot: GaSnapshot, now: number): MenuModel {
-  const { settings } = snapshot
-  const overLimit = snapshot.accountsStatus.kind === 'over-limit'
-  const accountLines = overLimit
-    ? [
-        `${snapshot.accountsStatus.kind === 'over-limit' ? snapshot.accountsStatus.count : 0} accounts; more than this view can list. Manage them from the command line.`,
-      ]
-    : [
-        snapshot.accounts.length === 0
-          ? 'No accounts yet.'
-          : `${snapshot.accounts.length} account${snapshot.accounts.length === 1 ? '' : 's'}`,
-      ]
-  const sections: MenuSection[] = [
-    {
-      id: 'accounts',
-      slot: 'accounts',
-      title: 'Accounts',
-      lines: accountLines,
-      items: snapshot.accounts.map((account) => {
-        const projected = projectAccount(account, now)
-        const use = (
-          id: string,
-          label: string,
-          description: string,
-        ): MenuAction => ({ id, label, description, knobs: [] })
-        return {
-          id: `${ACCOUNT_ITEM_PREFIX}${account.selector}`,
-          label: account.label,
-          detail: `${projected.status} · ${projected.health}`,
-          actions: [
-            account.enabled
-              ? use(
-                  'disable',
-                  'Disable',
-                  'Stop routing requests to this account.',
-                )
-              : use(
-                  'enable',
-                  'Enable',
-                  'Route requests to this account again.',
-                ),
-            use(
-              'select-active',
-              'Use for all models',
-              'Make this the current account.',
-            ),
-            use(
-              'select-claude',
-              'Use for Claude',
-              'Make this the current Claude account.',
-            ),
-            use(
-              'select-gemini',
-              'Use for Gemini',
-              'Make this the current Gemini account.',
-            ),
-            use(
-              'clear-limits',
-              'Clear limits',
-              'Remove stored quota reset limits.',
-            ),
-            ...(snapshot.vaultHostStatus ||
-            settings.selectionStrategy === 'vault'
-              ? []
-              : [
-                  {
-                    id: 'remove',
-                    label: 'Remove',
-                    description: 'Delete this account from this machine.',
-                    knobs: [],
-                    confirm: {
-                      message: `Remove ${account.label}? This cannot be undone.`,
-                      irreversible: true,
-                    },
-                  },
-                ]),
-          ],
-        }
-      }),
-      actions:
-        snapshot.vaultHostStatus || settings.selectionStrategy === 'vault'
-          ? []
-          : [
-              {
-                id: 'add',
-                label: 'Add account',
-                description: 'Sign in with Google in your browser.',
-                knobs: [],
-              },
-            ],
-    },
-    {
-      id: 'quota',
-      slot: 'quota',
-      title: 'Quota',
-      lines: overLimit
-        ? ['Quota is not listed while the account list is over the limit.']
-        : snapshot.accounts.length === 0
-          ? ['No accounts yet.']
-          : snapshot.accounts.map((account) => quotaLine(account, now)),
-      items: [],
-      actions: [
-        {
-          id: 'refresh',
-          label: 'Check quota now',
-          description: 'Ask Google for every account’s current quota.',
-          knobs: [],
-        },
-      ],
-    },
-    {
-      id: 'routing',
-      slot: 'routing',
-      title: 'Routing',
-      lines:
-        settings.selectionStrategy === 'vault'
-          ? ["Selection follows the vault's served accounts."]
-          : [
-              `Account selection strategy: ${settings.selectionStrategy}`,
-              {
-                sticky: 'Keep the current account until it is unavailable.',
-                'round-robin':
-                  'Rotate among available accounts for each request.',
-                hybrid:
-                  'Choose available accounts using health and quota signals.',
-              }[settings.selectionStrategy],
-              'Configured in antigravity-auth.jsonc: account_selection_strategy',
-            ],
-      items: [],
-      actions: [],
-    },
-    {
-      id: 'limits',
-      slot: 'limits',
-      title: 'Limits',
-      lines: [
-        `Killswitch: ${onOff(settings.killswitch.enabled)}`,
-        `Minimum remaining quota: ${settings.killswitch.minimumRemainingPercent}%`,
-      ],
-      items: [],
-      actions: [
-        {
-          id: settings.killswitch.enabled ? 'killswitch-off' : 'killswitch-on',
-          label: `Turn killswitch ${settings.killswitch.enabled ? 'off' : 'on'}`,
-          description: 'Skip accounts whose quota is below the minimum.',
-          knobs: [],
-        },
-        {
-          id: 'killswitch-minimum',
-          label: 'Set minimum remaining quota',
-          knobs: [
-            {
-              kind: 'number',
-              id: 'percent',
-              label: 'Percent (0-100)',
-              value: settings.killswitch.minimumRemainingPercent,
-              min: 0,
-              max: 100,
-              required: true,
-            },
-          ],
-        },
-      ],
-    },
-    {
-      id: 'diagnostics',
-      slot: 'diagnostics',
-      title: 'Diagnostics',
-      lines: [
-        `Logging: ${settings.logLevel}`,
-        `Wire dump: ${onOff(settings.dump.enabled)}`,
-      ],
-      items: [],
-      actions: [
-        {
-          id: 'log-level',
-          label: 'Set log level',
-          knobs: [
-            {
-              kind: 'choice',
-              id: 'level',
-              label: 'Level',
-              value: settings.logLevel,
-              choices: GA_LOG_LEVELS.map((level) => ({
-                value: level,
-                label: level,
-              })),
-            },
-          ],
-        },
-        {
-          id: settings.dump.enabled ? 'dump-off' : 'dump-on',
-          label: `Turn wire dump ${settings.dump.enabled ? 'off' : 'on'}`,
-          description: 'Write request and response bodies to the dump folder.',
-          knobs: [],
-        },
-      ],
-    },
-  ]
-  return {
-    command: ANTIGRAVITY_MENU_COMMAND,
-    title: ANTIGRAVITY_MENU_TITLE,
-    sections: snapshot.vaultHostStatus
-      ? [
-          ...sections,
-          {
-            id: 'vault',
-            slot: 'extra',
-            title: 'Vault',
-            lines: [snapshot.vaultHostStatus],
-            items: [],
-            actions: [],
-          },
-        ]
-      : sections,
-  }
-}
-
 /** A displayed choice is no longer present in the server-issued menu. */
 export class GaMenuChoiceError extends Error {
   constructor(message: string) {
@@ -1218,137 +973,41 @@ export interface GaMenuPresentation {
   request(choice: MenuApplyRequest): MenuApplyRequest
 }
 
-/**
- * Keep the drawer's labels and order, but bind every choice to an action
- * actually issued by the server. Snapshot selectors are display data, not
- * shared-menu item ids. The bindings retain the server's exact item id even
- * when the roster changes before a choice arrives.
- */
-export function presentGaMenu(
-  snapshot: GaSnapshot,
-  now: number,
-  source: MenuModel,
-): GaMenuPresentation {
-  const bindings = new Map<
-    string,
-    (choice: MenuApplyRequest) => MenuApplyRequest
-  >()
-  const key = (
-    sectionId: string,
-    itemId: string | undefined,
-    actionId: string,
-  ) => JSON.stringify([sectionId, itemId, actionId])
-  const bind = (
-    sectionId: string,
-    itemId: string | undefined,
-    display: MenuAction,
-    action: MenuAction,
-    values: (
-      choice: MenuApplyRequest['values'],
-    ) => MenuApplyRequest['values'] = (choice) => choice,
-  ): MenuAction => {
-    bindings.set(key(sectionId, itemId, display.id), (choice) => ({
-      command: source.command,
-      sectionId,
-      ...(itemId === undefined ? {} : { itemId }),
-      actionId: action.id,
-      values: values(choice.values),
-      ...(choice.confirmed ? { confirmed: true } : {}),
-    }))
-    return {
-      ...display,
-      ...(action.confirm ? { confirm: action.confirm } : {}),
-    }
-  }
-  const display = buildGaMenu(snapshot, now)
-  const sections = display.sections
-    .filter((section) => section.slot !== 'extra')
-    .flatMap((section) => {
-      const actual = source.sections.find(
-        (candidate) => candidate.id === section.id,
-      )
-      if (!actual) return []
-      const actions = section.actions.flatMap((action) => {
-        const id =
-          section.id === 'limits'
-            ? 'set'
-            : action.id === 'log-level'
-              ? 'logging'
-              : action.id.startsWith('dump-')
-                ? 'dump'
-                : action.id
-        const offered = actual.actions.find((candidate) => candidate.id === id)
-        if (!offered) return []
-        const values =
-          section.id !== 'limits'
-            ? undefined
-            : action.id === 'killswitch-minimum'
-              ? (input: MenuApplyRequest['values']) => ({
-                  minimumRemainingPercent: input.percent ?? null,
-                })
-              : () => ({ enabled: action.id === 'killswitch-on' })
-        return [bind(actual.id, undefined, action, offered, values)]
-      })
-      const items = actual.items.map((item) => {
-        const projected = section.items.find(
-          (candidate) => candidate.label === item.label,
-        )
-        if (!projected) return { ...item, actions: [] }
-        return {
-          ...projected,
-          id: item.id,
-          actions: projected.actions.flatMap((action) => {
-            const target = action.id.startsWith('select-')
-              ? action.id.slice('select-'.length)
-              : undefined
-            const offered = item.actions.find(
-              (candidate) => candidate.id === (target ? 'select' : action.id),
-            )
-            if (!offered) return []
-            return [
-              bind(
-                actual.id,
-                item.id,
-                action,
-                offered,
-                target ? () => ({ target }) : undefined,
-              ),
-            ]
-          }),
-        }
-      })
-      return [{ ...section, items, actions }]
-    })
-  // Enrollment and hosted status remain the server's own sections, including
-  // their authority-dependent Connect/Disconnect actions and read-only host.
-  for (const section of source.sections.filter(
-    (candidate) => candidate.slot === 'extra',
-  )) {
-    sections.push({
-      ...section,
-      actions: section.actions.map((action) =>
-        bind(section.id, undefined, action, action),
-      ),
-      items: section.items.map((item) => ({
-        ...item,
-        actions: item.actions.map((action) =>
-          bind(section.id, item.id, action, action),
-        ),
-      })),
-    })
+/** Keep the issued actions and facts intact; sidebar selectors are not menu ids. */
+export function presentGaMenu(source: MenuModel): GaMenuPresentation {
+  // Add starts sign-in before asking for a callback; runGaDrawerLogin
+  // handles those prompts so a browser callback can dismiss them.
+  const menu = {
+    ...source,
+    sections: source.sections.map((section) =>
+      section.id !== 'accounts'
+        ? section
+        : {
+            ...section,
+            actions: section.actions.map((action) =>
+              action.id === 'add' ? { ...action, knobs: [] } : action,
+            ),
+          },
+    ),
   }
   return {
-    menu: { ...display, sections },
+    menu,
     source,
     request(choice) {
-      const resolve = bindings.get(
-        key(choice.sectionId, choice.itemId, choice.actionId),
-      )
-      if (choice.command !== source.command || !resolve)
+      const section = source.sections.find(({ id }) => id === choice.sectionId)
+      const actions =
+        choice.itemId === undefined
+          ? section?.actions
+          : section?.items.find(({ id }) => id === choice.itemId)?.actions
+      if (
+        choice.command !== source.command ||
+        !actions?.some(({ id }) => id === choice.actionId)
+      ) {
         throw new GaMenuChoiceError(
           'That action is no longer offered. Open the menu again.',
         )
-      return resolve(choice)
+      }
+      return choice
     },
   }
 }
@@ -1679,11 +1338,7 @@ export function setupGaTui(
     ),
   })
 
-  // Sidebar readings and presentation are scoped to the menu's own session.
-  const latest = new Map<string, GaSnapshot>()
-
   const showSnapshot = (snapshot: GaSnapshot) => {
-    latest.set(scopeKey(snapshot.scope), snapshot)
     const readAt = now()
     setView({
       scope: snapshot.scope,
@@ -1801,19 +1456,13 @@ export function setupGaTui(
       ui.toast(payload.notify.message, payload.notify.kind)
       return
     }
-    const snapshot = latest.get(scopeKey(scope))
-    if (!snapshot) return
-    let shown = presentGaMenu(snapshot, now(), payload.menu)
+    let shown = presentGaMenu(payload.menu)
     void openAntigravityMenu(
       {
         ui,
         apply: async (request) => {
           const result = await applyChoice(client, ui, scope, request, shown)
-          shown = presentGaMenu(
-            latest.get(scopeKey(scope)) ?? snapshot,
-            now(),
-            result.menu,
-          )
+          shown = presentGaMenu(result.menu)
           return { ...result, menu: shown.menu }
         },
         ...(context.renderer?.copyToClipboardOSC52
@@ -1857,7 +1506,6 @@ export function setupGaTui(
       const scope = currentScope(context.ui.router.current())
       const nextScope = scopeKey(scope)
       if (shownScope !== nextScope) {
-        latest.clear()
         setView(undefined)
         pendingLogin?.finish(false)
         shownScope = nextScope

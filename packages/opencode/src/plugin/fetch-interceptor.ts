@@ -16,6 +16,7 @@ import { upsertSidebarActiveRouting } from '../sidebar-state'
 import { extractAccountAccessErrorDetails } from './account-access'
 import {
   type AccountManager,
+  createConfiguredAccountTrackers,
   createLocalAccountCredentials,
   type ManagedAccount,
   StaleAccountGrantError,
@@ -491,7 +492,12 @@ export function createVaultFetchInterceptor(
     fetchImpl = defaultFetchImpl,
   } = context
   const upstreamFetch = fetchImpl
-  const pool = context.pool ?? createVaultAccountPool({ source })
+  const pool =
+    context.pool ??
+    createVaultAccountPool({
+      source,
+      ...createConfiguredAccountTrackers(context.config),
+    })
   const selector = pool.selector
   const executor = createRequestExecutor<VaultAccountRow>({
     assertAdmission: async (signal) => {

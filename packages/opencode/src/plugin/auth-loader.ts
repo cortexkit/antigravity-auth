@@ -27,6 +27,7 @@ import {
 } from '../sidebar-state'
 import {
   AccountManager,
+  createConfiguredAccountTrackers,
   createLocalAccountCredentials,
   loadAccountManagerFromRepository,
 } from './accounts'
@@ -521,7 +522,10 @@ export function createAuthLoader({
               enabled: entry.enabled,
               current: isAccountCurrent(entry.index, activeByFamily),
               coolingDownUntil: entry.coolingDownUntil,
-              healthScore: getHealthTracker().getScore(entry.index),
+              healthScore: (source === 'store'
+                ? accountManager.healthTracker
+                : getHealthTracker()
+              ).getScore(entry.index),
               cachedQuota: entry.cachedQuota,
               cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
               // Stamp the sidebar snapshot so the projection can detect a
@@ -586,6 +590,7 @@ export function createAuthLoader({
       }
       const accountManager = await loadAccountManagerFromRepository(
         opening.repository,
+        createConfiguredAccountTrackers(config),
       )
       await installRuntime(accountManager, getAuth, 'store')
       return finishLoad(provider)
@@ -780,6 +785,7 @@ export function createAuthLoader({
     if (opening.status === 'ready') {
       const nextManager = await loadAccountManagerFromRepository(
         opening.repository,
+        createConfiguredAccountTrackers(config),
       )
       await installRuntime(nextManager, getAuth, 'store')
       return

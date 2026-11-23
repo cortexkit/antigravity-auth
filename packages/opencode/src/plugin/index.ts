@@ -48,6 +48,7 @@ import {
   promptOpenVerificationUrl,
 } from './account-access'
 import { createAccountCommandOAuthService } from './account-command-oauth'
+import { createConfiguredAccountTrackers } from './accounts'
 import { createAuthLoader } from './auth-loader'
 import { BackgroundQuotaRefresh } from './background-quota-refresh'
 import { BackgroundVaultQuotaRefresh } from './background-vault-quota-refresh'
@@ -112,11 +113,7 @@ import {
   type VaultQuotaCheckOptions,
 } from './quota'
 import { createSessionRecoveryHook } from './recovery'
-import {
-  getHealthTracker,
-  initHealthTracker,
-  initTokenTracker,
-} from './rotation'
+import { initHealthTracker, initTokenTracker } from './rotation'
 import { AgySessionRegistry } from './session-context'
 import { createSourceSidebarPublisher } from './shared/source-sidebar'
 import { createVaultAccountMenuSections } from './shared/vault-menu'
@@ -336,6 +333,7 @@ const createAntigravityPluginRuntime =
         source,
         pool: createOpenCodeVaultAccountPool({
           source,
+          ...createConfiguredAccountTrackers(config),
           durable: {
             source,
             readState: () => vaultCustody.readState(),
@@ -415,7 +413,7 @@ const createAntigravityPluginRuntime =
             enabled: entry.enabled,
             current: active ? isAccountCurrent(entry.index, active) : false,
             coolingDownUntil: entry.coolingDownUntil,
-            healthScore: getHealthTracker().getScore(entry.index),
+            healthScore: manager.healthTracker.getScore(entry.index),
             cachedQuota: entry.cachedQuota,
             cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
             cachedQuotaAccountId: entry.cachedQuotaAccountId,

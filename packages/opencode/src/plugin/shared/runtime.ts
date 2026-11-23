@@ -47,6 +47,10 @@ import type {
   FetchAccountQuota,
 } from '@cortexkit/antigravity-auth-core'
 import { VAULT_ACCOUNT_REMEDY } from '@cortexkit/antigravity-auth-core'
+import {
+  createRequestWireLocation,
+  type RequestWireLocation,
+} from '@cortexkit/antigravity-auth-core/engine'
 import type { acquireFencedFileLock } from '@cortexkit/antigravity-auth-core/file-lock'
 import type { FloorKeyTable } from '../../settings/legacy.ts'
 import {
@@ -336,6 +340,7 @@ export interface LocationRuntime {
   /** The location's settings file status, for menus. */
   readonly settings: ProjectSettings
   readonly signatures: LocationSignatureCache
+  readonly requestWireLocation: RequestWireLocation
   readonly quotaManager: QuotaManager
   /** `null` when the `background_quota_refresh` config option is off. */
   readonly backgroundQuotaRefresh: BackgroundQuotaRefresh | null
@@ -470,11 +475,17 @@ async function buildLocationRuntime(
   const signatureOptions = {
     keepThinking: config.keepThinking,
     signatureCache: config.config.signature_cache,
+    sessionScope: options.directory,
   }
   const signatures = options.signatureState
     ? options.signatureState.acquireLocation(signatureOptions)
     : acquireLocationSignatureCache(signatureOptions)
   scope.add(signatures, 'consumer')
+  const requestWireLocation = createRequestWireLocation({
+    signatures,
+    debug,
+    logger: logger.createLogger('request'),
+  })
 
   const dump = createGeminiDumpState()
 
@@ -619,6 +630,7 @@ async function buildLocationRuntime(
     operatorSettings,
     settings,
     signatures,
+    requestWireLocation,
     quotaManager,
     backgroundQuotaRefresh,
     refreshQueue: () => refreshQueue,

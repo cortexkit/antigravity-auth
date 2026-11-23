@@ -4081,6 +4081,232 @@ describe('GA browser action lifetime', () => {
 })
 
 describe('GA drawer account actions through native RPC', () => {
+  for (const flow of ['account actions', 'settings report'] as const) {
+    it(`drawer renders the issued ${flow} and applies each choice once in its location`, async () => {
+      const { setupGaTui } = await import('../ga/tui/host-ga')
+      const { diagnosticsMenuSection } = await import('./command-apply')
+      const commandModule = await loadCommonAuthCommands()
+      const requestScope = {
+        kind: 'session',
+        sessionID: 'same-session',
+      } as const
+      const signal = new AbortController().signal
+      const operations: unknown[] = []
+      const activate = (location: string) => {
+        const repository = new MemoryRepository([row(A)])
+        let report = true
+        const menu = realCore.createAntigravityCommandMenu({
+          source: 'repository',
+          commands: commandModule,
+          accounts: Object.assign(repository, {
+            async updateMetadata(ref: RowRef) {
+              operations.push([location, 'clear', ref.id])
+              return { ref, outcome: 'unchanged' as const }
+            },
+          }),
+          settings: {
+            read: async () => ({
+              selectionStrategy: 'sticky',
+              killswitch: { enabled: false, minimumRemainingPercent: 0 },
+            }),
+            updateKillswitch: async () => {},
+          },
+          accountLimits: {
+            read: () => 18,
+            write: async (ref, value) => {
+              operations.push([location, 'floor', ref.id, value])
+              return 'applied'
+            },
+          },
+          accountModels: {
+            read: () => null,
+            writable: () => true,
+            catalog: ['gemini-3.8-flash'],
+            write: async (ref, value) => {
+              operations.push([location, 'models', ref.id, value])
+              return 'applied'
+            },
+          },
+          reauthorize: {
+            run: async (ref, invocation) => {
+              operations.push([
+                location,
+                'reauthorize',
+                ref.id,
+                invocation.sessionId,
+              ])
+              return 'Sign-in started.'
+            },
+          },
+          diagnostics: diagnosticsMenuSection({
+            settings: { get: emptyOperatorSettings, update: async () => {} },
+            dump: { ...dumpOff, setEnabled() {} },
+            applyLogLevel() {},
+            settingsFile: {
+              diagnosticsNotices: async () =>
+                report ? ['Settings were moved.'] : [],
+              moveReport: {
+                present: async () => report,
+                async dismiss() {
+                  report = false
+                  operations.push([location, 'dismiss'])
+                },
+              },
+            },
+          }),
+        })
+        const commands: ReturnType<typeof createGaMenuCommandService> =
+          createGaMenuCommandService({
+            menu,
+            notify: (scope, payload) => rpc.notify(scope, payload),
+            isConnected: (scope) => rpc.isConnected(scope),
+          })
+        const rpc = createGaRpcActivation({
+          state: stateSource(repository),
+          commands,
+          parseApplyRequest: commandModule.parseApplyRequest,
+        })
+        return { rpc, commands }
+      }
+
+      const first = activate('/locations/other')
+      const second = activate('/locations/initiator')
+      const closed = Promise.withResolvers<void>()
+      const rows: Array<readonly import('../tui/host-api').MenuSelectOption[]> =
+        []
+      const titles: string[] = []
+      const choices =
+        flow === 'account actions'
+          ? [
+              'Accounts',
+              'Account 1',
+              'Models',
+              'Off',
+              'On',
+              'Account 1',
+              'Set quota floor',
+              'Account 1',
+              'Reauthorize',
+              'Account 1',
+              'Clear limits',
+            ]
+          : ['Diagnostics', 'Dismiss the settings move report']
+      let tick = () => {}
+      const cleanup = setupGaTui(
+        {
+          location: { directory: '/locations/other' },
+          client: {
+            session: {
+              get: async () => ({
+                location: { directory: '/locations/initiator' },
+              }),
+            },
+            rpc: {
+              call: async ({ location, method, input }) => {
+                const target =
+                  location?.directory === '/locations/initiator'
+                    ? second
+                    : first
+                if (method !== 'state' && method !== 'apply')
+                  throw new Error('Unexpected RPC method')
+                return { output: await target.rpc.handlers[method](input) }
+              },
+            },
+          },
+          ui: {
+            dialog: {
+              set() {},
+              clear() {},
+              prompt: async () => '29',
+              confirm: async () => true,
+              alert: async () => {},
+              select: async ({ title, options }) => {
+                titles.push(title)
+                rows.push(
+                  options.map(
+                    ({ title, value, description, category, footer }) => ({
+                      title,
+                      value: String(value),
+                      description,
+                      category,
+                      footer,
+                    }),
+                  ),
+                )
+                const wanted = choices.shift()
+                const selected = options.find(
+                  (option) => option.title === wanted,
+                )
+                if (!selected) closed.resolve()
+                return selected?.value
+              },
+            },
+            router: {
+              current: () => ({
+                type: 'session',
+                sessionID: requestScope.sessionID,
+              }),
+            },
+            toast: { show() {} },
+            slot: () => () => {},
+          },
+        },
+        {
+          schedule: (callback) => {
+            tick = callback
+            return () => {}
+          },
+        },
+      )
+      try {
+        await new Promise<void>((resolve) => setImmediate(resolve))
+        await second.commands.open({ scope: requestScope, signal })
+        tick()
+        await closed.promise
+        if (flow === 'account actions') {
+          const options = rows[titles.indexOf('Accounts: Account 1')]
+          expect(options?.map((option) => option.title)).toEqual([
+            'Disable',
+            'Use this account',
+            'Remove',
+            'Set quota floor',
+            'Models',
+            'Reauthorize',
+            'Clear limits',
+            'Back',
+          ])
+          expect(
+            options?.find((option) => option.title === 'Models')?.description,
+          ).toContain('quotaFloorPercent: 18')
+          expect(
+            options?.find((option) => option.title === 'Models')?.description,
+          ).toContain('Choose the models this account serves.')
+          expect(operations).toEqual([
+            ['/locations/initiator', 'models', A.id, ['gemini-3.8-flash']],
+            ['/locations/initiator', 'floor', A.id, 29],
+            [
+              '/locations/initiator',
+              'reauthorize',
+              A.id,
+              requestScope.sessionID,
+            ],
+            ['/locations/initiator', 'clear', A.id],
+          ])
+        } else {
+          expect(titles).toEqual(['Antigravity', 'Diagnostics', 'Diagnostics'])
+          expect(rows[2]?.map((option) => option.title)).not.toContain(
+            'Dismiss the settings move report',
+          )
+          expect(operations).toEqual([['/locations/initiator', 'dismiss']])
+        }
+      } finally {
+        await cleanup()
+        await first.rpc.dispose()
+        await second.rpc.dispose()
+      }
+    })
+  }
+
   async function drawer(
     scope: GaTestCase,
     fixture: Awaited<ReturnType<typeof transportLocation>>,
@@ -4119,7 +4345,7 @@ describe('GA drawer account actions through native RPC', () => {
     if (opened.kind !== 'snapshot') throw new Error('Missing opened snapshot')
     const payload = opened.snapshot.notifications[0]?.payload
     if (!payload || !('menu' in payload)) throw new Error('Missing server menu')
-    const view = host.presentGaMenu(opened.snapshot, 0, payload.menu)
+    const view = host.presentGaMenu(payload.menu)
     return {
       client,
       rpc,
@@ -4515,37 +4741,19 @@ describe('GA drawer account actions through native RPC', () => {
       let view = wired.view
       const host = await import('../ga/tui/host-ga')
       const choices = [
-        ['accounts', 'disable', {}, 'disable', {}],
-        ['accounts', 'enable', {}, 'enable', {}],
-        ['accounts', 'select-active', {}, 'select', { target: 'active' }],
-        ['accounts', 'select-claude', {}, 'select', { target: 'claude' }],
-        ['accounts', 'select-gemini', {}, 'select', { target: 'gemini' }],
-        ['limits', 'killswitch-on', {}, 'set', { enabled: true }],
-        [
-          'limits',
-          'killswitch-minimum',
-          { percent: 30 },
-          'set',
-          { minimumRemainingPercent: 30 },
-        ],
-        ['limits', 'killswitch-off', {}, 'set', { enabled: false }],
-        [
-          'diagnostics',
-          'log-level',
-          { level: 'debug' },
-          'logging',
-          { level: 'debug' },
-        ],
-        ['diagnostics', 'dump-on', {}, 'dump', {}],
-        ['diagnostics', 'dump-off', {}, 'dump', {}],
+        ['accounts', 'disable', {}],
+        ['accounts', 'enable', {}],
+        ['accounts', 'select', { target: 'active' }],
+        ['accounts', 'select', { target: 'claude' }],
+        ['accounts', 'select', { target: 'gemini' }],
+        ['limits', 'set', { enabled: true }],
+        ['limits', 'set', { minimumRemainingPercent: 30 }],
+        ['limits', 'set', { enabled: false }],
+        ['diagnostics', 'logging', { level: 'debug' }],
+        ['diagnostics', 'dump', {}],
+        ['diagnostics', 'dump', {}],
       ] as const
-      for (const [
-        sectionId,
-        actionId,
-        values,
-        expectedId,
-        expectedValues,
-      ] of choices) {
+      for (const [sectionId, actionId, values] of choices) {
         const item =
           sectionId === 'accounts'
             ? view.menu.sections.find((section) => section.id === 'accounts')
@@ -4558,14 +4766,14 @@ describe('GA drawer account actions through native RPC', () => {
           values,
           ...(item ? { itemId: item.id } : {}),
         })
-        expect(request.actionId).toBe(expectedId)
-        expect(request.values).toEqual(expectedValues)
+        expect(request.actionId).toBe(actionId)
+        expect(request.values).toEqual(values)
         const result = await wired.client.apply(sessionless, { request })
         expect(result.ok).toBe(true)
         const fresh = await wired.client.pull(sessionless)
         if (fresh.kind !== 'snapshot')
           throw new Error('Missing refreshed snapshot')
-        view = host.presentGaMenu(fresh.snapshot, 0, result.menu)
+        view = host.presentGaMenu(result.menu)
       }
       expect(fixture.runtime.operatorSettings.get().killswitch).toMatchObject({
         enabled: false,
@@ -4650,11 +4858,7 @@ describe('GA drawer account actions through native RPC', () => {
             if (snapshot.kind !== 'snapshot')
               throw new Error('Missing restricted snapshot')
             const host = await import('../ga/tui/host-ga')
-            const shown = host.presentGaMenu(
-              snapshot.snapshot,
-              0,
-              answer.menu,
-            ).menu
+            const shown = host.presentGaMenu(answer.menu).menu
             const accounts = shown.sections.find(
               (section) => section.id === 'accounts',
             )
@@ -4735,10 +4939,7 @@ describe('GA drawer account actions through native RPC', () => {
             signal: new AbortController().signal,
           })
           if (!source) throw new Error('Missing frame menu')
-          const menu =
-            process.env.GA_DRAWER_FRAME_BASE === '1'
-              ? host.buildGaMenu(read.snapshot, 0)
-              : host.presentGaMenu(read.snapshot, 0, source).menu
+          const menu = host.presentGaMenu(source).menu
           const lines: string[] = [
             `OPTION-TEXT ${mode} (not a host screenshot)`,
           ]
