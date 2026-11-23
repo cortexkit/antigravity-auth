@@ -25,7 +25,8 @@ import {
 import { AgySessionRegistry } from '../../../opencode/src/plugin/session-context.ts'
 import { createVaultAccountPool } from '../../../opencode/src/plugin/shared/vault-request-credentials.ts'
 import type { Conversation, Custody } from './cases.ts'
-import { credential, type Environment, epoch } from './environment.ts'
+import type { Environment } from './environment.ts'
+import { credential, epoch } from './fixtures.ts'
 import { google1, google2 } from './native-google.ts'
 
 export const route = {
@@ -82,11 +83,9 @@ async function ingress(
   request: Request,
   input: Conversation,
   session?: string,
-  key?: string,
 ) {
   const headers = new Headers(request.headers)
   if (session !== undefined) headers.set('x-opencode-session-id', session)
-  if (key) headers.set('x-goog-api-key', key)
   // This fixture supplies the very same SDK-generated JSON to the other
   // supported ingress envelope. No contents are manufactured by the test.
   const nativeBody = await request.text()
@@ -258,10 +257,7 @@ export async function openCode2(
 ) {
   initRuntimeConfig(config())
   const settings = config(input.options.keepThinking)
-  const log = (...parts: unknown[]) => {
-    if (process.env.PARITY_DEBUG) console.error(...parts)
-  }
-  const logger = { debug: log, info: log, warn: log, error: log }
+  const logger = { debug: noop, info: noop, warn: noop, error: noop }
   const runtime = {
     config: { config: settings, keepThinking: settings.keep_thinking },
     settings: { modelAccess: () => undefined },
@@ -281,14 +277,9 @@ export async function openCode2(
         auth: resolvedAuth,
         effectiveProjectId: credential.projectId,
       }),
-      observeRawSenderSignal: () => log('GA raw send started'),
     } satisfies GaPluginOverrides,
     routes: createGaRouteBook(),
   }
-  const trace = (message: string) => {
-    if (process.env.PARITY_DEBUG) console.error(message)
-  }
-  trace('GA open pipeline')
   const pipeline =
     custody === 'local'
       ? await createGaLocalRequestPipeline({
@@ -305,22 +296,14 @@ export async function openCode2(
   const bridge = await startGaLoopbackBridge({
     execute: pipeline.execute,
     send: noNetwork,
-    onError: trace,
   })
-  trace('GA bridge listening')
   const ownership = new GaRequestOwnership()
   return {
     run: (conversation: Conversation, session?: string, signal?: AbortSignal) =>
       google2(
         conversation,
         async (native) => {
-          trace(`GA prepared ${native.url}`)
-          const request = await ingress(
-            native,
-            conversation,
-            session,
-            placeholderSecret('google'),
-          )
+          const request = await ingress(native, conversation, session)
           const event = {
             sessionID: session ?? '',
             kind: 'primary' as const,
@@ -340,18 +323,16 @@ export async function openCode2(
           if (new URL(event.request.url).origin !== bridge.origin)
             throw new Error('OpenCode 2 bypassed the parity bridge')
           const response = await fetch(event.request)
-          trace(`GA bridge status ${response.status}`)
           const adapted = bridge.adaptResponse(event.request, response)
           if (!adapted) throw new Error('The bridge did not own the response')
           return adapted
         },
         signal,
+        placeholderSecret('google'),
       ),
     async dispose() {
-      trace('GA disposing')
       await bridge.dispose()
       await pipeline.dispose()
-      trace('GA disposed')
     },
   }
 }

@@ -7,7 +7,7 @@ import { jsonSchema, type ModelMessage, streamText } from 'ai'
 import { Effect } from 'effect'
 import { HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 import type { Conversation, Part } from './cases.ts'
-import { placeholder } from './environment.ts'
+import { placeholder } from './fixtures.ts'
 
 export type Surface = {
   text: string
@@ -307,6 +307,7 @@ export async function google2(
   input: Conversation,
   receive: (request: Request) => Promise<Response>,
   signal?: AbortSignal,
+  apiKey = placeholder,
 ) {
   const output = surface()
   const ai = make({
@@ -325,7 +326,7 @@ export async function google2(
   try {
     const events = ai.llm.stream(
       {
-        model: configure({ apiKey: placeholder }).model(input.model),
+        model: configure({ apiKey }).model(input.model),
         system: input.prompt,
         messages: input.messages.map(({ role, parts }) =>
           Message.make({ role, content: parts.map(gaPart) }),

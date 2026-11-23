@@ -5,7 +5,7 @@ import {
   models,
   requestCases,
 } from './cases.ts'
-import { candidate, type Reply, sse, success } from './environment.ts'
+import { candidate, type Reply, sse, success } from './fixtures.ts'
 
 export type Scenario = {
   input: Conversation

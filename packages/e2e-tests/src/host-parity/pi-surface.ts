@@ -7,7 +7,8 @@ import type {
 import { rememberPackedRefresh } from '../../../pi/src/credential-cache.ts'
 import type * as PiStream from '../../../pi/src/stream.ts'
 import type { Conversation, Custody, Part } from './cases.ts'
-import { credential, type Environment, placeholder } from './environment.ts'
+import type { Environment } from './environment.ts'
+import { credential, placeholder } from './fixtures.ts'
 import {
   recordFailure,
   recordSignature,

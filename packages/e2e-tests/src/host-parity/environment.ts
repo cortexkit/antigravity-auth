@@ -3,48 +3,14 @@ import { Buffer } from 'node:buffer'
 import * as crypto from 'node:crypto'
 import { Duplex } from 'node:stream'
 import * as tls from 'node:tls'
-
-export const epoch = Date.UTC(2026, 6, 22, 12)
-export const credential = {
-  accessToken: 'parity-token',
-  projectId: 'parity-project',
-}
-export const placeholder = 'parity-vault-placeholder'
-export const maskedFields: readonly string[] = []
-
-export type Wire = {
-  target: string
-  headers: [string, string][]
-  bodyBase64: string
-}
-
-export type Reply = {
-  status?: number
-  headers?: Record<string, string>
-  body?: string
-  stall?: 'before-headers' | 'after-body'
-  transportError?: string
-}
-
-export const sse = (...frames: (object | string)[]) =>
-  frames
-    .map(
-      (frame) =>
-        `data: ${typeof frame === 'string' ? frame : JSON.stringify(frame)}\n\n`,
-    )
-    .join('')
-export const candidate = (
-  parts: object[],
-  finishReason?: string,
-  index = 0,
-) => ({
-  response: {
-    candidates: [{ index, content: { role: 'model', parts }, finishReason }],
-  },
-})
-export const success: Reply = {
-  body: sse(candidate([{ text: 'Four.' }], 'STOP')),
-}
+import {
+  bodyOf,
+  credential,
+  epoch,
+  type Reply,
+  success,
+  type Wire,
+} from './fixtures.ts'
 
 export function decodeWrite(host: string, bytes: Buffer): Wire {
   const boundary = bytes.indexOf('\r\n\r\n')
@@ -68,27 +34,10 @@ export function decodeWrite(host: string, bytes: Buffer): Wire {
   }
 }
 
-export function bodyOf(wire: Wire): Record<string, unknown> {
-  let bytes = Buffer.from(wire.bodyBase64, 'base64')
-  if (
-    wire.headers.some(
-      ([name, value]) =>
-        name.toLowerCase() === 'transfer-encoding' && value === 'chunked',
-    )
-  ) {
-    const prefix = bytes.indexOf('\r\n')
-    const size = Number.parseInt(
-      bytes.subarray(0, prefix).toString('ascii'),
-      16,
-    )
-    bytes = bytes.subarray(prefix + 2, prefix + 2 + size)
-  }
-  return JSON.parse(bytes.toString('utf8'))
-}
-
 type Timer = ReturnType<typeof setTimeout>
 const realSetTimeout = globalThis.setTimeout
 const realClearTimeout = globalThis.clearTimeout
+const realFetch = globalThis.fetch
 const originalNodeUuid = crypto.randomUUID
 const originalWebUuid = globalThis.crypto.randomUUID.bind(globalThis.crypto)
 const uuid = (n: number) =>
@@ -148,6 +97,28 @@ export class Environment {
       this.restore.push(() => spy.mockRestore())
     }
     replace(Date, 'now', () => this.instant)
+    replace(
+      globalThis,
+      'fetch',
+      Object.assign(
+        async (input: string | URL | Request, init?: RequestInit) => {
+          const url = new URL(input instanceof Request ? input.url : input)
+          if (
+            url.protocol !== 'http:' ||
+            url.hostname !== '127.0.0.1' ||
+            !url.pathname.startsWith('/agy/')
+          ) {
+            throw new Error(`Parity forbids fetch to ${url.origin}`)
+          }
+          return realFetch(input, init)
+        },
+        {
+          preconnect: () => {
+            throw new Error('Parity forbids fetch.preconnect')
+          },
+        },
+      ),
+    )
     replace(Math, 'random', () => [0.5, 0.25, 0.75][this.randomIndex++ % 3]!)
     replace(globalThis.crypto, 'randomUUID', () =>
       active ? uuid(++this.webId) : originalWebUuid(),

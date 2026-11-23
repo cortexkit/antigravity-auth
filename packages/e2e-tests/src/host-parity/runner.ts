@@ -1,11 +1,6 @@
 import type { Conversation, Custody, Subject } from './cases.ts'
-import {
-  candidate,
-  Environment,
-  type Reply,
-  sse,
-  type Wire,
-} from './environment.ts'
+import { Environment } from './environment.ts'
+import { candidate, type Reply, sse, type Wire } from './fixtures.ts'
 import { openCode1, openCode2 } from './open-code.ts'
 import { piAdapter } from './pi-surface.ts'
 import { signature } from './scenarios.ts'
