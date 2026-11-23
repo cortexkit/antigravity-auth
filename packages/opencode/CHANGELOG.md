@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- In vault mode, a manual "Check quota now" that finishes after the background check no longer replaces its newer reading ([#78](https://github.com/cortexkit/antigravity-auth/pull/78), thanks @iceteaSA).
+
 ## [3.1.13] - 2026-11-23
 
 - When vault routing has no room for a new request, OpenCode waits for capacity before sending it to Google. Cancelling or reaching the pre-response time limit stops the wait without sending the request.

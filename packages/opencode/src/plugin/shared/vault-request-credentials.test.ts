@@ -772,7 +772,7 @@ describe('vault pools sharing one provider-state file', () => {
     expect((await f.read())?.metadata).toMatchObject(newer)
   })
 
-  it('keeps a newer local reading and limit when stored quota is older', async () => {
+  it('keeps the newer stored reading and limit when an older write arrives later', async () => {
     const a = await f.open()
     const p = await f.open()
     const older = f.now()
@@ -782,7 +782,7 @@ describe('vault pools sharing one provider-state file', () => {
     a.pool.selector.markRateLimited(a.row, limitMs, 'gemini', model)
     await a.pool.flush()
     await f.checkQuota(p.pool, older, 0.9)
-    expect((await f.read())?.quota?.cachedQuotaUpdatedAt).toBe(older)
+    expect((await f.read())?.quota?.cachedQuotaUpdatedAt).toBe(newer)
 
     await a.pool.sync()
     expect(a.row.cachedQuotaUpdatedAt).toBe(newer)
