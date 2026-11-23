@@ -95,20 +95,11 @@ for (const subject of ['opencode1', 'opencode2', 'pi'] satisfies Subject[]) {
           expect(result.physicalSends[1]).toEqual(result.physicalSends[0])
           expect(result.wire[1]?.bodyBase64).toBe(result.wire[0]?.bodyBase64)
         }
-        if (scenario.terminal === 'failure:quota_wait_exhausted') {
-          // OpenCode 2's native decoder prefixes errors from an already-open body.
-          const text = ENGINE_REFUSALS.quota_wait_exhausted.text
+        if (scenario.terminal === 'failure:quota_wait_exhausted')
           expect(turn.errors).toEqual([
-            subject === 'opencode2'
-              ? `Connection lost while reading the response: ${text}`
-              : text,
+            ENGINE_REFUSALS.quota_wait_exhausted.text,
           ])
-          expect(turn.terminal).toEqual([
-            subject === 'opencode2'
-              ? 'failure:upstream_http'
-              : scenario.terminal,
-          ])
-        } else expect(turn.terminal).toEqual([scenario.terminal])
+        expect(turn.terminal).toEqual([scenario.terminal])
         expect(turn.text).toBe(scenario.text ?? '')
         expect(turn.thinking).toBe(scenario.thinking ?? '')
         if (scenario.code) expect(turn.errors[0]).toContain(scenario.code)

@@ -45,6 +45,7 @@ import {
   ENGINE_REFUSALS,
   EngineRefusalError,
   engineRefusalResponse,
+  InvalidOutputResendFailure,
   isCanonicalGoogleOrigin,
   resolveRetryMetadata,
 } from '@cortexkit/antigravity-auth-core/engine'
@@ -846,7 +847,8 @@ function writeResponseHead(
  * except that an event stream ending without its final blank line gets one,
  * so the host's SSE reader sees the last frame.
  *
- * When the upstream body fails, the failure is handed to `onFailure` first,
+ * Deterministic refusals are native Google error events. When a transport
+ * error cuts the body off, the failure is handed to `onFailure` first,
  * and then the loopback response is ended normally: the status, the headers
  * and every byte already written still reach the host. The job's
  * `http.response` adapter turns that end into the genuine error, so the host
@@ -919,8 +921,29 @@ async function pipeResponse(
     }
   } catch (caught) {
     const error = caught instanceof Error ? caught : new Error(String(caught))
-    // Headers are already sent, so a cut-off success cannot gain the failure-only
-    // x-should-retry header. OpenCode's session.generate may still retry that read.
+    if (
+      eventStream &&
+      error instanceof EngineRefusalError &&
+      error.id !== 'cancelled' &&
+      (error instanceof InvalidOutputResendFailure ||
+        (error.id !== 'transport_error' && error.id !== 'deadline'))
+    ) {
+      // OpenCode maps a socket read error to a retryable transport failure.
+      // A Google error event with a client status is a final provider refusal.
+      if (wroteAny && tail !== '\n\n')
+        response.write(tail.endsWith('\n') ? '\n' : '\n\n')
+      response.end(
+        `data: ${JSON.stringify({
+          error: {
+            code: 400,
+            status: 'INVALID_ARGUMENT',
+            message: error.message,
+          },
+        })}\n\n`,
+      )
+      return
+    }
+    // Preserve the native read-failure path for a genuine stream cut-off.
     // The captured upstream body error is recorded before the loopback body
     // ends, so the job's `http.response` hook adapter (`adaptResponse`) finds
     // it when the host reads the end of the body and fails the read with it.

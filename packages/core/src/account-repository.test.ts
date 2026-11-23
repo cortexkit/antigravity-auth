@@ -38,6 +38,7 @@ import {
   type AccountStoreModule,
   type AccountStoreModules,
   applyAccessVerdict,
+  applyRateLimitObservation,
   applyTierObservation,
   applyUsage,
   createAccountRepositoryFactory,
@@ -417,6 +418,24 @@ describe('observations', () => {
         { claude: 5, 'gemini-cli': 20, 'gemini-antigravity:model': null },
       ),
     ).toEqual({ claude: 10, 'gemini-cli': 20, 'gemini-antigravity:model': 30 })
+  })
+
+  it('keeps the reset and stamp from one observation even when the new limit is shorter', () => {
+    const original = {
+      ...accountMetadata,
+      rateLimitResetTimes: { claude: 9_000 },
+      rateLimitWrittenAt: { claude: 100 },
+    }
+    const newer = applyRateLimitObservation(
+      original,
+      { claude: 5_000 },
+      { claude: 200 },
+    )
+    expect(newer.rateLimitResetTimes).toEqual({ claude: 5_000 })
+    expect(newer.rateLimitWrittenAt).toEqual({ claude: 200 })
+    const undated = applyRateLimitObservation(newer, { claude: 10_000 })
+    expect(undated.rateLimitResetTimes).toEqual({ claude: 5_000 })
+    expect(undated.rateLimitWrittenAt).toEqual({ claude: 200 })
   })
 
   it('counts usage on the UTC day of the clock and restarts on a new day', () => {
