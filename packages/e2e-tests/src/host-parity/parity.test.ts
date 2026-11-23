@@ -6,7 +6,12 @@ test.each([
   ...subjects,
 ])('%s enters the stock public request and response paths', async (subject) => {
   const input = requestCases[0]!
-  const result = await runConversation({ input, subject, custody: 'local' })
+  const result = await runConversation({
+    input,
+    subject,
+    custody: 'local',
+    timed: true,
+  })
   expect(result).toMatchObject({
     wire: [{ target: expect.stringContaining(':streamGenerateContent') }],
     turns: [{ text: 'Four.', terminal: ['stop'], errors: [] }],

@@ -126,7 +126,10 @@ export async function openCode1(
     agySessionRegistry: new AgySessionRegistry({ now: () => Date.now() }),
     onRouting: noop,
     fetchImpl: noNetwork,
-  } as Omit<Parameters<typeof createVaultFetchInterceptor>[0], 'source'>
+  } as unknown as Omit<
+    Parameters<typeof createVaultFetchInterceptor>[0],
+    'source'
+  >
 
   let manager: AccountManager | undefined
   const interceptor =
@@ -267,6 +270,10 @@ export async function openCode2(
     },
   } as unknown as Parameters<typeof createGaLocalRequestPipeline>[0]['runtime']
   const common = { runtime, overrides: {}, routes: createGaRouteBook() }
+  const trace = (message: string) => {
+    if (process.env.PARITY_DEBUG) console.error(message)
+  }
+  trace('GA open pipeline')
   const pipeline =
     custody === 'local'
       ? await createGaLocalRequestPipeline({
@@ -283,13 +290,16 @@ export async function openCode2(
   const bridge = await startGaLoopbackBridge({
     execute: pipeline.execute,
     send: noNetwork,
+    onError: trace,
   })
+  trace('GA bridge listening')
   const ownership = new GaRequestOwnership()
   return {
     run: (conversation: Conversation, session?: string, signal?: AbortSignal) =>
       google2(
         conversation,
         async (native) => {
+          trace(`GA prepared ${native.url}`)
           const request = await ingress(
             native,
             conversation,
@@ -315,6 +325,7 @@ export async function openCode2(
           if (new URL(event.request.url).origin !== bridge.origin)
             throw new Error('OpenCode 2 bypassed the parity bridge')
           const response = await fetch(event.request)
+          trace(`GA bridge status ${response.status}`)
           const adapted = bridge.adaptResponse(event.request, response)
           if (!adapted) throw new Error('The bridge did not own the response')
           return adapted
@@ -322,8 +333,10 @@ export async function openCode2(
         signal,
       ),
     async dispose() {
+      trace('GA disposing')
       await bridge.dispose()
       await pipeline.dispose()
+      trace('GA disposed')
     },
   }
 }
