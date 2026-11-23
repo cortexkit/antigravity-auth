@@ -2349,14 +2349,8 @@ describe('GA composed request context', () => {
         const reason = new DOMException('job cancelled', 'AbortError')
         controller.abort(reason)
         expect(sent.signal.aborted).toBe(true)
-        expect(sent.signal.reason).toHaveProperty(
-          'message',
-          'Antigravity request cancelled.',
-        )
-        expect(await failure).toHaveProperty(
-          'message',
-          'Antigravity request cancelled.',
-        )
+        expect(sent.signal.reason).toBe(reason)
+        expect(await failure).toBe(reason)
         expect(networkCalls).toHaveLength(0)
       } finally {
         await location.dispose()

@@ -2128,15 +2128,13 @@ describe('createRequestExecutor pre-response deadline', () => {
   it('Request signal and init override are extracted before the first await', async () => {
     const h = harness({ respond: async () => okJson() })
     const requestCaller = new AbortController()
-    requestCaller.abort(new Error('Request cancelled'))
+    const reason = new Error('Request cancelled')
+    requestCaller.abort(reason)
     const admission = mock(async () => {})
     Object.assign(h.deps, { assertAdmission: admission })
     const request = new Request(STREAM_URL, CHAT_INIT(requestCaller.signal))
     const executor = createRequestExecutor(h.deps)
-    await expect(executor.execute(request)).rejects.toHaveProperty(
-      'message',
-      'Antigravity request cancelled.',
-    )
+    await expect(executor.execute(request)).rejects.toBe(reason)
     expect(admission).not.toHaveBeenCalled()
     const response = await executor.execute(request, {
       signal: new AbortController().signal,
@@ -4610,9 +4608,13 @@ describe('createRequestExecutor retry contract', () => {
     if (result instanceof Error) expectNoCredentialDiagnostic(result.message)
   }
 
-  for (const source of ['transport', 'http', 'sse'] as const) {
+  for (const source of ['transport', 'http', 'forbidden', 'sse'] as const) {
     it(`redacts selected credential in composed OpenCode ${source} errors`, async () => {
-      const detail = `echo ${source === 'transport' ? '' : 'Bearer '}access-fresh project: project-0 Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature`
+      const fromHttp = source === 'http' || source === 'forbidden'
+      const status = source === 'forbidden' ? 403 : 400
+      const rpcStatus =
+        source === 'forbidden' ? 'PERMISSION_DENIED' : 'INVALID_ARGUMENT'
+      const detail = `echo ${source === 'transport' ? '' : 'Bearer access-fresh '}access-fresh project: project-0 Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature`
       const failure = Object.assign(new Error(detail), {
         code: 'ECONNRESET',
         detail,
@@ -4622,20 +4624,21 @@ describe('createRequestExecutor retry contract', () => {
         respond: async () => {
           if (source === 'transport') throw failure
           return new Response(
-            source === 'http'
+            fromHttp
               ? JSON.stringify({
                   error: {
-                    code: 400,
-                    status: 'INVALID_ARGUMENT',
+                    code: status,
+                    status: rpcStatus,
                     message: detail,
                   },
                 })
               : `data: ${JSON.stringify({ response: { error: { code: 400, message: detail } } })}\n\n`,
             {
-              status: source === 'http' ? 400 : 200,
+              status: fromHttp ? status : 200,
               headers: {
-                'content-type':
-                  source === 'http' ? 'application/json' : 'text/event-stream',
+                'content-type': fromHttp
+                  ? 'application/json'
+                  : 'text/event-stream',
               },
             },
           )
@@ -4660,7 +4663,7 @@ describe('createRequestExecutor retry contract', () => {
       })
       try {
         const response = await executor.execute(
-          source === 'http' ? NON_STREAM_URL : STREAM_URL,
+          fromHttp ? NON_STREAM_URL : STREAM_URL,
           CHAT_INIT(),
         )
         if (source === 'sse') await expectEmbeddedRefusal(response)
@@ -4670,10 +4673,36 @@ describe('createRequestExecutor retry contract', () => {
               ? expectTransportRefusal(response)
               : expectUpstreamHttpRefusal(response)),
           )
-        const diagnostic = `echo [credential] project: proj****ct-0 [credential] [credential]`
+        const diagnostic = `echo ${source === 'transport' ? '' : 'Bearer [credential] '}[credential] project: proj****ct-0 [credential] [credential]`
         const logged = JSON.stringify(debug.mock.calls)
         expect(logged).toContain(diagnostic)
-        expect(logged).not.toContain(detail)
+        for (const secret of [
+          'access-fresh',
+          'project-0',
+          'another-token',
+          'eyJ',
+        ])
+          expect(logged).not.toContain(secret)
+        if (fromHttp)
+          expect(
+            debug.mock.calls.filter(
+              ([message]) => message === 'Antigravity upstream refusal',
+            ),
+          ).toEqual([
+            [
+              'Antigravity upstream refusal',
+              {
+                status,
+                message: JSON.stringify({
+                  error: {
+                    code: status,
+                    status: rpcStatus,
+                    message: diagnostic,
+                  },
+                }),
+              },
+            ],
+          ])
       } finally {
         await executor.dispose()
       }
@@ -4830,7 +4859,13 @@ describe('createRequestExecutor retry contract', () => {
         if (source === 'sse') {
           const adapted = bridge.adaptResponse(rewritten, response)
           if (!adapted) throw new Error('The bridge did not adapt the response')
-          await expectEmbeddedRefusal(adapted)
+          expect(adapted.status).toBe(200)
+          const refusal = await adapted.text()
+          expect(refusal).toBe(
+            'data: {"error":{"code":400,"status":"INVALID_ARGUMENT","message":"Antigravity returned an embedded error."}}\n\n',
+          )
+          expectNoCredentialDiagnostic(refusal)
+          expect(h.calls).toHaveLength(1)
         } else {
           expectNoCredentialDiagnostic(
             await (source === 'transport'
@@ -7058,7 +7093,10 @@ describe('createRequestExecutor eligible-pool wait calculation', () => {
       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
       expect(response.status).toBe(200)
       expect(delays).toEqual([8_000])
-      expect(toasts).toContain('All 2 account(s) over 80% quota. Waiting 8s...')
+      expect(toasts).toEqual([
+        'Waiting 8s for an available Antigravity account.',
+        'Using account 1 of 2.',
+      ])
       expect(h.calls).toHaveLength(1)
     } finally {
       save.mockRestore()
@@ -11388,6 +11426,21 @@ describe('createRequestExecutor routing wait reports', () => {
             ? 'caller stopped'
             : 'admission unavailable',
         )
+      } else if (
+        !options.ending &&
+        reason === 'rate_limited' &&
+        !options.short
+      ) {
+        const response = await result
+        expect(response.status).toBe(412)
+        expect(await response.json()).toEqual({
+          error: {
+            code: 412,
+            status: 'FAILED_PRECONDITION',
+            message:
+              'Antigravity asked to slow down. Wait before sending another request.',
+          },
+        })
       } else {
         const response = await result
         expect(response.status).toBe(
@@ -11395,9 +11448,7 @@ describe('createRequestExecutor routing wait reports', () => {
             ? options.ending === 'deadline'
               ? 412
               : 401
-            : reason === 'rate_limited' && !options.short
-              ? 429
-              : 200,
+            : 200,
         )
         await response.body?.cancel()
       }

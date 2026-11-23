@@ -1219,7 +1219,7 @@ describe('createFetchInterceptor', () => {
               ...GENERATIVE_INIT,
               signal: controller.signal,
             }),
-          ).rejects.toHaveProperty('message', 'Antigravity request cancelled.')
+          ).rejects.toBe(abortReason)
           expect(toasts).toHaveLength(1)
           expect(toasts[0]).toContain('Waiting')
           expect(transportMock).not.toHaveBeenCalled()
@@ -2428,7 +2428,7 @@ describe('createFetchInterceptor', () => {
             ...GENERATIVE_INIT,
             signal: caller.signal,
           }),
-        ).rejects.toHaveProperty('message', 'Antigravity request cancelled.')
+        ).rejects.toBe(reason)
       }
       try {
         await limited(a)

@@ -7,6 +7,32 @@ import { runConversation } from '../runner.ts'
 const invalid = candidate([{ text: '' }], 'MALFORMED_FUNCTION_CALL')
 const secondText = candidate([{ text: 'Recovered reply.' }], 'STOP')
 const rejected = 'failure:stopped_by_google'
+
+for (const subject of ['opencode1', 'opencode2', 'pi'] satisfies Subject[]) {
+  test(`${subject} treats an unstructured 403 on the invalid-output resend as final`, async () => {
+    const result = await runConversation({
+      subject,
+      custody: 'local',
+      input: conversation('invalid-output finish'),
+      reply: (_, index) =>
+        index === 0
+          ? { body: sse(invalid) }
+          : {
+              status: 403,
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                error: { code: 403, message: 'Verify your account.' },
+              }),
+            },
+    })
+    expect(result.physicalSends).toHaveLength(2)
+    expect(result.turns[0]?.terminal).toEqual(['failure:upstream_http'])
+    expect(result.turns[0]?.errors).toEqual([
+      'Google refused the Antigravity request. Check the plugin log for details.',
+    ])
+  })
+}
+
 const cases = [
   {
     name: 'resends a malformed tool call and publishes the new reply once',

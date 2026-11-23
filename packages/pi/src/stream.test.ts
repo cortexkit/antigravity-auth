@@ -2181,7 +2181,7 @@ describe('streamCortexKitAntigravity', () => {
     expect(aborted).toBe(false)
   })
 
-  it('does not take GPT usage from after the shared terminal frame', async () => {
+  it('includes GPT usage drained after the upstream STOP frame', async () => {
     const { result } = await runStream(
       fakeModel('antigravity-gpt-oss-120b-medium'),
       sseResponse([
@@ -2192,9 +2192,9 @@ describe('streamCortexKitAntigravity', () => {
     )
     expect(result.stopReason).toBe('stop')
     expect(result.content).toEqual([{ type: 'text', text: 'answer' }])
-    expect(result.usage.input).toBe(0)
-    expect(result.usage.output).toBe(0)
-    expect(result.usage.totalTokens).toBe(0)
+    expect(result.usage.input).toBe(10)
+    expect(result.usage.output).toBe(3)
+    expect(result.usage.totalTokens).toBe(13)
   })
 
   it('finishes a GPT turn at STOP when trailing usage never arrives', async () => {
@@ -2218,7 +2218,7 @@ describe('streamCortexKitAntigravity', () => {
       )
       expect(result.stopReason).toBe('stop')
       expect(result.content).toEqual([{ type: 'text', text: 'answer' }])
-      // The shared terminal transform cancels the source without a trailing-usage wait.
+      // The engine cancels the stalled response while collecting usage; Pi needs no second wait.
       expect(stalled.wasCancelled()).toBe(true)
       expect(aborted).toBe(false)
       expect(listeners.size).toBe(0)

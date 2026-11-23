@@ -3798,7 +3798,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   )
               const forbidden = googleForbiddenRefusal(errorBodyText)
               const extracted =
-                errorBodyText === undefined || forbidden === 'account_suspended'
+                errorBodyText === undefined ||
+                forbidden === 'account_suspended' ||
+                // The one resend is final; provider prose alone cannot turn
+                // its refusal into an account reauthorization.
+                (invalidOutputResend && forbidden === 'upstream_http')
                   ? undefined
                   : classifyAccessError(errorBodyText)
               const served = sendAdmission
