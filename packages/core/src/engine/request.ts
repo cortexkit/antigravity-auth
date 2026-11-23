@@ -2660,7 +2660,14 @@ async function transformAntigravityResponseIn(
   debugLines?: string[],
   dumpContext?: GeminiDumpContext | null,
   displayedThinkingScope?: string,
+  diagnosticCredential?: string,
 ): Promise<Response> {
+  const redactDiagnostic = (text: string) =>
+    redactCredentialText(
+      text,
+      diagnosticCredential,
+      projectId ? [projectId] : undefined,
+    )
   const contentType = response.headers.get('content-type') ?? ''
   const isJsonResponse = contentType.includes('application/json')
   const isEventStreamResponse =
@@ -2753,13 +2760,7 @@ async function transformAntigravityResponseIn(
     )
     const enforce = (stream: ReadableStream<Uint8Array>) =>
       enforceStreamRefusals(stream, (diagnostic) =>
-        wire.logger.debug(
-          redactCredentialText(
-            diagnostic,
-            undefined,
-            projectId ? [projectId] : undefined,
-          ),
-        ),
+        wire.logger.debug(redactDiagnostic(diagnostic)),
       )
     if (displayedThinkingScope) {
       // A typed consumer publishes done only after the sender finishes cancelling
@@ -2794,11 +2795,7 @@ async function transformAntigravityResponseIn(
       text = await response.text()
     } catch (error) {
       wire.logger.debug('Failed to read Antigravity refusal', {
-        error: redactCredentialText(
-          String(error),
-          undefined,
-          projectId ? [projectId] : undefined,
-        ),
+        error: redactDiagnostic(String(error)),
       })
       return engineRefusalResponse('transport_error')
     }
@@ -2823,11 +2820,7 @@ async function transformAntigravityResponseIn(
       typeof upstream?.message === 'string' ? upstream.message : text
     wire.logger.debug('Antigravity upstream refusal', {
       status: response.status,
-      message: redactCredentialText(
-        text,
-        undefined,
-        projectId ? [projectId] : undefined,
-      ),
+      message: redactDiagnostic(text),
     })
 
     if (detectErrorType(message) === 'thinking_block_order') {

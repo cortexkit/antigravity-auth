@@ -115,6 +115,7 @@ export interface RequestDebug {
     context: AntigravityDebugContext | null | undefined,
     response: Response,
     status: number,
+    redact?: (text: string) => string,
   ): Promise<string | undefined>
   logModelFamily(
     url: string,
