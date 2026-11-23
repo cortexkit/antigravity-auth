@@ -146,7 +146,7 @@ function expectVaultUnreachableRefusal(response: Response) {
     response,
     412,
     'FAILED_PRECONDITION',
-    'Claustrum vault could not be reached',
+    'The Claustrum vault could not be reached. No request was sent.',
   )
 }
 
@@ -5605,35 +5605,73 @@ describe('createRequestExecutor model unavailable (404 NOT_FOUND)', () => {
     }
   })
 
-  it('maps an unclassified daily 403 to reauthorization without a prod send', async () => {
-    const h = harness({
-      pool: makePool(2),
-      refresh: perAccountRefresh,
-      respond: async () =>
-        new Response(
-          JSON.stringify({
-            error: {
-              code: 403,
-              status: 'PERMISSION_DENIED',
-              message: 'The caller does not have permission',
+  for (const { shape, message, details, suspended } of [
+    {
+      shape: 'an unclassified permission denial',
+      message: 'The caller does not have permission',
+    },
+    {
+      shape: 'an untyped suspension reason',
+      message: 'TOS_VIOLATION',
+      details: [{ reason: 'TOS_VIOLATION' }],
+    },
+    {
+      shape: 'a structured account suspension',
+      // The structured reason must win over a verification hint in the prose.
+      message:
+        'Account suspended; account verification will not restore access',
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+          reason: 'TOS_VIOLATION',
+        },
+      ],
+      suspended: true,
+    },
+  ]) {
+    it(`handles a daily 403 with ${shape} without reauthorization or a prod send`, async () => {
+      const h = harness({
+        pool: makePool(2),
+        refresh: perAccountRefresh,
+        respond: async () =>
+          Response.json(
+            {
+              error: {
+                code: 403,
+                status: 'PERMISSION_DENIED',
+                message,
+                details,
+              },
             },
-          }),
-          { status: 403, headers: { 'content-type': 'application/json' } },
-        ),
+            { status: 403 },
+          ),
+      })
+      const before = accountState(h.pool)
+      const spies = penaltySpies(h)
+      const reauthorize = mock(
+        () => new EngineRefusalError('account_reauthorize'),
+      )
+      const executor = createRequestExecutor({ ...h.deps, reauthorize })
+      try {
+        const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
+        if (suspended) {
+          expect(response.headers.get('retry-after')).toBeNull()
+          await expectFixedRefusal(
+            response,
+            412,
+            'FAILED_PRECONDITION',
+            'Google has suspended Antigravity access for this account. See the antigravity-auth README for details.',
+          )
+        } else await expectUpstreamHttpRefusal(response)
+        expect(reauthorize).not.toHaveBeenCalled()
+        expect(sends(h)).toEqual([[DAILY, 'Bearer access-refresh-0']])
+        expectNoPenalty(spies)
+        expect(accountState(h.pool)).toEqual(before)
+      } finally {
+        await executor.dispose()
+      }
     })
-    const before = accountState(h.pool)
-    const spies = penaltySpies(h)
-    const executor = createRequestExecutor(h.deps)
-    try {
-      const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
-      await expectReauthorizationRefusal(response)
-      expect(sends(h)).toEqual([[DAILY, 'Bearer access-refresh-0']])
-      expectNoPenalty(spies)
-      expect(accountState(h.pool)).toEqual(before)
-    } finally {
-      await executor.dispose()
-    }
-  })
+  }
 
   it('still falls back to prod after a daily 500', async () => {
     const h = harness({
@@ -9533,7 +9571,7 @@ describe('createRequestExecutor optional vault routing', () => {
               { ...CHAT_INIT(), signal: AbortSignal.timeout(250) },
               session(`stalled-${status}`),
             )
-            if (status === 403) await expectReauthorizationRefusal(response)
+            if (status === 403) await expectUpstreamHttpRefusal(response)
             else {
               expect(response.status).toBe(200)
               await response.text()
@@ -11593,7 +11631,7 @@ describe('bounded vault receipt wait through the real engine', () => {
         response,
         412,
         'FAILED_PRECONDITION',
-        'The vault refused access to the selected account. Check the plugin log for details.',
+        'The Claustrum vault has not granted this account to Antigravity. No request was sent.',
       )
     } finally {
       await f.dispose()
