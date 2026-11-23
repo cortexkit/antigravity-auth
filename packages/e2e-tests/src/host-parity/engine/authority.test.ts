@@ -33,6 +33,7 @@ const authorization = {
     'https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state&redirect_uri=' +
     encodeURIComponent('http://localhost:51121/oauth-callback'),
   verifier: 'fixture-verifier',
+  projectId: 'fixture-project',
 }
 const credentials = {
   type: 'success' as const,
@@ -134,7 +135,7 @@ for (const target of ['vault', 'unreadable'] as const) {
         sends++
         return new Response('unexpected send')
       },
-    } as Parameters<typeof createFetchInterceptor>[0])
+    } as unknown as Parameters<typeof createFetchInterceptor>[0])
     try {
       const done = interceptor
         .fetch(STREAM_URL, CHAT_INIT())
@@ -404,7 +405,7 @@ for (const target of ['vault', 'unreadable'] as const) {
         })
       }) as typeof fetch
       const completion = provider
-        .oauth!.refreshToken(native)
+        .oauth!.refreshToken(native, {})
         .catch((error: Error) => error.message)
       await exchangeEntered.promise
       if (target === 'vault') await adapter.switchToVault()

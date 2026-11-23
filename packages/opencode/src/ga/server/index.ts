@@ -39,9 +39,12 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 import {
   collectForwardedHeaders,
+  deriveRetryHeaderPairFromMs,
+  ENGINE_REFUSALS,
   EngineRefusalError,
   engineRefusalResponse,
   isCanonicalGoogleOrigin,
+  resolveRetryMetadata,
 } from '@cortexkit/antigravity-auth-core/engine'
 import type { Model, Plugin } from '@opencode/plugin'
 import type { ProviderEditor } from '@opencode/plugin/promise/provider'
@@ -439,12 +442,65 @@ export function gaPreHeaderFailureResponse(
     return engineRefusalResponse(error.id, {}, 'openCode2')
   if (error instanceof AccountStoreBusyError)
     return engineRefusalResponse('busy_store', {}, 'openCode2')
-  const diagnostic = error instanceof Error ? error.message : String(error)
-  report(redactCredentialText(diagnostic))
-  return engineRefusalResponse(
-    isUpstreamFailure(error) ? 'transport_error' : 'upstream_http',
-    {},
-    'openCode2',
+  // Bridge plumbing can also throw before the engine owns a response. Keep
+  // its validated HTTP metadata, but never turn upstream prose into UI text.
+  const err = error as Record<string, unknown> | null
+  const rawStatus =
+    typeof err?.statusCode === 'number' && Number.isSafeInteger(err.statusCode)
+      ? err.statusCode
+      : err?.status
+  const rpcStatuses: Readonly<Record<number, string>> = {
+    400: 'INVALID_ARGUMENT',
+    401: 'UNAUTHENTICATED',
+    403: 'PERMISSION_DENIED',
+    404: 'NOT_FOUND',
+    412: 'FAILED_PRECONDITION',
+    429: 'RESOURCE_EXHAUSTED',
+    502: 'UNAVAILABLE',
+    503: 'UNAVAILABLE',
+    504: 'UNAVAILABLE',
+  }
+  const status =
+    typeof rawStatus === 'number' && rpcStatuses[rawStatus] ? rawStatus : 502
+  const rawMessage = typeof err?.message === 'string' ? err.message : undefined
+  const retry = resolveRetryMetadata({
+    details: err?.details,
+    message: rawMessage,
+    status,
+    headers: err?.headers as Parameters<
+      typeof resolveRetryMetadata
+    >[0]['headers'],
+    retryAfterMs: err?.retryAfterMs,
+    resetAfterMs: err?.resetAfterMs,
+    retryAfterSeconds: err?.retryAfterSeconds,
+    allowZero: true,
+  })
+  const upstream = isUpstreamFailure(error)
+  const message = upstream
+    ? ENGINE_REFUSALS[
+        rawStatus === undefined ? 'transport_error' : 'upstream_http'
+      ].text
+    : gaHostFailure(error, report).message
+  if (upstream)
+    report(redactCredentialText(rawMessage ?? 'Antigravity transport failure'))
+  if (status === 429 && !(error instanceof HostRefusalError))
+    return engineRefusalResponse(
+      'quota_exhausted',
+      { resetAfterMs: retry?.delayMs },
+      'openCode2',
+    )
+  return new Response(
+    JSON.stringify({
+      error: { code: status, message, status: rpcStatuses[status] },
+    }),
+    {
+      status,
+      headers: {
+        'content-type': 'application/json',
+        'x-should-retry': 'false',
+        ...(retry ? deriveRetryHeaderPairFromMs(retry.delayMs) : {}),
+      },
+    },
   )
 }
 

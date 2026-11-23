@@ -78,9 +78,11 @@ test('the closed refusal table cannot induce an unintended host resend', async (
     expect(pi.stopReason).toBe(id === 'cancelled' ? 'aborted' : 'error')
     expect(pi152WouldRetry(pi)).toBe(false)
     expect(pi160WouldRetry(pi)).toBe(false)
-    const piMessage = { ...pi, content: [], usage: { input: 0 } } as Parameters<
-      typeof isContextOverflow
-    >[0]
+    const piMessage = {
+      ...pi,
+      content: [],
+      usage: { input: 0 },
+    } as unknown as Parameters<typeof isContextOverflow>[0]
     expect(isContextOverflow(piMessage, 1_048_576)).toBe(
       id === 'context_overflow',
     )
@@ -116,7 +118,7 @@ test('Pi returns a safe cancellation instead of a caller-supplied abort reason',
   }
 })
 
-for (const subject of ['opencode1', 'opencode2', 'pi-flat'] as const) {
+for (const subject of ['opencode1', 'opencode2', 'pi'] as const) {
   test(`${subject} never publishes upstream refusal bodies or arbitrary headers`, async () => {
     const result = await runConversation({
       subject,

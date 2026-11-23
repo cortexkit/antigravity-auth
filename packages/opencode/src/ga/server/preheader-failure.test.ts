@@ -2,7 +2,6 @@ import { describe, expect, it } from 'bun:test'
 import {
   HostRefusalError,
   markUpstreamFailure,
-  redactCredentialError,
 } from '@cortexkit/antigravity-auth-core'
 import {
   hostFileError,
@@ -121,7 +120,9 @@ describe('gaPreHeaderFailureResponse', () => {
     const data = await resp.json()
     expect(data.error.code).toBe(502)
     expect(data.error.status).toBe('UNAVAILABLE')
-    expect(data.error.message).toBe('Network error')
+    expect(data.error.message).toBe(
+      'Antigravity could not communicate with Google. Check the plugin log for details.',
+    )
   })
 
   it('uses default fallback message when error carries no message', async () => {
@@ -142,7 +143,7 @@ describe('gaPreHeaderFailureResponse', () => {
       ),
     )
     const data = await resp.json()
-    expect(data.error.message).toContain('quota resets in 2h 55m 14s.')
+    expect(data.error.message).toContain('Quota resets in 2h 55m 14s.')
   })
 
   it('does not normalize reset duration on non-quota errors', async () => {
@@ -154,8 +155,10 @@ describe('gaPreHeaderFailureResponse', () => {
       ),
     )
     const data = await resp.json()
-    expect(data.error.message).toBe('Invalid parameters: Session resets in 5m.')
-    expect(data.error.message).not.toContain('quota resets in')
+    expect(data.error.message).toBe(
+      'Google refused the Antigravity request. Check the plugin log for details.',
+    )
+    expect(data.error.message).not.toContain('Session resets')
   })
 
   it('extracts validated retry-after and retry-after-ms headers from numeric fields', () => {
@@ -342,7 +345,7 @@ describe('gaPreHeaderFailureResponse', () => {
     const bodyMeta = (await respMeta.json()) as any
     expect(bodyMeta.error.code).toBe(429)
     expect(bodyMeta.error.status).toBe('RESOURCE_EXHAUSTED')
-    expect(bodyMeta.error.message).toContain('quota resets in 50s.')
+    expect(bodyMeta.error.message).toContain('Quota resets in 20s.')
 
     // 2. Unsafe numeric RetryInfo (9007199254740992 > MAX_SAFE_INTEGER) skips to metadata.quotaResetDelay (25s)
     const respUnsafe = gaPreHeaderFailureResponse({
@@ -590,7 +593,7 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
       expect(body.error.status).toBe('RESOURCE_EXHAUSTED')
       expectNoOpenCodeRetryHints(body.error.message)
       expect(body.error.message).toBe(
-        'antigravity-auth could not complete the operation. Check the plugin log for details.',
+        'Antigravity quota has been used up. Quota resets in 5s.',
       )
     } finally {
       await bridge.dispose()
@@ -761,7 +764,7 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
     }
   })
 
-  it('body read failure in actual transformAntigravityResponse through real GA bridge preserves mapped status 429, retry headers, and scrubs credentials', async () => {
+  it('an unreadable quota response through the bridge exposes only a safe transport refusal', async () => {
     const secretJwt =
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgN'
     const secretBearer = 'Bearer ya29.a0ARrdaM-secret-bearer-token'
@@ -788,25 +791,18 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
       },
     })
 
-    let caughtReadError: any = null
     const bridge = await startGaLoopbackBridge({
       send: async () => {
         throw new Error('Not used')
       },
-      execute: async () => {
-        try {
-          return await transformAntigravityResponse(
-            rawResponse,
-            false,
-            null,
-            undefined,
-            'project-secret-123',
-          )
-        } catch (err) {
-          caughtReadError = err
-          throw err
-        }
-      },
+      execute: async () =>
+        transformAntigravityResponse(
+          rawResponse,
+          false,
+          null,
+          undefined,
+          'project-secret-123',
+        ),
     })
 
     try {
@@ -816,16 +812,17 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
         {},
       )
       const resp = await fetch(req)
-      expect(resp.status).toBe(429)
-      expect(resp.headers.get('retry-after')).toBe('30')
-      expect(resp.headers.get('retry-after-ms')).toBe('30000')
+      expect(resp.status).toBe(412)
+      expect(resp.headers.get('retry-after')).toBeNull()
+      expect(resp.headers.get('retry-after-ms')).toBeNull()
+      expect(resp.headers.get('x-should-retry')).toBe('false')
 
       const body = (await resp.json()) as any
-      expect(body.error.code).toBe(429)
-      expect(body.error.status).toBe('RESOURCE_EXHAUSTED')
-      expect(body.error.message).toContain('Failed to read response body:')
-      expect(body.error.message).toContain('[credential]')
-      expect(body.error.message).toContain('proj****-123')
+      expect(body.error.code).toBe(412)
+      expect(body.error.status).toBe('FAILED_PRECONDITION')
+      expect(body.error.message).toBe(
+        'Antigravity could not communicate with Google. Check the plugin log for details.',
+      )
       expect(body.error.message).not.toContain(secretBearer)
       expect(body.error.message).not.toContain(secretJwt)
       expect(body.error.message).not.toContain('project-secret-123')
@@ -833,28 +830,12 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
 
       // Bridge response headers must not leak custom synthetic credential header
       expect(resp.headers.get('x-synthetic-secret')).toBeNull()
-
-      // The caught actual transformer error must expose plain headers record traversable by shared redactor
-      expect(caughtReadError).toBeInstanceOf(Error)
-      expect(caughtReadError.statusCode).toBe(429)
-      expect(caughtReadError.headers).toBeTypeOf('object')
-      expect(Array.isArray(caughtReadError.headers)).toBe(false)
-      expect(caughtReadError.headers['x-synthetic-secret']).toBe(
-        opaqueHeaderSecret,
-      )
-
-      // Shared outer credential redactor successfully scrubs synthetic header in plain record
-      const safeScrubbed = redactCredentialError(caughtReadError, [
-        opaqueHeaderSecret,
-      ]) as any
-      expect(safeScrubbed.headers['x-synthetic-secret']).toBe('[credential]')
-      expect(safeScrubbed.headers['retry-after']).toBe('30')
     } finally {
       await bridge.dispose()
     }
   })
 
-  it('body read failure in actual transformAntigravityResponse through real GA bridge preserves mapped status 503 and validated retry headers', async () => {
+  it('an unreadable capacity response through the bridge cannot cause a host retry', async () => {
     const errorStream = new ReadableStream({
       pull(controller) {
         controller.error(new Error('Backend socket terminated abruptly'))
@@ -887,15 +868,16 @@ describe('loopback bridge pre-header, local refusals and retry veto', () => {
         {},
       )
       const resp = await fetch(req)
-      expect(resp.status).toBe(503)
-      expect(resp.headers.get('retry-after')).toBe('13')
-      expect(resp.headers.get('retry-after-ms')).toBe('12500')
+      expect(resp.status).toBe(412)
+      expect(resp.headers.get('retry-after')).toBeNull()
+      expect(resp.headers.get('retry-after-ms')).toBeNull()
+      expect(resp.headers.get('x-should-retry')).toBe('false')
 
       const body = (await resp.json()) as any
-      expect(body.error.code).toBe(503)
-      expect(body.error.status).toBe('UNAVAILABLE')
-      expect(body.error.message).toContain(
-        'Failed to read response body: Backend socket terminated abruptly',
+      expect(body.error.code).toBe(412)
+      expect(body.error.status).toBe('FAILED_PRECONDITION')
+      expect(body.error.message).toBe(
+        'Antigravity could not communicate with Google. Check the plugin log for details.',
       )
     } finally {
       await bridge.dispose()
