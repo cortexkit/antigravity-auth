@@ -41,6 +41,7 @@ import {
   type CommonAuthCommandsModule,
   createAccountRepositoryFactory,
   createAntigravityCommandMenu,
+  DEFAULT_AGY_IDLE_TIMEOUT_MS,
   ensureProjectContext,
   exchangeAntigravity,
   type FetchAccountQuota,
@@ -1234,14 +1235,6 @@ async function assertServingAdmission(
 // ---------------------------------------------------------------------------
 
 /**
- * How long a response body may stall before the transport destroys the
- * socket; the GA raw sender (`GA_RAW_IDLE_TIMEOUT_MS`) uses the same five
- * minutes. Declared here because the GA server module is imported for types
- * only.
- */
-const GA_TRANSPORT_IDLE_TIMEOUT_MS = 300_000
-
-/**
  * Local credentials for a repository-backed GA location, in the shared
  * engine's `local` domain. A refresh is of the selected account itself:
  * `refreshAccount` uses the ref the account was loaded with, so the
@@ -1623,7 +1616,7 @@ function gaEngineCollaborators(input: {
     ) => {
       const transportOptions = {
         ...options,
-        idleTimeoutMs: options?.idleTimeoutMs ?? GA_TRANSPORT_IDLE_TIMEOUT_MS,
+        idleTimeoutMs: options?.idleTimeoutMs ?? DEFAULT_AGY_IDLE_TIMEOUT_MS,
       }
       if (observe && transportOptions.signal) {
         try {

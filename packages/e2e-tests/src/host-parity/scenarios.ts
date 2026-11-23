@@ -4,6 +4,7 @@ import {
   conversation,
   models,
   requestCases,
+  type Subject,
 } from './cases.ts'
 import { candidate, type Reply, sse, success } from './fixtures.ts'
 
@@ -25,6 +26,10 @@ export type Scenario = {
     }
     compaction?: boolean
     tool?: string
+    notices?: {
+      openCode: { message: string; variant: 'warning' }[]
+      pi: string[]
+    }
   }
   ledger: `response-errors:D${number}` | 'request-wire:D7'
 }
@@ -34,6 +39,11 @@ export function scenarioUsesClock(scenario: Scenario) {
     scenario.expected.delays.length > 0 ||
     scenario.replies.some(({ stall }) => stall !== undefined)
   )
+}
+
+export function expectedScenarioNotices(scenario: Scenario, subject: Subject) {
+  const notices = scenario.expected.notices
+  return subject.startsWith('pi') ? notices?.pi : notices?.openCode
 }
 
 export const signature = 'response-thought-signature-'.repeat(6)
@@ -174,6 +184,15 @@ export const responseScenarios: readonly Scenario[] = [
   scenario('503 then success', 'response-errors:D3', [capacity, success], {
     sends: 2,
     delays: [1000],
+    notices: {
+      openCode: [
+        {
+          message: 'Antigravity is waiting for capacity. Retrying in 1s.',
+          variant: 'warning',
+        },
+      ],
+      pi: ['Antigravity is waiting for capacity. Retrying in 1s.'],
+    },
   }),
   scenario(
     'daily failure then prod success',
@@ -200,12 +219,21 @@ export const responseScenarios: readonly Scenario[] = [
       steps: [{}, {}, { model: models.hydrogen }],
     },
   ),
-  scenario(
-    'lasting 403',
-    'response-errors:D3',
-    [forbidden],
-    refusal('account_reauthorize'),
-  ),
+  scenario('lasting 403', 'response-errors:D3', [forbidden], {
+    ...refusal('account_reauthorize'),
+    notices: {
+      openCode: [
+        {
+          message:
+            "An Antigravity account needs verification. Run 'opencode auth login' and use Verify accounts.",
+          variant: 'warning',
+        },
+      ],
+      pi: [
+        'An Antigravity account needs verification. Complete verification in your browser, then sign in again with /login google.',
+      ],
+    },
+  }),
   scenario(
     'thinking-signature 400 then recovery',
     'response-errors:D11',

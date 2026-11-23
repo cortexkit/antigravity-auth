@@ -1,4 +1,5 @@
 import type { QuotaGroup, QuotaGroupSummary } from '../index.ts'
+import { EngineRefusalError } from './refusals.ts'
 import type { RequestRouting, RoutingIdentity } from './routing-port.ts'
 import { isTerminalSseLine } from './streaming/terminal-event.ts'
 
@@ -157,7 +158,7 @@ export function observeVaultUpstream(
   }
 }
 
-/** Observe only the body the caller consumes; cancellation and failed reads never count as served. */
+/** A finished Google reply can serve the account even when its content is refused. */
 export function observeVaultServed(
   routing: Pick<RequestRouting, 'hasAccessor' | 'report'>,
   identity: RoutingIdentity,
@@ -180,7 +181,16 @@ export function observeVaultServed(
     }
     routing.report({ ...identity, outcome: 'served', headers })
   }
-  return observeBody(response, report)
+  return observeBody(response, report, undefined, (error) => {
+    // A host-visible stop or empty reply can be a deliberate interpretation
+    // of a clean Google finish. Socket failures and stream errors are not.
+    if (
+      upstream?.completedSuccessfully() &&
+      error instanceof EngineRefusalError &&
+      (error.id === 'stopped_by_google' || error.id === 'empty')
+    )
+      report()
+  })
 }
 
 /**
@@ -192,6 +202,7 @@ function observeBody(
   response: Response,
   complete: () => void,
   terminal?: (line: string) => boolean,
+  onReadError?: (error: unknown) => void,
 ): Response {
   if (!response.body) {
     complete()
@@ -267,6 +278,7 @@ function observeBody(
           controller.enqueue(chunk.value)
         } catch (error) {
           failed = true
+          onReadError?.(error)
           controller.error(error)
           reader.releaseLock()
         }

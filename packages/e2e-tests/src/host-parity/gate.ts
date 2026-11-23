@@ -25,7 +25,11 @@ import {
   wireSemantics,
 } from './gate-data.ts'
 import { runConversation } from './runner.ts'
-import { responseScenarios, scenarioUsesClock } from './scenarios.ts'
+import {
+  expectedScenarioNotices,
+  responseScenarios,
+  scenarioUsesClock,
+} from './scenarios.ts'
 
 const baselineDigest =
   '191b5d83aa7b69f54d580ac4686e16a98543c8b3ca941160ba83d27bea965ee2'
@@ -192,9 +196,12 @@ export async function checkCorpus() {
         const oracle = outcomeRecords[outcomeKey(scenario.input.id, custody)]
         if (!oracle)
           throw new Error(`Missing literal outcome record for ${key}`)
-        const expected = subject.startsWith('pi')
-          ? { ...oracle.record, hooks: oracle.piHooks }
-          : oracle.record
+        const expected = {
+          ...oracle.record,
+          ...(subject.startsWith('pi') && { hooks: oracle.piHooks }),
+          notices:
+            expectedScenarioNotices(scenario, subject) ?? oracle.record.notices,
+        }
         const result = await runConversation({
           subject,
           custody,

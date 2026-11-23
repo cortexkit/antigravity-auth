@@ -1,3 +1,4 @@
+import { AgyResponseIdleTimeoutError } from '../../agy-transport.ts'
 import { EngineRefusalError } from '../refusals.ts'
 
 /** Inspect the transformed SSE once, before any host can read a refusal frame. */
@@ -108,7 +109,11 @@ export function enforceStreamRefusals(
         }
       } catch (error) {
         log(`Antigravity body read failed: ${String(error)}`)
-        failure = new EngineRefusalError('transport_error')
+        failure = new EngineRefusalError(
+          error instanceof AgyResponseIdleTimeoutError
+            ? 'deadline'
+            : 'transport_error',
+        )
       }
       if (!finished)
         failure ??= new EngineRefusalError(visible ? 'incomplete' : 'empty')

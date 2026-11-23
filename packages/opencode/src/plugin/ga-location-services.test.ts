@@ -1847,7 +1847,7 @@ describe('GA composed transport', () => {
         expect(call.options?.signal).toBe(call.init?.signal)
         expect(observed).toHaveLength(1)
         expect(call.options?.signal).toBe(observed[0])
-        expect(call.options?.idleTimeoutMs).toBe(300_000)
+        expect(call.options?.idleTimeoutMs).toBe(180_000)
       } finally {
         await location.dispose()
       }

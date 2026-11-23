@@ -20,6 +20,7 @@ import {
   type AgyTransportOptions,
   type authorizeAntigravity,
   buildAntigravityHarnessUserAgent,
+  DEFAULT_AGY_IDLE_TIMEOUT_MS,
   type ensureProjectContext,
   type exchangeAntigravity,
   type FetchAvailableModelsOptions,
@@ -260,12 +261,8 @@ export interface GaPluginOverrides {
 
 // Raw request sender
 
-/**
- * How long a response body may stall with no bytes before the raw sender
- * destroys the socket: five minutes, unchanged from the retired OpenCode 2
- * beta adapter this plugin replaces.
- */
-export const GA_RAW_IDLE_TIMEOUT_MS = 300_000
+/** Use the same body-idle budget as the other Antigravity hosts. */
+export const GA_RAW_IDLE_TIMEOUT_MS = DEFAULT_AGY_IDLE_TIMEOUT_MS
 
 /** The Antigravity streaming endpoint path appended to an endpoint origin. */
 export const GA_STREAM_PATH = '/v1internal:streamGenerateContent?alt=sse'

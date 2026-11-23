@@ -610,6 +610,8 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
   readonly routing: RequestRouting
   /** Sign-in command used in host-visible reauthorization guidance. */
   readonly authCommand: string
+  /** Verification guidance for a host without a Verify accounts action. */
+  readonly verificationNotice?: string
   /** Fixed refusal for hosts whose account can only be replaced by signing in again. */
   readonly reauthorize?: () => HostRefusalError
   /**
@@ -3765,7 +3767,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   accountManager.shouldShowAccountToast(account.index, 60000)
                 ) {
                   await showToast(
-                    `An Antigravity account needs verification. Run '${authCommand}' and use Verify accounts.`,
+                    deps.verificationNotice ??
+                      `An Antigravity account needs verification. Run '${authCommand}' and use Verify accounts.`,
                     'warning',
                   )
                   accountManager.markToastShown(account.index)

@@ -192,6 +192,8 @@ export function createPiRequestEngine(options: PiRequestEngineOptions = {}) {
                   hasVaultHost: no,
                 },
           authCommand: '/login google',
+          verificationNotice:
+            'An Antigravity account needs verification. Complete verification in your browser, then sign in again with /login google.',
           reauthorize: () => new PiReauthorizeError(),
           wire,
           ...diagnostics,

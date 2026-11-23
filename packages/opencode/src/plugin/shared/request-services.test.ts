@@ -1662,7 +1662,7 @@ describe('createRequestExecutor pre-response deadline', () => {
       expect(response.headers.has('retry-after')).toBe(false)
       expect(sentSignal?.aborted).toBe(true)
       expect(observed).toEqual([sentSignal!])
-      expect(GA_RAW_IDLE_TIMEOUT_MS).toBe(300_000)
+      expect(GA_RAW_IDLE_TIMEOUT_MS).toBe(180_000)
       await peer.expectClosed()
     } finally {
       await peer.dispose()

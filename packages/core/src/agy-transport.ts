@@ -145,6 +145,7 @@ function getHttpsProxy(url: URL): URL | undefined {
 }
 
 export class AgyResponseHeaderTimeoutError extends Error {}
+export class AgyResponseIdleTimeoutError extends Error {}
 
 function waitForHead(
   socket: net.Socket,
@@ -586,6 +587,7 @@ export function buildResponseStream(
 
   let settled = false
   let socketEnded = false
+  let idleFailure: AgyResponseIdleTimeoutError | undefined
 
   // Idle-read watchdog: if no body bytes arrive within idleTimeoutMs, fail the
   // body so a hung/stalled response can't hold the connection forever.
@@ -603,11 +605,17 @@ export function buildResponseStream(
       onDebug?.(
         `agy transport idle timeout after ${idleTimeoutMs}ms with no body data`,
       )
-      settle(
-        new Error(
-          'Antigravity response stalled: no body data within the limit',
-        ),
+      idleFailure = new AgyResponseIdleTimeoutError(
+        'Antigravity response stalled: no body data within the limit',
       )
+      // Stop receiving bytes but let the decoder drain what it already has.
+      // Destroying the readable with an error also drops bytes queued for a
+      // consumer that has not started reading yet.
+      clearIdle()
+      socket.off('data', armIdle)
+      socket.unpipe(source)
+      socket.destroy()
+      source.end()
     }, idleTimeoutMs)
   }
 
@@ -619,7 +627,7 @@ export function buildResponseStream(
   }
   const onSocketClose = () => {
     // A close without EOF before the framing finished means bytes are missing.
-    if (!socketEnded && !framing?.complete) {
+    if (!idleFailure && !socketEnded && !framing?.complete) {
       settle(
         new Error(
           'Antigravity response connection closed before the body ended',
@@ -667,7 +675,36 @@ export function buildResponseStream(
   } else {
     signal?.addEventListener('abort', abort, { once: true })
   }
-  return Readable.toWeb(responseBody) as unknown as ReadableStream<Uint8Array>
+  const body = Readable.toWeb(
+    responseBody,
+  ) as unknown as ReadableStream<Uint8Array>
+  const reader = body.getReader()
+  return new ReadableStream(
+    {
+      async pull(controller) {
+        try {
+          const next = await reader.read()
+          if (!next.done) {
+            controller.enqueue(next.value)
+            return
+          }
+          if (idleFailure) throw idleFailure
+          controller.close()
+        } catch (error) {
+          controller.error(idleFailure ?? error)
+        }
+        reader.releaseLock()
+      },
+      async cancel(reason) {
+        try {
+          await reader.cancel(reason)
+        } finally {
+          reader.releaseLock()
+        }
+      },
+    },
+    { highWaterMark: 0 },
+  )
 }
 
 export async function fetchWithAgyCliTransport(

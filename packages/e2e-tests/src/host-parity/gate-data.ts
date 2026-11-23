@@ -1,7 +1,7 @@
 import type { Conversation, Custody, Subject } from './cases.ts'
 import { bodyOf, credential, type Wire } from './fixtures.ts'
 import type { Observation } from './runner.ts'
-import type { Scenario } from './scenarios.ts'
+import { expectedScenarioNotices, type Scenario } from './scenarios.ts'
 
 export const baseCommit = 'b845e1a9bdf76a94f9c8869eaa43376032ba8e21'
 export const caseKey = (id: string, subject: Subject, custody: Custody) =>
@@ -265,6 +265,7 @@ export function expectedOutcome(
     physicalSends: sends,
     delays: expected.delays,
     terminal: expected.terminal,
+    notices: expectedScenarioNotices(scenario, subject) ?? record.notices,
     ...(scenario.input.id === 'unlisted finish code'
       ? { finishCode: ['unknown'] }
       : {}),
