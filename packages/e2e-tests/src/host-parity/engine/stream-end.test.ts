@@ -37,20 +37,26 @@ for (const subject of ['opencode1', 'opencode2', 'pi'] satisfies Subject[]) {
   })
 
   test(`${subject} closes a finished but stalled stream at the two-second usage deadline`, async () => {
+    let sentAt = 0
     const { turns, cancellations } = await runConversation({
       subject,
       custody: 'local',
       input: conversation('stall after STOP'),
-      timed: true,
-      reply: () => ({
-        body: sse(
-          candidate([{ text: 'Four.' }], 'STOP'),
-          usage({ promptTokenCount: 10, totalTokenCount: 10 }),
-        ),
-        stall: 'after-body',
-      }),
+      reply: () => {
+        sentAt = performance.now()
+        return {
+          body: sse(
+            candidate([{ text: 'Four.' }], 'STOP'),
+            usage({ promptTokenCount: 10, totalTokenCount: 10 }),
+          ),
+          stall: 'after-body',
+        }
+      },
     })
-    expect(cancellations).toEqual([2_000])
+    // The virtual clock can advance before a host has processed the first
+    // chunk. Use the real drain timer so that host I/O cannot skip it.
+    expect(performance.now() - sentAt).toBeGreaterThanOrEqual(1_950)
+    expect(cancellations).toHaveLength(1)
     expect(turns[0]?.terminal).toEqual(['stop'])
     expect(turns[0]?.usage?.total).toBe(10)
   })
