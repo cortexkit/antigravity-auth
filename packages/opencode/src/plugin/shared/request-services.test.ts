@@ -1615,7 +1615,7 @@ describe('createRequestExecutor pre-response deadline', () => {
     )
   }
 
-  it('GA bridge propagates timeout policy and preserves five minute idle', async () => {
+  it('GA bridge propagates timeout policy and uses the common idle budget', async () => {
     const peer = await silentPeer('origin')
     const clock = deadlineClock()
     const h = harness()

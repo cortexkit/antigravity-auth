@@ -90,43 +90,8 @@
     "request-wire:D5"
   ],
   [
-    "[\"unexplained 429\",\"opencode1\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"opencode2\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"opencode1\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"opencode2\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
     "[\"unexplained 429\",\"pi\",\"vault\",\"reports\"]",
     "2fc184d70cc9f86be669ae8d8770c3f43860dfe61a39ccdde330f4a0b4bc461f",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D2"
   ],
   [
@@ -135,23 +100,8 @@
     "response-errors:D2"
   ],
   [
-    "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"opencode1\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
     "[\"unexplained 429\",\"opencode2\",\"host\",\"reports\"]",
     "0b51f2af0a02d65beef7d272368ab18be000ca5ee2099f6f81986bd9b9cd4e49",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"opencode2\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D2"
   ],
   [
@@ -160,28 +110,8 @@
     "response-errors:D2"
   ],
   [
-    "[\"unexplained 429\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
     "[\"unexplained 429\",\"pi-transcript\",\"host\",\"reports\"]",
     "f9cbe229b1369c23f3f8272a3b66b4b7d389e61658e8958f8afe5eef45f3d20b",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"opencode1\",\"local\",\"terminal\"]",
-    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"local\",\"terminal\"]",
-    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
     "response-errors:D2"
   ],
   [
@@ -200,18 +130,8 @@
     "response-errors:D2"
   ],
   [
-    "[\"structured QUOTA_EXHAUSTED\",\"opencode1\",\"vault\",\"terminal\"]",
-    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
-    "response-errors:D2"
-  ],
-  [
     "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"vault\",\"reports\"]",
     "67dd7a5ebab7f6225c1e69c94a40b6a5d052452d450721f7e82d678a48c094b0",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"vault\",\"terminal\"]",
-    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
     "response-errors:D2"
   ],
   [
@@ -240,18 +160,8 @@
     "response-errors:D2"
   ],
   [
-    "[\"structured QUOTA_EXHAUSTED\",\"opencode1\",\"host\",\"terminal\"]",
-    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
-    "response-errors:D2"
-  ],
-  [
     "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"host\",\"reports\"]",
     "67dd7a5ebab7f6225c1e69c94a40b6a5d052452d450721f7e82d678a48c094b0",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"host\",\"terminal\"]",
-    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
     "response-errors:D2"
   ],
   [
@@ -285,16 +195,6 @@
     "response-errors:D3"
   ],
   [
-    "[\"503 then success\",\"pi\",\"local\",\"notices\"]",
-    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"local\",\"notices\"]",
-    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
-    "response-errors:D3"
-  ],
-  [
     "[\"503 then success\",\"opencode2\",\"vault\",\"reports\"]",
     "6971b12ab5b2df1f70ae5871526afa67f31814a00f24a80fb092c86ac7b2afa0",
     "response-errors:D3"
@@ -310,18 +210,8 @@
     "response-errors:D3"
   ],
   [
-    "[\"503 then success\",\"pi\",\"vault\",\"notices\"]",
-    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
-    "response-errors:D3"
-  ],
-  [
     "[\"503 then success\",\"pi-transcript\",\"vault\",\"reports\"]",
     "9d64085e28b5cfca0dea1ce95647758188e7a36f25e54a90a1cca1fcb60ec1c5",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"vault\",\"notices\"]",
-    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
     "response-errors:D3"
   ],
   [
@@ -340,18 +230,8 @@
     "response-errors:D3"
   ],
   [
-    "[\"503 then success\",\"pi\",\"host\",\"notices\"]",
-    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
-    "response-errors:D3"
-  ],
-  [
     "[\"503 then success\",\"pi-transcript\",\"host\",\"reports\"]",
     "def3442017a9629f7e36ec27a9866c1766156d876a4a9d3eaed8142df4563641",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"host\",\"notices\"]",
-    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
     "response-errors:D3"
   ],
   [
@@ -385,38 +265,8 @@
     "request-wire:D7"
   ],
   [
-    "[\"NOT_FOUND then a second request and control model\",\"opencode1\",\"local\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"local\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"local\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"opencode1\",\"vault\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
     "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"vault\",\"reports\"]",
     "a94997b7c3ba868d9db6b750ffa859d20374f4c3d7af2af65f7dc5cecf2f4011",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"vault\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
     "response-errors:D3"
   ],
   [
@@ -425,23 +275,8 @@
     "response-errors:D3"
   ],
   [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
     "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"reports\"]",
     "b0b409945f2378779e3eb4692f6e8ef25954f10d5291007311b3d31930b67f59",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"opencode1\",\"host\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
     "response-errors:D3"
   ],
   [
@@ -450,33 +285,13 @@
     "response-errors:D3"
   ],
   [
-    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"host\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
     "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"reports\"]",
     "6fd28e94d3fbb4fb1e0aaada84aa34ca05795b903cdb8d632f671b0821695d9a",
     "response-errors:D3"
   ],
   [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
     "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"reports\"]",
     "6fd28e94d3fbb4fb1e0aaada84aa34ca05795b903cdb8d632f671b0821695d9a",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"opencode1\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D3"
   ],
   [
@@ -490,28 +305,8 @@
     "response-errors:D3"
   ],
   [
-    "[\"lasting 403\",\"pi\",\"local\",\"notices\"]",
-    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi-transcript\",\"local\",\"notices\"]",
-    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"opencode1\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D3"
-  ],
-  [
     "[\"lasting 403\",\"opencode2\",\"vault\",\"reports\"]",
     "fe723fe604eafbc2cb2a9e0b7577824f78802e06a80e0ef1dcd3a9fe6017023f",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"opencode2\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D3"
   ],
   [
@@ -525,33 +320,13 @@
     "response-errors:D3"
   ],
   [
-    "[\"lasting 403\",\"pi\",\"vault\",\"notices\"]",
-    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
-    "response-errors:D3"
-  ],
-  [
     "[\"lasting 403\",\"pi-transcript\",\"vault\",\"reports\"]",
     "cba377e0353a463bed0c31b2e2425e52261c20c04653a2f318c7d7a0bb722493",
     "response-errors:D3"
   ],
   [
-    "[\"lasting 403\",\"pi-transcript\",\"vault\",\"notices\"]",
-    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"opencode1\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D3"
-  ],
-  [
     "[\"lasting 403\",\"opencode2\",\"host\",\"reports\"]",
     "fe723fe604eafbc2cb2a9e0b7577824f78802e06a80e0ef1dcd3a9fe6017023f",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"opencode2\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D3"
   ],
   [
@@ -565,18 +340,8 @@
     "response-errors:D3"
   ],
   [
-    "[\"lasting 403\",\"pi\",\"host\",\"notices\"]",
-    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
-    "response-errors:D3"
-  ],
-  [
     "[\"lasting 403\",\"pi-transcript\",\"host\",\"reports\"]",
     "5740bf5bb8258998540ae427f6f520dbc1d21231594fecb95cabdf902e6f6c79",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi-transcript\",\"host\",\"notices\"]",
-    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
     "response-errors:D3"
   ],
   [
@@ -610,16 +375,6 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature terminal refusal\",\"opencode1\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"opencode1\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D11"
-  ],
-  [
     "[\"thinking-signature terminal refusal\",\"opencode2\",\"vault\",\"reports\"]",
     "0047d61311ee8e3939e7eee54aff85ad075122399d2b7c3e0ab0d7e1dbfc19a9",
     "response-errors:D11"
@@ -632,11 +387,6 @@
   [
     "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"vault\",\"reports\"]",
     "3fe8169b0e02286cdd180bfc8b131229eaea3e4f70ca3344108f6e307ad37140",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"opencode1\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D11"
   ],
   [
@@ -715,16 +465,6 @@
     "response-errors:D5"
   ],
   [
-    "[\"safety stop\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"safety stop\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"safety stop\",\"opencode2\",\"vault\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
     "response-errors:D5"
@@ -735,18 +475,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"safety stop\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"safety stop\",\"pi-transcript\",\"vault\",\"reports\"]",
     "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
-    "response-errors:D5"
-  ],
-  [
-    "[\"safety stop\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -760,28 +490,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"safety stop\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"safety stop\",\"pi-transcript\",\"host\",\"reports\"]",
     "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
-    "response-errors:D5"
-  ],
-  [
-    "[\"safety stop\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"RECITATION stop\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"RECITATION stop\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -795,18 +505,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"RECITATION stop\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"RECITATION stop\",\"pi-transcript\",\"vault\",\"reports\"]",
     "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
-    "response-errors:D5"
-  ],
-  [
-    "[\"RECITATION stop\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -820,58 +520,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"RECITATION stop\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"RECITATION stop\",\"pi-transcript\",\"host\",\"reports\"]",
     "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
-    "response-errors:D5"
-  ],
-  [
-    "[\"RECITATION stop\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode1\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode1\",\"local\",\"finishCode\"]",
-    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode2\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode2\",\"local\",\"finishCode\"]",
-    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode1\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode1\",\"vault\",\"finishCode\"]",
-    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
     "response-errors:D5"
   ],
   [
@@ -880,23 +530,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"unlisted finish code\",\"opencode2\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode2\",\"vault\",\"finishCode\"]",
-    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
-    "response-errors:D5"
-  ],
-  [
     "[\"unlisted finish code\",\"pi\",\"vault\",\"reports\"]",
     "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -905,33 +540,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"unlisted finish code\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode1\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode1\",\"host\",\"finishCode\"]",
-    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
-    "response-errors:D5"
-  ],
-  [
     "[\"unlisted finish code\",\"opencode2\",\"host\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode2\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"opencode2\",\"host\",\"finishCode\"]",
-    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
     "response-errors:D5"
   ],
   [
@@ -940,18 +550,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"unlisted finish code\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"unlisted finish code\",\"pi-transcript\",\"host\",\"reports\"]",
     "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1075,38 +675,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"malformed frame\",\"opencode1\",\"local\",\"terminal\"]",
-    "d54a0af8b9fb78ab2f8d5c6a991b75ca9d7ee394800ccfe2ef3dd0bdc3df33f1",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"opencode2\",\"local\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"opencode2\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"opencode1\",\"vault\",\"terminal\"]",
-    "d54a0af8b9fb78ab2f8d5c6a991b75ca9d7ee394800ccfe2ef3dd0bdc3df33f1",
-    "response-errors:D5"
-  ],
-  [
     "[\"malformed frame\",\"opencode2\",\"vault\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"opencode2\",\"vault\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"opencode2\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1120,23 +690,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"malformed frame\",\"opencode1\",\"host\",\"terminal\"]",
-    "d54a0af8b9fb78ab2f8d5c6a991b75ca9d7ee394800ccfe2ef3dd0bdc3df33f1",
-    "response-errors:D5"
-  ],
-  [
     "[\"malformed frame\",\"opencode2\",\"host\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"opencode2\",\"host\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"opencode2\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1147,16 +702,6 @@
   [
     "[\"malformed frame\",\"pi-transcript\",\"host\",\"reports\"]",
     "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error before content\",\"opencode1\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error before content\",\"opencode1\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1175,11 +720,6 @@
     "response-errors:D5"
   ],
   [
-    "[\"embedded error before content\",\"opencode1\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"embedded error before content\",\"opencode2\",\"host\",\"reports\"]",
     "59d174761b7bb6289cd724ce6e43f95dfbc7632cf5e48ae40f640d03ed45d5f0",
     "response-errors:D5"
@@ -1192,16 +732,6 @@
   [
     "[\"embedded error before content\",\"pi-transcript\",\"host\",\"reports\"]",
     "9f8cb21f51fc49dc9f98e2efb616022c91af5d1de36c7636fd2576853d4752c3",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error after content\",\"opencode1\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error after content\",\"opencode1\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1220,11 +750,6 @@
     "response-errors:D5"
   ],
   [
-    "[\"embedded error after content\",\"opencode1\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"embedded error after content\",\"opencode2\",\"host\",\"reports\"]",
     "59d174761b7bb6289cd724ce6e43f95dfbc7632cf5e48ae40f640d03ed45d5f0",
     "response-errors:D5"
@@ -1240,38 +765,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"[DONE] without finish\",\"opencode1\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"opencode2\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"opencode1\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"[DONE] without finish\",\"opencode2\",\"vault\",\"reports\"]",
     "e73fd9df4e19bd39e57968395f4151263c0bc2a4201df10a0580fc5e591a1969",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"opencode2\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1280,23 +775,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"[DONE] without finish\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"[DONE] without finish\",\"pi-transcript\",\"vault\",\"reports\"]",
     "0906fc0ed51e47052b85c10673fe5abb6a7ab9e9f89b8d218b51600a517f759d",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"opencode1\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1305,18 +785,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"[DONE] without finish\",\"opencode2\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"[DONE] without finish\",\"pi\",\"host\",\"reports\"]",
     "37826c434c1d3743f0c8381206dc00c4bc548908c92aec4fbea82e1cb966fc94",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1325,43 +795,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"[DONE] without finish\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"opencode1\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"opencode2\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"opencode1\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"empty response\",\"opencode2\",\"vault\",\"reports\"]",
     "e73fd9df4e19bd39e57968395f4151263c0bc2a4201df10a0580fc5e591a1969",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"opencode2\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1370,23 +805,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"empty response\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"empty response\",\"pi-transcript\",\"vault\",\"reports\"]",
     "0906fc0ed51e47052b85c10673fe5abb6a7ab9e9f89b8d218b51600a517f759d",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"opencode1\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1395,18 +815,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"empty response\",\"opencode2\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
     "[\"empty response\",\"pi\",\"host\",\"reports\"]",
     "37826c434c1d3743f0c8381206dc00c4bc548908c92aec4fbea82e1cb966fc94",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -1415,38 +825,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"empty response\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"opencode1\",\"local\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"opencode2\",\"local\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi\",\"local\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"opencode1\",\"vault\",\"thinking\"]",
     "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"opencode1\",\"vault\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
     "response-errors:D5"
   ],
   [
@@ -1455,18 +835,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"opencode2\",\"vault\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"pi\",\"vault\",\"reports\"]",
     "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi\",\"vault\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
     "response-errors:D5"
   ],
   [
@@ -1475,18 +845,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"opencode1\",\"host\",\"thinking\"]",
     "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"opencode1\",\"host\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
     "response-errors:D5"
   ],
   [
@@ -1495,28 +855,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"opencode2\",\"host\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"pi\",\"host\",\"reports\"]",
     "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"pi\",\"host\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"reports\"]",
     "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
     "response-errors:D5"
   ],
   [
@@ -1835,48 +1180,8 @@
     "response-errors:D6"
   ],
   [
-    "[\"idle stall\",\"opencode1\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"opencode2\",\"local\",\"cancellations\"]",
-    "910517934a58d5bebc54a8a4a8f92002a0a4ce46fac2ed8568be0b715f782164",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"opencode2\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"opencode1\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"opencode2\",\"vault\",\"cancellations\"]",
-    "910517934a58d5bebc54a8a4a8f92002a0a4ce46fac2ed8568be0b715f782164",
-    "response-errors:D7"
-  ],
-  [
     "[\"idle stall\",\"opencode2\",\"vault\",\"reports\"]",
     "59d174761b7bb6289cd724ce6e43f95dfbc7632cf5e48ae40f640d03ed45d5f0",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"opencode2\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D7"
   ],
   [
@@ -1885,28 +1190,8 @@
     "response-errors:D7"
   ],
   [
-    "[\"idle stall\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
     "[\"idle stall\",\"pi-transcript\",\"vault\",\"reports\"]",
     "058a30915e028064620b55aa25216aa91d1c96ec0c9ac674791832e9ada89243",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"opencode1\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"opencode2\",\"host\",\"cancellations\"]",
-    "910517934a58d5bebc54a8a4a8f92002a0a4ce46fac2ed8568be0b715f782164",
     "response-errors:D7"
   ],
   [
@@ -1915,28 +1200,13 @@
     "response-errors:D7"
   ],
   [
-    "[\"idle stall\",\"opencode2\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
     "[\"idle stall\",\"pi\",\"host\",\"reports\"]",
     "9f8cb21f51fc49dc9f98e2efb616022c91af5d1de36c7636fd2576853d4752c3",
     "response-errors:D7"
   ],
   [
-    "[\"idle stall\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
     "[\"idle stall\",\"pi-transcript\",\"host\",\"reports\"]",
     "9f8cb21f51fc49dc9f98e2efb616022c91af5d1de36c7636fd2576853d4752c3",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D7"
   ],
   [
