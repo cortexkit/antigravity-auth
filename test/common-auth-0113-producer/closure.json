@@ -86,6 +86,11 @@
       "@cortexkit/claustrum-client",
       "@cortexkit/subc-client"
     ],
+    "claustrum/client-options.d.ts": [
+      "@cortexkit/claustrum-client",
+      "@cortexkit/subc-client"
+    ],
+    "claustrum/client-options.js": ["@cortexkit/claustrum-client"],
     "claustrum/consumer.d.ts": [
       "../quota/index.js",
       "../routing/index.js",
@@ -132,11 +137,15 @@
       "@cortexkit/claustrum-client",
       "node:diagnostics_channel"
     ],
-    "claustrum/enrollment.d.ts": ["@cortexkit/claustrum-client"],
+    "claustrum/enrollment.d.ts": [
+      "./client-options.js",
+      "@cortexkit/claustrum-client"
+    ],
     "claustrum/enrollment.js": [
       "../fs/file-read-cache.js",
       "../fs/index.js",
       "../fs/private-files.js",
+      "./client-options.js",
       "./errors.js",
       "./host.js",
       "@cortexkit/claustrum-client",
@@ -175,6 +184,7 @@
     ],
     "claustrum/index.d.ts": [
       "./availability.js",
+      "./client-options.js",
       "./consumer.js",
       "./custody.js",
       "./enrollment.js",
@@ -192,6 +202,7 @@
     ],
     "claustrum/index.js": [
       "./availability.js",
+      "./client-options.js",
       "./consumer.js",
       "./custody.js",
       "./enrollment.js",
@@ -206,11 +217,11 @@
       "./watch.js",
       "@cortexkit/claustrum-client"
     ],
-    "claustrum/insula.d.ts": ["./watch.js", "@cortexkit/claustrum-client"],
+    "claustrum/insula.d.ts": ["./client-options.js", "./watch.js"],
     "claustrum/insula.js": [
       "./availability.js",
+      "./client-options.js",
       "./watch.js",
-      "@cortexkit/claustrum-client",
       "@cortexkit/subc-client",
       "node:path"
     ],
@@ -381,8 +392,13 @@
       "./integration.js",
       "./sse.js"
     ],
-    "opencode2/install.d.ts": ["./types.js"],
-    "opencode2/install.js": ["./errors.js", "./integration.js", "./sse.js"],
+    "opencode2/install.d.ts": ["../limits/hold-bounds.js", "./types.js"],
+    "opencode2/install.js": [
+      "../limits/hold-bounds.js",
+      "./errors.js",
+      "./integration.js",
+      "./sse.js"
+    ],
     "opencode2/integration.d.ts": [
       "@opencode/plugin",
       "@opencode/plugin/promise/integration",

@@ -52,7 +52,7 @@ export interface TerminalFacts {
     readonly hostRetry?: HostRetry;
     readonly retryAfterMs?: number;
     readonly resetAt?: number;
-    /** Pool quota refusals require per-field scan evidence to retain a reset. */
+    /** Per-field reset evidence for terminal quota waits and capped pool refusals. */
     readonly scan?: TerminalScanFacts;
 }
 export interface PolicyFacts {

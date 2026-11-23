@@ -1,9 +1,9 @@
 {
   "schema": 1,
   "package": "@cortexkit/common-auth",
-  "version": "0.56.1",
+  "version": "0.57.0",
   "artifactStatus": "published",
-  "archiveBytes": 505365,
+  "archiveBytes": 507983,
   "publicRoots": {
     "./store": {
       "types": "./dist/store/index.d.ts",
@@ -42,16 +42,16 @@
       "import": "./dist/pi-slot/index.js"
     }
   },
-  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.56.1.tgz",
-  "tarballSha256": "32ce3a411b3a8f8034e4c5eb5b79550d7529834567520943ca962d1b13512aa0",
-  "sri": "sha512-5JTuezeHbodZacTXEB6mjoicODWsCYh6J/APShcB11/92KAz8xJjcLG+MVmDK+QtL2VmBNwa7yhHCFiKqqIKww==",
-  "shasum": "f8b2504321810ab59a448effc2c485c601a039de",
-  "canonicalFiles": 186,
-  "canonicalBytes": 1180620,
+  "input": "tools/common-auth-build/inputs/cortexkit-common-auth-0.57.0.tgz",
+  "tarballSha256": "970ceb8cd5db97c15f568e70a016e0a759dbe6a0784aa6b80e4b3136d5f52e37",
+  "sri": "sha512-Edl0qBo1sDRCnk+XfNohIYkvX4NC2Wi/jIIRcQeDIn+bRrMJMu+6yRK8nvmt5pbxQBuKI2GK9qedDvDbO8EdMA==",
+  "shasum": "a5b6882e995c7ca746afb640576055ad57723b6e",
+  "canonicalFiles": 188,
+  "canonicalBytes": 1182094,
   "generator": {
     "path": "packages/opencode/scripts/embed-common-auth.ts",
     "version": 4,
-    "sha256": "4b56cc532fc60af40ef271ae24ab502d7b03e6b546f968066fe7997fc454de60"
+    "sha256": "396dda77939f598e86bd35a8237ebdae0e721e255570e6f919956a198060aa6c"
   },
   "files": [
     {
@@ -231,6 +231,22 @@
       "transform": "verbatim"
     },
     {
+      "source": "package/dist/claustrum/client-options.d.ts",
+      "output": "claustrum/client-options.d.ts",
+      "bytes": 499,
+      "sourceSha256": "196df2f76d53eb75b6d6bfc613abbb53e3bef3b934179160758405827fef44aa",
+      "outputSha256": "196df2f76d53eb75b6d6bfc613abbb53e3bef3b934179160758405827fef44aa",
+      "transform": "verbatim"
+    },
+    {
+      "source": "package/dist/claustrum/client-options.js",
+      "output": "claustrum/client-options.js",
+      "bytes": 852,
+      "sourceSha256": "19bd32cac65b55a6809e85df35d18580c217e88a2405ad1001df9357bcb426e7",
+      "outputSha256": "19bd32cac65b55a6809e85df35d18580c217e88a2405ad1001df9357bcb426e7",
+      "transform": "verbatim"
+    },
+    {
       "source": "package/dist/claustrum/consumer.d.ts",
       "output": "claustrum/consumer.d.ts",
       "bytes": 15756,
@@ -265,17 +281,17 @@
     {
       "source": "package/dist/claustrum/enrollment.d.ts",
       "output": "claustrum/enrollment.d.ts",
-      "bytes": 9919,
-      "sourceSha256": "e36a399598468967b7267c2c501455b993e632d5f23cf3d706c15495ba7bca56",
-      "outputSha256": "e36a399598468967b7267c2c501455b993e632d5f23cf3d706c15495ba7bca56",
+      "bytes": 9931,
+      "sourceSha256": "cdade6fae37199c34f800b490ca03f1889e90846e125093ee212e27f652ff058",
+      "outputSha256": "cdade6fae37199c34f800b490ca03f1889e90846e125093ee212e27f652ff058",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/claustrum/enrollment.js",
       "output": "claustrum/enrollment.js",
-      "bytes": 42429,
-      "sourceSha256": "27b88d4d81355a24fdb69f67ee3c72e10fa883d33e6a62e63e3ed1c5a8bc074c",
-      "outputSha256": "27b88d4d81355a24fdb69f67ee3c72e10fa883d33e6a62e63e3ed1c5a8bc074c",
+      "bytes": 42512,
+      "sourceSha256": "107ad9e4880b18b05f28ba084bf83c36b84d9b70128c0660bb452ec365f83c33",
+      "outputSha256": "107ad9e4880b18b05f28ba084bf83c36b84d9b70128c0660bb452ec365f83c33",
       "transform": "verbatim"
     },
     {
@@ -345,33 +361,33 @@
     {
       "source": "package/dist/claustrum/index.d.ts",
       "output": "claustrum/index.d.ts",
-      "bytes": 5128,
-      "sourceSha256": "522249e709781475b8458130a72ea6885e16e8ea59821100bead9f23ae34ddcb",
-      "outputSha256": "522249e709781475b8458130a72ea6885e16e8ea59821100bead9f23ae34ddcb",
+      "bytes": 5140,
+      "sourceSha256": "0002b27d76690c13e480f1c8c992f241fba4d191878d80d12d5771af358cefe8",
+      "outputSha256": "0002b27d76690c13e480f1c8c992f241fba4d191878d80d12d5771af358cefe8",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/claustrum/index.js",
       "output": "claustrum/index.js",
-      "bytes": 4168,
-      "sourceSha256": "a770d6b8d5f8f50d1e4a4043f79c3660962add6fe2a6ec12552847ea0be04ca2",
-      "outputSha256": "a770d6b8d5f8f50d1e4a4043f79c3660962add6fe2a6ec12552847ea0be04ca2",
+      "bytes": 4250,
+      "sourceSha256": "909bc14aeb16f3f9dedc47e7065b506eefa080bfc9a10ce6d9b10602fc206d60",
+      "outputSha256": "909bc14aeb16f3f9dedc47e7065b506eefa080bfc9a10ce6d9b10602fc206d60",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/claustrum/insula.d.ts",
       "output": "claustrum/insula.d.ts",
-      "bytes": 5463,
-      "sourceSha256": "e1c9ecf858b7ecbb21c1f954cbd35b5ea77494e5aca9dbd198fe5e2cd0a3a95f",
-      "outputSha256": "e1c9ecf858b7ecbb21c1f954cbd35b5ea77494e5aca9dbd198fe5e2cd0a3a95f",
+      "bytes": 5475,
+      "sourceSha256": "4377a8d86f2e58eeb66fe3762ad2e83dc824b9a2fe9ac917caad644acc0fd6c6",
+      "outputSha256": "4377a8d86f2e58eeb66fe3762ad2e83dc824b9a2fe9ac917caad644acc0fd6c6",
       "transform": "verbatim"
     },
     {
       "source": "package/dist/claustrum/insula.js",
       "output": "claustrum/insula.js",
-      "bytes": 20137,
-      "sourceSha256": "e2a2625cdad490cf24aa0badf66c842becd806738f8b137ebcf2b01e296eb0d2",
-      "outputSha256": "e2a2625cdad490cf24aa0badf66c842becd806738f8b137ebcf2b01e296eb0d2",
+      "bytes": 20059,
+      "sourceSha256": "3c030fa706c3e33ba45bb5c79855600b7de0cf78092f0da4c405144682e5a9b9",
+      "outputSha256": "3c030fa706c3e33ba45bb5c79855600b7de0cf78092f0da4c405144682e5a9b9",
       "transform": "verbatim"
     },
     {

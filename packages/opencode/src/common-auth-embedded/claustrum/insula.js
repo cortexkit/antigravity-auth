@@ -1,16 +1,15 @@
 import { resolve } from 'node:path';
-import { storeIdentity } from '@cortexkit/claustrum-client';
 // A static import: claustrum-client already loads subc-client whenever
 // /claustrum is imported, so loading it lazily saves nothing, and a dynamic
 // import makes bundlers emit a separate chunk that a running host loses when
 // its dist folder is rebuilt underneath it.
 import { SubcClient } from '@cortexkit/subc-client';
 import { classifyVaultFailure } from './availability.js';
+import { defaultStoreIdentity, } from './client-options.js';
 import { ChangeNoticeReader, CoalescedRead, RESUBSCRIBE_BACKOFF_MS, WATCH_RETRY_MS, } from './watch.js';
 /** Constructing this transport opens no connection; getUsage opens one per call. */
 export function insulaUsageTransport(options) {
-    const identity = options.identity ??
-        storeIdentity(options.projectRoot ?? process.cwd(), options.storagePath ?? process.cwd());
+    const identity = options.identity ?? defaultStoreIdentity(options);
     return {
         connectionFile: options.connectionFile,
         async getUsage() {
@@ -55,8 +54,8 @@ export function insulaUsageTransport(options) {
             // The watch holds its own connection for as long as it is open: each
             // usage.get above opens and closes a short-lived one, and the scoped
             // credential connection is never shared with insula. The method name
-            // alone makes the request a watch; subc-client does not yet set the
-            // SUBSCRIPTION flag, and insula does not require it.
+            // alone makes the request a watch, even on older subc-client versions
+            // that do not set the SUBSCRIPTION flag.
             let client;
             let subscription;
             let stopped = false;

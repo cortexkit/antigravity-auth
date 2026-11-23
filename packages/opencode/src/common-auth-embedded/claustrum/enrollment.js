@@ -6,6 +6,7 @@ import { ClaustrumCredentialError, ClaustrumClient as ClaustrumWireClient, write
 import { FileReadCache } from '../fs/file-read-cache.js';
 import { acquireRefreshFileLock } from '../fs/index.js';
 import { ensurePrivateDirectory as ensureWindowsDirectory, PrivateFileError, readPrivateText, verifySafeDirectory, windowsPrivateFiles, writePrivateAtomic, } from '../fs/private-files.js';
+import { claustrumWireOptions, } from './client-options.js';
 import { ClaustrumConsumerError } from './errors.js';
 import { hasVaultHost } from './host.js';
 const ENROLLMENT_SCHEMA = 1;
@@ -110,7 +111,7 @@ function grantProposal(state) {
  * environment and knows no host paths.
  */
 export function connectClaustrumEnrollmentClient(options) {
-    return ClaustrumWireClient.connect(options);
+    return ClaustrumWireClient.connect(claustrumWireOptions(options));
 }
 /** The ceremony state file sits next to the token: `x.json` pairs with `x-state.json`. */
 export function getClaustrumEnrollmentPaths(tokenPath) {

@@ -1,4 +1,4 @@
-import { type ClaustrumClientOptions } from '@cortexkit/claustrum-client';
+import { type CompatibleClaustrumClientOptions } from './client-options.js';
 import type { ClaustrumScopedClient } from './custody.js';
 export { ClaustrumCredentialError, type ClaustrumReporterSource, type EnrollmentTokenFile, } from '@cortexkit/claustrum-client';
 export { ClaustrumUnreachableError, classifyVaultFailure, VAULT_FAILURE_CLASSES, type VaultFailureClass, } from './availability.js';
@@ -28,7 +28,7 @@ export declare const SCOPED_CONNECT_TIMEOUT_MS = 10000;
  * has its own limit, but local reads before it (the connection file) do not,
  * and a client that arrives after this deadline is closed, not returned.
  */
-export declare function connectClaustrumScopedClient(options: ClaustrumClientOptions & {
+export declare function connectClaustrumScopedClient(options: CompatibleClaustrumClientOptions & {
     connectionFile: string;
     connectTimeoutMs?: number;
 }): Promise<ClaustrumScopedClient>;

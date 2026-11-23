@@ -60,7 +60,8 @@ export type AskRoutingInput<Candidate extends RoutingCandidate = RoutingCandidat
     warmCredentialId?: string;
 } & ({
     mode?: never;
-    requestId?: never;
+    /** One id per question (e.g. a fresh UUID); reuse it only to retry that same question. */
+    requestId?: string;
     exhausted?: never;
 } | {
     /**
@@ -68,7 +69,7 @@ export type AskRoutingInput<Candidate extends RoutingCandidate = RoutingCandidat
      * the selected account, or wait on it if the answer includes a hold.
      * With `refusals: true`, a `{refused}` answer means keep the run paused
      * on its account until the reset or, for `signed_out`, until the user
-     * signs in. Do not ask again while paused.
+     * signs in. Use `askRoutingUntilCapacity` to retry capacity waits.
      */
     mode: 'continue';
     /** One id per question (e.g. a fresh UUID); reuse it only to retry that same question. */
@@ -87,7 +88,7 @@ export interface RoutingSelection<Candidate extends RoutingCandidate = RoutingCa
 }
 export type RoutingRefusal = {
     refused: {
-        code: 'account_limit_exhausted' | 'account_selection_refused' | 'account_selection_final';
+        code: 'account_limit_exhausted' | 'account_selection_refused' | 'account_selection_final' | 'concurrency_full';
         routingCode?: string;
         reason?: string;
         retryAfterSecs?: number;
@@ -231,7 +232,7 @@ export declare function turnNotes(sessionId: string): readonly {
 /**
  * Ask routing for an eligible vault route. Any failure or unfamiliar answer
  * yields undefined so the plugin can keep its own choice. Opted-in routing
- * refusals instead stop the request. This does not admit routes. Callers never
+ * refusals instead withhold selection. This does not admit routes. Callers never
  * pass an account the vault refused. Beyond that, a plugin may leave accounts
  * out only under a user-configured eligibility rule, such as a killswitch floor
  * the user turned on (the minimum share of a quota window an account must keep
@@ -240,6 +241,21 @@ export declare function turnNotes(sessionId: string): readonly {
  * floor or choose another account afterwards.
  */
 export declare function askRouting<Candidate extends RoutingCandidate, Refusals extends boolean = false>(input: AskRoutingInput<Candidate, Refusals>): Promise<RoutingSelection<Candidate> | (Refusals extends true ? RoutingRefusal : never) | undefined>;
+/**
+ * Retry the same routing question until capacity opens or routing gives a
+ * different answer. There is no overall deadline: a capacity wait is never
+ * terminal. Pass an AbortSignal when available; OpenCode 2's WebSocket
+ * handshake has no AbortSignal.
+ *
+ * Each ask sends `waits_for_capacity: true`. Without that flag, the relay
+ * maps a capacity refusal to `account_selection_final` so a caller that
+ * cannot wait does not send past the cap.
+ */
+export declare function askRoutingUntilCapacity<Candidate extends RoutingCandidate>(input: AskRoutingInput<Candidate, boolean>, options: {
+    signal?: AbortSignal;
+    now?: () => number;
+    sleep?: (ms: number, signal: AbortSignal | undefined) => Promise<void>;
+}): Promise<RoutingSelection<Candidate> | RoutingRefusal | undefined>;
 /**
  * Report a vault request, account backoff, billing result, plugin wait or
  * turn-note event without waiting for routing. Only contract fields are sent,
