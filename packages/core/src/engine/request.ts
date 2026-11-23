@@ -616,7 +616,7 @@ function stripUnsupportedAntigravityFields(
 
 function logIgnoredSearchOption(
   providerOptions: Record<string, unknown> | undefined,
-  logger: RequestLogger,
+  logger: Pick<RequestLogger, 'warn'>,
 ): void {
   const google = providerOptions?.google
   if (
