@@ -908,8 +908,9 @@ describe('plugin flow (e2e)', () => {
             startListener,
             promptLoginMode: async () => ({ mode: 'fresh' }),
             promptProjectId: async () => 'project-c',
+            // Pasted links must use the registered redirect address.
             promptCallback: async () =>
-              `http://localhost/oauth-callback?code=code-c&state=${state}`,
+              `http://localhost:51121/oauth-callback?code=code-c&state=${state}`,
             promptAddAnotherAccount,
             openBrowser: async () => false,
             shouldSkipLocalServer: () => true,
