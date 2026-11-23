@@ -1,5 +1,6 @@
 import { HostRefusalError, markUpstreamFailure } from '../../host-failure.ts'
 import { PRE_RESPONSE_TIMEOUT_MESSAGE } from '../../pre-response-deadline.ts'
+import { UNCONFIRMED_RATE_LIMIT_MESSAGE } from '../../rotation.ts'
 
 export interface RequestUsage {
   input: number
@@ -177,6 +178,8 @@ export async function* readRequestEvents(
       const body = await response.text()
       if (body.includes(PRE_RESPONSE_TIMEOUT_MESSAGE))
         throw new HostRefusalError(PRE_RESPONSE_TIMEOUT_MESSAGE)
+      if (body.includes(UNCONFIRMED_RATE_LIMIT_MESSAGE))
+        throw new HostRefusalError(UNCONFIRMED_RATE_LIMIT_MESSAGE)
       throw markUpstreamFailure(
         new Error(
           `Antigravity request failed: HTTP ${response.status} ${body}`,

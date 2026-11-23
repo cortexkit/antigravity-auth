@@ -301,7 +301,7 @@ export async function piAdapter(
       try {
         for await (const event of stream(
           model,
-          piContext(input, transcript),
+          piContext(input, transcript) as Parameters<typeof stream>[1],
           options,
         )) {
           switch (event.type) {

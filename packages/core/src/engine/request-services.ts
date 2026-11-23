@@ -2102,6 +2102,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         )
 
         if (eligibleCandidateIndexes.size === 0) {
+          if (
+            deps.reauthorize &&
+            accountManager
+              .getAccounts()
+              .every((row) => row.accountIneligible || row.verificationRequired)
+          )
+            throw deps.reauthorize()
           waitPolicy.refusal = () =>
             createNativeGoogleErrorResponse({
               status: 412,
@@ -3764,6 +3771,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 break
               }
               if (deps.reauthorize) {
+                accountManager.markAccountVerificationRequired(
+                  account.index,
+                  'Antigravity did not authorize the account.',
+                )
                 await showToast(
                   `Run '${authCommand}' to reauthorize Antigravity.`,
                   'warning',

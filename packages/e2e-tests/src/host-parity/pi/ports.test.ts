@@ -197,7 +197,8 @@ test('Pi consumes the same signed Claude history with and without keep_thinking'
     }
   }
   expect(JSON.stringify(captures[0])).not.toContain(thought.text)
-  expect(JSON.stringify(captures[1])).toContain(thought.text)
+  expect(JSON.stringify(captures[0])).not.toContain('"text":"."')
+  expect(JSON.stringify(captures[1])).toContain('"text":"."')
 })
 
 test('Pi observes each main payload and response without replacing the body', async () => {
@@ -245,6 +246,127 @@ test('Pi custody sends without a routing accessor or a report', async () => {
     expect(env.physicalSends).toHaveLength(1)
     expect(env.reports).toEqual([])
   } finally {
+    await pi.dispose()
+    await env.dispose()
+  }
+})
+
+test('Pi refuses a failed native refresh without writing the login slot', async () => {
+  const env = new Environment()
+  const pi = await piAdapter(env, 'local', false)
+  try {
+    const provider = await pi.activate()
+    const bytes = await Bun.file(pi.nativeAuthPath).text()
+    const auth = JSON.parse(bytes).google
+    await expect(provider.oauth!.refreshToken(auth)).rejects.toMatchObject({
+      code: 'account_reauthorize',
+    })
+    expect(await Bun.file(pi.nativeAuthPath).text()).toBe(bytes)
+    expect(env.physicalSends).toEqual([])
+  } finally {
+    await pi.dispose()
+    await env.dispose()
+  }
+})
+
+test('Pi custody reports a wait start and cancellation without sending again', async () => {
+  const env = new Environment(() => ({
+    status: 429,
+    headers: { 'content-type': 'application/json' },
+    body: '{"error":{"status":"RESOURCE_EXHAUSTED"}}',
+  }))
+  const controller = new AbortController()
+  const key = Symbol.for('cortexkit.routing')
+  const original = Reflect.getOwnPropertyDescriptor(globalThis, key)
+  Reflect.defineProperty(globalThis, key, {
+    configurable: true,
+    value: (session: string) => ({
+      report(report: Record<string, unknown>) {
+        env.reports.push({ session, report })
+        if (report.phase === 'start') controller.abort()
+      },
+    }),
+  })
+  const pi = await piAdapter(env, 'vault', false)
+  try {
+    expect(
+      (
+        await env.timed(() =>
+          pi.run(input, 'cancelled-wait', controller.signal),
+        )
+      ).terminal,
+    ).toEqual(['failure:cancelled'])
+    expect(env.physicalSends).toHaveLength(1)
+    expect(env.reports).toEqual([
+      {
+        session: 'cancelled-wait',
+        report: expect.objectContaining({
+          kind: 'billing',
+          request_kind: 'primary',
+          status: 429,
+          attempt: 1,
+          outcome: 'failed',
+        }),
+      },
+      {
+        session: 'cancelled-wait',
+        report: expect.objectContaining({
+          kind: 'transient_backoff',
+          account_id: 'parity-identity',
+          credential_id: 'parity-credential',
+        }),
+      },
+      {
+        session: 'cancelled-wait',
+        report: expect.objectContaining({
+          kind: 'wait',
+          phase: 'start',
+          attempt: 1,
+          reason: 'rate_limited',
+          wait_id: expect.any(String),
+        }),
+      },
+      {
+        session: 'cancelled-wait',
+        report: expect.objectContaining({
+          kind: 'wait',
+          phase: 'end',
+          attempt: 1,
+          reason: 'rate_limited',
+          wait_id: (env.reports[2] as { report: { wait_id: string } }).report
+            .wait_id,
+          outcome: 'cancelled',
+        }),
+      },
+    ])
+  } finally {
+    if (original) Reflect.defineProperty(globalThis, key, original)
+    else Reflect.deleteProperty(globalThis, key)
+    await pi.dispose()
+    await env.dispose()
+  }
+})
+
+test('Pi custody does not report billing without a host session id', async () => {
+  const env = new Environment()
+  const key = Symbol.for('cortexkit.routing')
+  const original = Reflect.getOwnPropertyDescriptor(globalThis, key)
+  Reflect.defineProperty(globalThis, key, {
+    configurable: true,
+    value: () => ({
+      report(report: unknown) {
+        env.reports.push(report)
+      },
+    }),
+  })
+  const pi = await piAdapter(env, 'vault', false)
+  try {
+    expect((await pi.run(input)).terminal).toEqual(['stop'])
+    expect(env.physicalSends).toHaveLength(1)
+    expect(env.reports).toEqual([])
+  } finally {
+    if (original) Reflect.defineProperty(globalThis, key, original)
+    else Reflect.deleteProperty(globalThis, key)
     await pi.dispose()
     await env.dispose()
   }
