@@ -15,6 +15,7 @@ import {
   convertGeminiToolCallPart,
   createRequestWire,
   createRequestWireLocation,
+  ENGINE_REFUSALS,
   mapRequestUsage,
   parseGeminiSse,
 } from '@cortexkit/antigravity-auth-core/engine'
@@ -712,7 +713,7 @@ describe('selected credential boundary', () => {
   const refusalText = {
     transport:
       'Antigravity could not communicate with Google. Check the plugin log for details.',
-    http: 'Antigravity did not authorize the account. Reauthorize Antigravity before sending another request.',
+    http: ENGINE_REFUSALS.upstream_http.text,
     'generic-http':
       'Google refused the Antigravity request. Check the plugin log for details.',
     sse: 'Antigravity returned an embedded error.',
@@ -757,7 +758,6 @@ describe('selected credential boundary', () => {
         expect(result.errorMessage).not.toContain('test****ject')
         expect(result.errorMessage).not.toContain('[credential]')
         const log = await Bun.file(join(directory, 'pi-antigravity.log')).text()
-        // The credential refusal is handled before the response transformer.
         if (source !== 'http')
           expect(log).toContain(
             'echo [credential] test****ject [credential] [credential]',
