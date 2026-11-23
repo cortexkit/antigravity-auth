@@ -1,4 +1,13 @@
 import { expect, spyOn, test } from 'bun:test'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { DEFAULT_CONFIG } from '../../../../opencode/src/plugin/config/index.ts'
+import { initializeDebug } from '../../../../opencode/src/plugin/debug.ts'
+import {
+  createLogger,
+  initLogger,
+  setRuntimeLogLevel,
+} from '../../../../opencode/src/plugin/logger.ts'
 import { call, conversation, historySignature, models } from '../cases.ts'
 import { Environment } from '../environment.ts'
 import { bodyOf, candidate, type Reply, sse, success } from '../fixtures.ts'
@@ -43,6 +52,102 @@ const claude = conversation('Claude tool hardening', {
 })
 
 const flash = conversation('main request jitter')
+
+test('OpenCode 1 log level filters the host log without losing warnings', () => {
+  const seen: string[] = []
+  initializeDebug({ ...DEFAULT_CONFIG, debug: false, debug_tui: true })
+  initLogger({
+    app: {
+      log: ({ body }) => {
+        seen.push(body.message)
+      },
+    },
+  })
+  const log = createLogger('settings-proof')
+  try {
+    setRuntimeLogLevel('info')
+    log.debug('hidden at info')
+    setRuntimeLogLevel('debug')
+    log.debug('shown at debug')
+    log.warn('warning')
+    expect(seen).toEqual(['shown at debug', 'warning'])
+  } finally {
+    setRuntimeLogLevel('info')
+    initializeDebug(DEFAULT_CONFIG)
+    initLogger({})
+  }
+})
+
+test('OpenCode 2 writes request diagnostics only when enabled and in the location log directory', async () => {
+  const dir = await mkdtemp(
+    join(process.env.ANTIGRAVITY_TEST_ROOT!, 'ga-debug-settings-'),
+  )
+  try {
+    for (const debug of [false, true]) {
+      const env = new Environment()
+      const host = await openCode2(env, 'local', flash, {
+        debug,
+        debug_tui: false,
+        log_dir: dir,
+      })
+      let path: string | undefined
+      try {
+        expect((await host.run(flash, 'diagnostics')).terminal).toEqual([
+          'stop',
+        ])
+        path = host.runtime.debug.getLogFilePath()
+        if (debug) expect(path).toStartWith(`${dir}/`)
+        else expect(path).toBeUndefined()
+      } finally {
+        await host.dispose()
+        await env.dispose()
+      }
+      if (path) expect(await Bun.file(path).text()).toContain('gemini-3-flash')
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test('Pi settings independently gate the debug file and debug-level request records', async () => {
+  const dir = await mkdtemp(
+    join(process.env.ANTIGRAVITY_TEST_ROOT!, 'pi-debug-settings-'),
+  )
+  try {
+    for (const [debug, level] of [
+      [false, 'info'],
+      [true, 'debug'],
+    ] as const) {
+      const env = new Environment((_wire, attempt) =>
+        attempt === 0 ? { status: 503 } : success,
+      )
+      const logDir = join(dir, level)
+      const host = await piAdapter(env, 'local', false, {
+        debug,
+        operator: { log_level: level },
+        log_dir: logDir,
+      })
+      try {
+        expect(
+          (await env.timed(() => host.run(flash, 'diagnostics'))).terminal,
+        ).toEqual(['stop'])
+        const requestLog = Bun.file(join(logDir, 'pi-antigravity.log'))
+        expect(await requestLog.text()).toContain('request-send')
+        expect((await requestLog.text()).includes('"level":"debug"')).toBe(
+          level === 'debug',
+        )
+        const debugLog = Bun.file(join(logDir, 'pi-antigravity-debug.log'))
+        expect(await debugLog.exists()).toBe(debug)
+        if (debug) expect(await debugLog.text()).toContain('"event":"request"')
+      } finally {
+        await host.dispose()
+        await env.dispose()
+      }
+    }
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
 
 async function withSettings<T>(
   host: keyof typeof hosts,
@@ -130,6 +235,7 @@ test('Pi reuses a signed thought only while its signature cache is enabled', asy
         : success,
     )
     const pi = await piAdapter(env, 'local', true, {
+      keep_thinking: true,
       thinking_warmup: true,
       signature_cache: { enabled },
     })
@@ -181,7 +287,14 @@ test('Pi uses the configured wait budget and fallback when a quota reply lacks t
       default_retry_after_seconds: fallback,
     })
     try {
-      await env.timed(() => pi.run(flash, 'quota-wait'))
+      await env.timed(async () => {
+        expect((await pi.run(flash, 'quota-mark')).terminal).toEqual([
+          'failure:quota_exhausted',
+        ])
+        expect((await pi.run(flash, 'quota-wait')).terminal).toEqual(
+          sends === 1 ? ['failure:pool_unavailable'] : ['stop'],
+        )
+      })
       expect(env.physicalSends).toHaveLength(sends)
       expect(env.delays).toEqual(delay === undefined ? [] : [delay])
     } finally {
@@ -191,7 +304,7 @@ test('Pi uses the configured wait budget and fallback when a quota reply lacks t
   }
 })
 
-test('Pi quiet mode suppresses the request retry notice without changing the retry', async () => {
+test('Pi quiet mode suppresses the rate-limit notice without changing the refusal', async () => {
   for (const quiet of [false, true]) {
     const env = new Environment((_wire, attempt) =>
       attempt === 0 ? quotaLimit : success,
@@ -203,9 +316,9 @@ test('Pi quiet mode suppresses the request retry notice without changing the ret
     })
     try {
       expect((await env.timed(() => pi.run(flash, 'notice'))).terminal).toEqual(
-        ['stop'],
+        ['failure:quota_exhausted'],
       )
-      expect(env.physicalSends).toHaveLength(2)
+      expect(env.physicalSends).toHaveLength(1)
       if (quiet) expect(env.notices).toEqual([])
       else
         expect(env.notices).toContain(

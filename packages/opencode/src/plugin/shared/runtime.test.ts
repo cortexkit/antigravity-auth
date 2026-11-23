@@ -6,7 +6,7 @@
  * refreshes are fakes, so nothing touches the network or a real store.
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 import {
   existsSync,
   mkdirSync,
@@ -264,6 +264,54 @@ describe('runtime scope', () => {
 })
 
 describe('location runtime', () => {
+  it('schedules local quota checks at the configured non-default interval', async () => {
+    const realTimeout = globalThis.setTimeout
+    const scheduled = Promise.withResolvers<number>()
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: () => void,
+      ms: number,
+    ) => {
+      if (ms >= 60_000) scheduled.resolve(ms)
+      return realTimeout(fn, ms)
+    }) as typeof setTimeout)
+    try {
+      const runtime = await start(
+        options(
+          location('polling', {
+            background_quota_refresh: true,
+            background_quota_refresh_interval_minutes: 7,
+          }),
+          { random: () => 0, mayRun: async () => false },
+        ),
+      )
+      expect(await scheduled.promise).toBe(7 * 60_000)
+      await runtime.dispose()
+    } finally {
+      timer.mockRestore()
+    }
+  })
+
+  it('location log level filters debug records without losing warnings', async () => {
+    const sink: LocationLogRecord[] = []
+    const runtime = await start(
+      options(location('log-level', { debug_tui: true }), {
+        logSink: (record) => void sink.push(record),
+      }),
+    )
+    const log = runtime.logger.createLogger('settings-probe')
+    log.debug('hidden at info')
+    await runtime.operatorSettings.update((draft) => {
+      draft.log_level = 'debug'
+    })
+    log.debug('shown at debug')
+    log.warn('warning')
+    expect(
+      sink
+        .filter(({ service }) => service === 'antigravity.settings-probe')
+        .map(({ message }) => message),
+    ).toEqual(['shown at debug', 'warning'])
+  })
+
   it('builds each location from its own configuration and fresh defaults', async () => {
     const a = await start(
       options(location('a', { background_quota_refresh: true })),

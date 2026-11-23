@@ -6,6 +6,7 @@ import {
   it,
   jest,
   mock,
+  spyOn,
 } from 'bun:test'
 import { AccountManager } from './accounts'
 import type { Logger } from './logger'
@@ -17,6 +18,41 @@ import type { AccountStorageV4 } from './storage'
 import type { OAuthAuthDetails, PluginClient } from './types'
 
 const nextRealTurn = setImmediate
+
+it('uses the configured refresh buffer and schedules checks at the configured interval', async () => {
+  for (const [buffer, cadence, due] of [
+    [60, 30, []],
+    [120, 40, [0]],
+  ] as const) {
+    const now = Date.now()
+    const manager = new AccountManager(undefined, {
+      version: 4,
+      activeIndex: 0,
+      accounts: [{ refreshToken: 'fixture', addedAt: now, lastUsed: now }],
+    })
+    manager.getAccounts()[0]!.expires = now + 90_000
+    const queue = createLocationProactiveRefreshQueue(
+      {
+        logger: { debug() {}, info() {}, warn() {}, error() {} },
+        refreshToken: async () => undefined,
+      },
+      { enabled: true, bufferSeconds: buffer, checkIntervalSeconds: cadence },
+    )
+    const timer = spyOn(globalThis, 'setInterval')
+    try {
+      queue.setAccountManager(manager)
+      expect(
+        queue.getAccountsNeedingRefresh().map(({ index }) => index),
+      ).toEqual([...due])
+      queue.start()
+      expect(timer).toHaveBeenCalledWith(expect.any(Function), cadence * 1000)
+    } finally {
+      await queue.dispose()
+      await manager.dispose()
+      timer.mockRestore()
+    }
+  }
+})
 
 // Mock PluginClient
 const mockClient: PluginClient = {

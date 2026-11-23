@@ -1,8 +1,12 @@
-import { expect, spyOn, test } from 'bun:test'
+import { expect, test } from 'bun:test'
 import { createLocalQuotaRefresh } from '@cortexkit/antigravity-auth-core/engine'
+import { createConfiguredAccountTrackers } from '../../../../opencode/src/plugin/accounts.ts'
+import { DEFAULT_CONFIG } from '../../../../opencode/src/plugin/config/index.ts'
+import { initRuntimeConfig } from '../../../../opencode/src/plugin/config/loader.ts'
 import { createRequestExecutor } from '../../../../opencode/src/plugin/shared/request-executor.ts'
 import {
   CHAT_INIT,
+  CLAUDE_URL,
   disposePools,
   FIXED_NOW,
   type Harness,
@@ -17,6 +21,7 @@ import {
   vaultDeps,
   wireBearers,
 } from '../../../../opencode/src/plugin/shared/request-services-harness.test.ts'
+import { createVaultAccountPool } from '../../../../opencode/src/plugin/shared/vault-request-credentials.ts'
 
 const domains = ['local', 'vault'] as const
 
@@ -30,7 +35,11 @@ async function dispatch(h: Harness, domain: Domain, count = 1) {
   const executor = createRequestExecutor(depsFor(h, domain))
   try {
     for (let index = 0; index < count; index++)
-      await (await executor.execute(NON_STREAM_URL, CHAT_INIT())).text()
+      await (
+        await executor.execute(NON_STREAM_URL, CHAT_INIT(), {
+          onResponseHandoff: (acknowledge) => acknowledge(),
+        })
+      ).text()
     return wireBearers(h).map((header) => Number(header?.at(-1)))
   } finally {
     await executor.dispose()
@@ -100,28 +109,168 @@ test('confirmed failures on both account stores expire on the configured TTL', a
 
 test('first classified limit switches or retries according to the scheduling settings', async () => {
   for (const domain of domains) {
-    for (const [mode, cap, switchFirst, expectedAccount, delays] of [
-      ['balance', 10, false, 0, [1000]],
-      ['balance', 10, true, 1, [1000]],
-      ['cache_first', 10, true, 0, [1000, 8000]],
-      ['cache_first', 5, true, 1, [1000]],
+    for (const [mode, cap, switchFirst, expectedAccount, sendAfter] of [
+      ['balance', 10, false, 0, 1000],
+      ['balance', 10, true, 1, 1000],
+      ['cache_first', 10, true, 0, 9000],
+      ['cache_first', 5, true, 1, 1000],
     ] as const) {
       const clock = routedTime(1000, 8000)
       try {
+        const sends: number[] = []
         const h = placementHarness({
           config: {
             scheduling_mode: mode,
             max_cache_first_wait_seconds: cap,
             switch_on_first_rate_limit: switchFirst,
           },
-          respond: async (_call, index) =>
-            index === 0 ? classifiedLimit('RATE_LIMIT_EXCEEDED', 8) : okJson(),
+          respond: async (_call, index) => {
+            sends.push(Date.now() - FIXED_NOW)
+            return index === 0
+              ? classifiedLimit('RATE_LIMIT_EXCEEDED', 8)
+              : okJson()
+          },
         })
         expect(await dispatch(h, domain)).toEqual([0, expectedAccount])
-        expect(clock.delays).toEqual([...delays])
+        expect(sends).toEqual([0, sendAfter])
       } finally {
         clock.restore()
       }
+    }
+  }
+})
+
+test('the cache-first retry also expires the account failure count at the configured TTL', async () => {
+  for (const domain of domains) {
+    for (const [ttl, failures] of [
+      [60, 1],
+      [120, 2],
+    ] as const) {
+      const clock = routedTime(1000, 8000)
+      try {
+        let observed: number | undefined
+        const h = placementHarness({
+          config: { failure_ttl_seconds: ttl, scheduling_mode: 'cache_first' },
+          respond: async (_call, index) => {
+            if (index === 0) return classifiedLimit('RATE_LIMIT_EXCEEDED', 8)
+            observed = row.consecutiveFailures
+            return okJson()
+          },
+        })
+        const row = h.pool.getAccounts()[0]!
+        row.lastFailureTime = FIXED_NOW - 80_000
+        row.consecutiveFailures = 1
+        expect(await dispatch(h, domain)).toEqual([0, 0])
+        expect(observed).toBe(failures)
+      } finally {
+        clock.restore()
+      }
+    }
+  }
+})
+
+test('quiet mode and root-only scope suppress shared engine notices', async () => {
+  for (const domain of domains) {
+    for (const [quiet, scope, parent, count] of [
+      [false, 'root_only', null, 1],
+      [true, 'root_only', null, 0],
+      [false, 'all', 'parent', 1],
+      [false, 'root_only', 'parent', 0],
+    ] as const) {
+      const notices: string[] = []
+      const clock = routedTime(1000)
+      const h = harness({
+        config: {
+          quiet_mode: quiet,
+          toast_scope: scope,
+          max_rate_limit_wait_seconds: 2,
+        },
+        notify: async (text) => {
+          notices.push(text)
+        },
+        respond: async () => classifiedLimit('QUOTA_EXHAUSTED', 8),
+      })
+      const executor = createRequestExecutor(depsFor(h, domain))
+      try {
+        await (
+          await executor.execute(NON_STREAM_URL, CHAT_INIT(), {
+            session: { sessionId: 'child-or-root', parentSessionId: parent },
+          })
+        ).text()
+        expect(notices).toEqual(
+          Array(count).fill('Rate limited. Retrying in 1s (attempt 1)...'),
+        )
+        expect(h.calls).toHaveLength(1)
+      } finally {
+        await executor.dispose()
+        await disposePools()
+        clock.restore()
+      }
+    }
+  }
+})
+
+test('the OpenCode 1 wire obeys thinking warmup and Claude tool hardening settings', async () => {
+  for (const [keepThinking, warmup, hardening, sends] of [
+    [false, true, true, 1],
+    [true, false, false, 1],
+    [true, true, true, 2],
+  ] as const) {
+    const h = harness({
+      config: {
+        keep_thinking: keepThinking,
+        thinking_warmup: warmup,
+        claude_tool_hardening: hardening,
+      },
+      respond: async () => okJson(),
+    })
+    initRuntimeConfig(h.deps.config)
+    const executor = createRequestExecutor(h.deps)
+    try {
+      const response = await executor.execute(CLAUDE_URL, {
+        ...CHAT_INIT(),
+        body: JSON.stringify({
+          contents: [
+            { role: 'user', parts: [{ text: 'Look it up.' }] },
+            {
+              role: 'model',
+              parts: [{ functionCall: { name: 'lookup', args: {} } }],
+            },
+            {
+              role: 'user',
+              parts: [
+                {
+                  functionResponse: { name: 'lookup', response: { value: 4 } },
+                },
+              ],
+            },
+          ],
+          tools: [
+            {
+              functionDeclarations: [
+                {
+                  name: 'lookup',
+                  parameters: { type: 'OBJECT', properties: {} },
+                },
+              ],
+            },
+          ],
+        }),
+      })
+      expect(response.status).toBe(200)
+      await response.text()
+      expect(
+        h.calls.map(({ init }) =>
+          String(init?.body).includes('Warmup request for thinking signature.'),
+        ),
+      ).toEqual(sends === 2 ? [true, false] : [false])
+      const body = String(h.calls.at(-1)?.init?.body)
+      expect(body).toContain('"name":"lookup"')
+      expect(body.includes('CRITICAL TOOL USAGE INSTRUCTIONS:')).toBe(hardening)
+    } finally {
+      await executor.dispose()
+      await disposePools()
+      initRuntimeConfig(DEFAULT_CONFIG)
     }
   }
 })
@@ -172,11 +321,11 @@ function setReading(h: Harness, index: number, fraction: number, age: number) {
 test('the soft quota threshold and automatic or explicit TTL determine which account sends', async () => {
   for (const domain of domains) {
     for (const [threshold, ttl, cadence, expectedAccount] of [
-      [10, 'auto', 30, 0],
-      [20, 'auto', 30, 1],
-      [20, 'auto', 5, 0],
-      [20, 10, 30, 0],
-      [20, 20, 30, 1],
+      [90, 'auto', 30, 0],
+      [50, 'auto', 30, 1],
+      [50, 'auto', 5, 0],
+      [50, 10, 30, 0],
+      [50, 20, 30, 1],
     ] as const) {
       const clock = routedTime()
       try {
@@ -243,5 +392,73 @@ test('the local quota refresh interval enables or skips an advisory refresh afte
     )
     await dispatch(h, 'local')
     expect(calls).toEqual(Array(expectedCalls).fill(0))
+  }
+})
+
+test('vault routes use configured tracker scores and token balances on a successful dispatch', async () => {
+  const h = harness({ respond: async () => okJson() })
+  const route = {
+    routeId: 'route',
+    credentialId: 'credential',
+    accountIdentity: 'identity',
+    label: 'Account',
+  }
+  const pool = createVaultAccountPool({
+    ...createConfiguredAccountTrackers(
+      {
+        ...DEFAULT_CONFIG,
+        health_score: {
+          ...DEFAULT_CONFIG.health_score!,
+          initial: 53,
+          success_reward: 7,
+        },
+        token_bucket: {
+          max_tokens: 13,
+          initial_tokens: 4,
+          regeneration_rate_per_minute: 0.1,
+        },
+      },
+      () => FIXED_NOW,
+    ),
+    now: () => FIXED_NOW,
+    source: {
+      routes: () => [route],
+      refresh: async () => {},
+      admit: async () => ({
+        ...route,
+        accessToken: 'fixture',
+        projectId: 'fixture',
+        recordVersion: 1,
+        expiresAtMs: null,
+      }),
+      reportServedStatus: async () => false,
+    },
+  })
+  const { healthTracker: health, tokenTracker: token } = pool.selector
+  const executor = createRequestExecutor({
+    ...h.deps,
+    assertAdmission: (signal) => pool.sync(signal),
+    accounts: pool.selector,
+    config: { ...h.deps.config, account_selection_strategy: 'hybrid' },
+    credentials: pool.credentials,
+    trackers: { health, token },
+  })
+  try {
+    await pool.sync()
+    const row = pool.selector.getAccounts()[0]!
+    expect([health.getScore(row.index), token.getTokens(row.index)]).toEqual([
+      53, 4,
+    ])
+    const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
+    expect(response.status).toBe(200)
+    await response.text()
+    expect(h.calls).toHaveLength(1)
+    expect([health.getScore(row.index), token.getTokens(row.index)]).toEqual([
+      60, 3,
+    ])
+  } finally {
+    await executor.dispose()
+    await pool.flush()
+    await disposePools()
   }
 })

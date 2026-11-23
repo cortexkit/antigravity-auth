@@ -1312,6 +1312,43 @@ describe('createAuthLoader on the account store', () => {
     }
   })
 
+  it('OpenCode 1 binds a repository without starting a disabled proactive refresh queue', async () => {
+    const { root, open } = await activeStore()
+    const { lifecycle, replacements } = createOwnedLifecycle()
+    const createStoreRefreshQueue = mock(() => {
+      throw new Error('Disabled queue was constructed')
+    })
+    try {
+      const loader = createAuthLoader({
+        client: { tui: { showToast: async () => {} } } as never,
+        providerId: 'google',
+        config: { ...DEFAULT_CONFIG, proactive_token_refresh: false },
+        lifecycle,
+        createFetch: () => ({
+          fetch: async () => new Response('ok'),
+          async retire() {},
+          dispose() {},
+        }),
+        dependencies: { openAccountStore: open, createStoreRefreshQueue },
+      })
+      await loader(
+        async () => ({
+          type: 'oauth',
+          refresh: 'fixture',
+          access: '',
+          expires: 0,
+        }),
+        provider,
+      )
+      expect(replacements).toHaveLength(1)
+      expect(replacements[0]?.queue).toBeNull()
+      expect(createStoreRefreshQueue).not.toHaveBeenCalled()
+    } finally {
+      await lifecycle.dispose()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
   it("refreshes proactively through the repository on the due account's own ref, never the host client", async () => {
     const exchanged: string[] = []
     const { root, open } = await activeStore(async ({ refreshToken }) => {
