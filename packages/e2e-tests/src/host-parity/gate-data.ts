@@ -49,6 +49,65 @@ export function digest(value: unknown): string {
   return Bun.SHA256.hash(JSON.stringify(canonical(value)) ?? 'undefined', 'hex')
 }
 
+function reportObject(value: unknown): Record<string, unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value))
+    throw new Error('Expected a report object')
+  return value as Record<string, unknown>
+}
+
+// Bridge jobs and file locks can consume UUIDs before the engine reports. The
+// wire contract is a fresh billing ID and a fresh ID shared by each wait pair.
+function canonicalReportIds(value: unknown) {
+  if (!Array.isArray(value)) throw new Error('Expected a report trace')
+  const seen = new Map<string, number>()
+  const activeWaits = new Map<string, unknown>()
+  function readId(id: unknown, field: string): string {
+    if (
+      typeof id !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+        id,
+      )
+    )
+      throw new Error(`Malformed report ${field}`)
+    return id.toLowerCase()
+  }
+  function firstUse(id: string, field: string): number {
+    if (seen.has(id)) throw new Error(`Reused report ${field}`)
+    const ordinal = seen.size + 1
+    seen.set(id, ordinal)
+    return ordinal
+  }
+  const trace = value.map((entry: unknown) => {
+    const envelope = reportObject(entry)
+    if ('condition' in envelope && !('report' in envelope)) return entry
+    const report = reportObject(envelope.report)
+    if (report.kind === 'billing') {
+      const id = readId(report.attempt_id, 'attempt_id')
+      return {
+        ...envelope,
+        report: { ...report, attempt_id: firstUse(id, 'attempt_id') },
+      }
+    }
+    if (report.kind !== 'wait') return entry
+    const id = readId(report.wait_id, 'wait_id')
+    if (report.phase === 'start') {
+      firstUse(id, 'wait_id')
+      activeWaits.set(id, envelope.sessionId)
+    } else if (
+      report.phase !== 'end' ||
+      !activeWaits.has(id) ||
+      activeWaits.get(id) !== envelope.sessionId
+    ) {
+      throw new Error('Unpaired report wait end')
+    } else {
+      activeWaits.delete(id)
+    }
+    return { ...envelope, report: { ...report, wait_id: seen.get(id) } }
+  })
+  if (activeWaits.size > 0) throw new Error('Unpaired report wait start')
+  return trace
+}
+
 const ledger =
   /^(?:request-wire:D[1-9]|request-wire:D10|response-errors:D(?:[1-9]|1[0-3])|accounts-features:D[1-9])$/
 export const isLedgerRow = (value: unknown): value is string =>
@@ -340,7 +399,12 @@ export function compareFields({
     const knownFailure = known.get(name)
     known.delete(name)
     const observed = digest(actual[field])
-    if (observed === digest(value)) {
+    const equal =
+      field === 'reports'
+        ? digest(canonicalReportIds(actual[field])) ===
+          digest(canonicalReportIds(value))
+        : observed === digest(value)
+    if (equal) {
       if (knownFailure)
         mismatches.push(`${name} passes now: remove the known failure`)
     } else if (

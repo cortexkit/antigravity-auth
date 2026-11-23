@@ -16,12 +16,14 @@ export async function runConversation({
   input,
   reply,
   timed = false,
+  observeRouting = true,
 }: {
   subject: Subject
   custody: Custody
   input: Conversation
   reply?: (wire: Wire, attempt: number) => Reply
   timed?: boolean
+  observeRouting?: boolean
 }) {
   const environment = new Environment(
     reply ??
@@ -61,7 +63,7 @@ export async function runConversation({
   else delete process.env.CORTEXKIT_VAULT_HOST
   const accessor = Symbol.for('cortexkit.routing')
   const prior = Reflect.getOwnPropertyDescriptor(globalThis, accessor)
-  if (custody !== 'local') {
+  if (custody !== 'local' && observeRouting) {
     Reflect.defineProperty(globalThis, accessor, {
       configurable: true,
       value: (sessionId: string) => ({
@@ -73,6 +75,8 @@ export async function runConversation({
         },
       }),
     })
+  } else if (!observeRouting) {
+    Reflect.deleteProperty(globalThis, accessor)
   }
   try {
     const host = await (subject === 'opencode1'

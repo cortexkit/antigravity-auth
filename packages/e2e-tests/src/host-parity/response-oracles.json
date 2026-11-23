@@ -118,6 +118,15 @@
         {
           "sessionId": "parity-session",
           "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721605000
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
             "kind": "wait",
             "phase": "start",
             "wait_id": "00000000-0000-4000-8000-000000002714",
@@ -162,6 +171,15 @@
         {
           "sessionId": "parity-session",
           "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721610000
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
             "kind": "wait",
             "phase": "start",
             "wait_id": "00000000-0000-4000-8000-000000002716",
@@ -201,6 +219,15 @@
             "cache": {
               "implicit": true
             }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721615000
           }
         }
       ],
@@ -300,6 +327,15 @@
         {
           "sessionId": "parity-session",
           "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721605000
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
             "kind": "wait",
             "phase": "start",
             "wait_id": "00000000-0000-4000-8000-000000002713",
@@ -344,6 +380,15 @@
         {
           "sessionId": "parity-session",
           "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721610000
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
             "kind": "wait",
             "phase": "start",
             "wait_id": "00000000-0000-4000-8000-000000002715",
@@ -383,6 +428,15 @@
             "cache": {
               "implicit": true
             }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721615000
           }
         }
       ],
