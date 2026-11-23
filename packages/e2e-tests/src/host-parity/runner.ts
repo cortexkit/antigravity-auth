@@ -116,6 +116,10 @@ export async function runConversation({
         return turns
       }
       const turns = await (timed ? environment.timed(operation) : operation())
+      // OpenCode 1 publishes account conditions on the next event-loop turn,
+      // after returning the response. Allow that publication before the gate
+      // compares the report trace or closes the activation.
+      await new Promise<void>((resolve) => setImmediate(resolve))
       return {
         wire: environment.wires,
         physicalSends: environment.physicalSends,
