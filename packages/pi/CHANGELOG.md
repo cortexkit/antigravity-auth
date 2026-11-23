@@ -4,6 +4,7 @@
 
 ### Added
 
+- Pi reads supported request settings from the user `antigravity-auth.jsonc` file. For example, `keep_thinking` can preserve Claude's thinking across turns; OpenCode's account rotation and quota controls do not apply.
 - The thinking picker offers XHigh for Gemini 4 Neon and Hydrogen and no adjustable levels for fixed-tier GPT-OSS.
 - In vault mode, Pi applies the per-account model lists in `antigravity-auth.jsonc` (#67): a model the vault account's list leaves out is refused before anything is sent, and `/antigravity` → Accounts shows and sets each vault account's list. Pi's own login serves every model.
 

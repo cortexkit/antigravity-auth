@@ -11,8 +11,8 @@
 > Google.
 
 Google Antigravity OAuth extension for [pi](https://github.com/earendil-works/pi-mono).
-Authenticate with your Google account and use Gemini 3 models through
-Antigravity's endpoints.
+Authenticate with your Google account and use supported Gemini, Claude, and
+GPT-OSS models through Antigravity.
 
 ## Install
 
@@ -27,7 +27,8 @@ pi install npm:@cortexkit/pi-antigravity-auth
 ```
 
 A browser URL is shown. Complete the Google OAuth flow and paste the resulting
-callback URL (or authorization code) back into the prompt.
+callback URL (or authorization code) back into the prompt. A full URL must match
+the sign-in you started and can be used only once.
 
 The extension replaces Pi's built-in `google` catalog with Antigravity models.
 Use Antigravity OAuth for this provider, not a Google AI Studio API key. If upgrading
@@ -45,6 +46,12 @@ sign in to Google again with `/login google` to use local mode. If another
 process has replaced the marker with a login, the extension leaves it unchanged.
 Legacy saved-login files from older builds are deleted without reading them when
 entering or leaving vault mode.
+
+The menu shows **Accounts → Quota → Routing → Limits → Vault**. Quota and
+Limits explain what Pi does not track or enforce; they do not offer quota checks
+or floor editing. Sign in locally with `/login google`, not through the menu.
+The Accounts section offers **Models** for vault accounts when model-list
+editing is available. [See the menu guide](../opencode/docs/COMMANDS.md#antigravity-menu).
 
 ### Inside Thalamus
 
@@ -103,12 +110,18 @@ Gemini 4 Neon supports low, medium, high (default) and xhigh effort, with
 1,048,576 context and 262,144 output tokens. Pi preserves XHigh for Neon just
 as it does for Hydrogen. Neon uses the ordinary Gemini quota pool.
 
-The image-generation model is currently OpenCode-only because Pi's provider event
-protocol does not expose image-output stream events.
+GPT-OSS has a fixed Medium tier and does not offer adjustable thinking levels.
+Pi accepts image inputs for supporting models, but the Antigravity catalog does
+not offer image generation.
 
 Select a model with `/model` or `pi -m google/antigravity-gemini-3.8-flash`.
 
 ## Configuration
+
+Pi reads its supported request settings and vault model lists from the user
+`antigravity-auth.jsonc` file. `OPENCODE_ANTIGRAVITY_AUTH_SETTINGS_FILE` can
+override that location with an absolute path. Pi does not read project settings.
+See [Settings by host](../opencode/docs/SETTINGS.md) before copying an OpenCode configuration.
 
 | Environment variable | Description |
 | --- | --- |
@@ -123,8 +136,8 @@ This package shares its transport, OAuth, fingerprint, and request-transform
 logic with the unified OpenCode V1/GA plugin via
 [`@cortexkit/antigravity-auth-core`](../core). Local mode uses one account in Pi's
 native `google` OAuth slot (`auth.json` in Pi's agent directory). Vault mode can
-list/select approved vault accounts, but serves one at a time; Pi has no local
-pool rotation, recorded quota gating, killswitch, or operator settings.
+list/select approved vault accounts, but serves one at a time. Pi does not
+rotate accounts, track quota for routing, or enforce the OpenCode killswitch.
 
 ### Major upgrades and downgrade
 

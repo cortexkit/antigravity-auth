@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- On OpenCode 2, `quiet_mode` hides Antigravity request notices and `toast_scope` can include notices from child sessions. Plugin auto-recovery and automatic updating remain OpenCode 1 features.
 - On OpenCode 2, the Antigravity menu still opens when you return to a session you switched away from while it was loading (#83).
 - Pasted Google sign-in links must match the sign-in you started. You can also paste just the authorization code on either OpenCode host.
 - When Gemini ends a response with a malformed tool call before any reply text, the request is sent once more instead of failing (#79).

@@ -20,11 +20,11 @@ The host packages are [`@cortexkit/opencode-antigravity-auth`](packages/opencode
 
 - An Antigravity model catalog with supported thinking variants.
 - A shared OpenCode account pool—Google accounts added to the plugin—with rotation, quota, cooldowns, and limits.
-- An `/antigravity` menu and OpenCode sidebar for account and quota management.
+- An `/antigravity` menu on all three hosts. The OpenCode sidebar shows account and quota information; Pi's menu shows its credential source and vault choices, not quota readings.
 - An approved Claustrum vault can supply credentials instead of local logins.
 - A bundled `antigravity-auth` command-line interface for login, account listing, and quota checks.
 
-Pi local mode uses Pi's native Google login, not the OpenCode account pool.
+Pi local mode uses Pi's native Google login, not the OpenCode account pool. Pi uses one account at a time, even with a vault, and does not rotate accounts or enforce quota floors.
 
 Gemini 4 Hydrogen is supported with low, medium, high (default), and xhigh thinking levels on OpenCode 2 and Pi. OpenCode 1 offers low, medium and high only, because its built-in Google library drops xhigh. Hydrogen requires a Pro or Ultra subscription in Google Antigravity.
 
@@ -46,13 +46,14 @@ Before any major plugin upgrade, disable automatic updates. Unmigrated OpenCode 
 
 OpenCode 2: sign in with Google (antigravity-auth pool, browser), then select the saved Antigravity connection to use the plugin's accounts; requests carrying a real Google key or native login credential pass through unchanged.
 
-After setup, run `opencode auth login` → Google and choose **Google (antigravity-auth pool, browser)** as the login method; afterward, select the saved connection labeled **Antigravity**. Setup does not perform this OpenCode 2 login. For approved vault mode, choose **Use approved Antigravity vault** instead. After starting the configured host, open `/antigravity` in OpenCode or Pi for accounts, quota, and vault actions.
+After setup, run `opencode auth login` → Google and choose **Google (antigravity-auth pool, browser)** as the login method; afterward, select the saved connection labeled **Antigravity**. Setup does not perform this OpenCode 2 login. For approved vault mode, choose **Use approved Antigravity vault** instead. See the [menu guide](packages/opencode/docs/COMMANDS.md#antigravity-menu) for actions by host and credential source.
 
 ## Documentation
 
 | Guide | Contents |
 | --- | --- |
 | [Configuration and manual installation](packages/opencode/docs/CONFIGURATION.md) | Guided setup, host-specific registration, options, state paths, and credential safety |
+| [Settings by host](packages/opencode/docs/SETTINGS.md) | Which settings apply on OpenCode 1, OpenCode 2, and Pi, by credential source |
 | [Accounts, routing, and quota](packages/opencode/docs/MULTI-ACCOUNT.md) | Shared pool, account selection, cooldowns, quota thresholds, and limits |
 | [Models and thinking variants](packages/opencode/docs/MODEL-VARIANTS.md) | Current model families, retired routes, and capture limitations |
 | [Troubleshooting](packages/opencode/docs/TROUBLESHOOTING.md) | Callback, credential, transport, and TUI recovery |
