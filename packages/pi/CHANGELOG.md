@@ -6,7 +6,6 @@
 
 - Pi reads supported request settings from the user `antigravity-auth.jsonc` file. For example, `keep_thinking` can preserve Claude's thinking across turns; OpenCode's account rotation and quota controls do not apply.
 - The thinking picker offers XHigh for Gemini 4 Neon and Hydrogen and no adjustable levels for fixed-tier GPT-OSS.
-- In vault mode, Pi applies the per-account model lists in `antigravity-auth.jsonc` (#67): a model the vault account's list leaves out is refused before anything is sent, and `/antigravity` → Accounts shows and sets each vault account's list. Pi's own login serves every model.
 
 ### Fixed
 
@@ -17,6 +16,15 @@
 - Pi uses the same Antigravity request engine as OpenCode, including endpoint fallback, bounded retries, tool history and thinking replay. It still uses only one account and leaves the native Google login in place when reauthorization is needed.
 - An unrecognized Google stop reason is shown as `unknown`. Refusals no longer expose raw Google diagnostics or cause Pi to resend the request.
 - A local login or token refresh in progress stops without replacing the login if the credential source changes.
+- Removed every Antigravity image-generation model; Pi never offered image output, and attaching images to a prompt still works.
+- Pi now honors `failure_ttl_seconds` for how long it remembers a failed request before trying the account again.
+- Refusals now name their cause with fixed text, such as Google suspending Antigravity access for the account or asking you to slow down, and never cause Pi to resend.
+
+## Earlier releases
+
+These changes shipped in 3.1.13 and earlier.
+
+- In vault mode, Pi applies the per-account model lists in `antigravity-auth.jsonc` (#67): a model the vault account's list leaves out is refused before anything is sent, and `/antigravity` → Accounts shows and sets each vault account's list. Pi's own login serves every model.
 - Responses that Google stops for safety or another refusal now show an error instead of appearing to complete successfully.
 - Pi can resume Antigravity conversations that end with an assistant reply, while normal Gemini tool continuations stay unchanged.
 - A model response that stalls, is aborted, is cancelled or is cut off before its end now fails with an error and closes its connection, instead of hanging or being passed on as a complete answer.

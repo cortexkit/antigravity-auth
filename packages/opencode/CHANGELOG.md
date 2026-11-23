@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Removed the plugin's `google_search` tool and every Antigravity image-generation model, on both OpenCode hosts. A saved `googleSearch` model option or a retired model in `account_models` is ignored with a warning. Attaching images to a prompt still works.
+- Refusals now name their cause with fixed text: Google suspending Antigravity access for an account, Google asking you to slow down, an unreachable vault, or a vault that hasn't granted the account. Other Google refusals point to the plugin log, which keeps the details without credentials.
+- `failure_ttl_seconds` now also limits how long a cache-first wait remembers a failed account.
 - On OpenCode 2, `quiet_mode` hides Antigravity request notices and `toast_scope` can include notices from child sessions. Plugin auto-recovery and automatic updating remain OpenCode 1 features.
 - On OpenCode 2, the Antigravity menu still opens when you return to a session you switched away from while it was loading (#83).
 - Pasted Google sign-in links must match the sign-in you started. You can also paste just the authorization code on either OpenCode host.
