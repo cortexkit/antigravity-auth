@@ -137,7 +137,6 @@ import {
 } from './quota.ts'
 import { createRequestWire } from './request.ts'
 import { type OAuthListener, startOAuthListener } from './server.ts'
-import { AgySessionRegistry } from './session-context.ts'
 import { createAdvisoryRepositoryOwner } from './shared/advisory-repository.ts'
 import { createRequestExecutor } from './shared/request-executor'
 import {
@@ -1606,7 +1605,7 @@ function gaEngineCollaborators(input: {
   const observe = input.overrides.observeRawSenderSignal
   return {
     config: runtime.config.config,
-    sessions: new AgySessionRegistry(),
+    sessions: runtime.agySessions,
     operatorSettings: runtime.operatorSettings,
     modelAccess: () => runtime.settings.modelAccess(),
     transport: (

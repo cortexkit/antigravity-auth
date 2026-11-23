@@ -1,15 +1,21 @@
-/**
- * The streaming transformer ends the reply it forwards right after the first
- * event whose response carries a finish reason. Vault routing uses the same
- * test on the upstream body to tell a finished reply from a cut-off one, so
- * both read it from here.
- */
+/** A frame can mention only a secondary candidate; position is a fallback for unindexed replies. */
+export function primaryCandidate<T extends { index?: number }>(
+  candidates: readonly T[] | undefined,
+): T | undefined {
+  if (!Array.isArray(candidates)) return undefined
+  return candidates.find((candidate, position) =>
+    candidate?.index === undefined
+      ? position === 0 && candidate != null
+      : candidate.index === 0,
+  )
+}
+
 export function responseHasFinishReason(response: unknown): boolean {
   if (!response || typeof response !== 'object') return false
   const resp = response as Record<string, unknown>
 
   if (Array.isArray(resp.candidates)) {
-    const candidate = resp.candidates[0] as Record<string, unknown> | undefined
+    const candidate = primaryCandidate(resp.candidates)
     return (
       typeof candidate?.finishReason === 'string' &&
       candidate.finishReason.length > 0
@@ -21,9 +27,8 @@ export function responseHasFinishReason(response: unknown): boolean {
 }
 
 /**
- * Whether one upstream SSE line is the terminal event the streaming
- * transformer stops after: a `data:` line whose JSON has a `response` with a
- * finish reason.
+ * Whether an upstream SSE line carries Google's primary candidate finish.
+ * Billing and served reports use it to distinguish a complete reply from EOF.
  */
 export function isTerminalSseLine(line: string): boolean {
   if (!line.startsWith('data:')) return false
@@ -33,9 +38,7 @@ export function isTerminalSseLine(line: string): boolean {
     const parsed = JSON.parse(line.slice(5).trim()) as {
       response?: unknown
     } | null
-    return (
-      parsed?.response !== undefined && responseHasFinishReason(parsed.response)
-    )
+    return responseHasFinishReason(parsed?.response ?? parsed)
   } catch {
     return false
   }

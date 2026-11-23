@@ -8,6 +8,9 @@
 
 ### Fixed
 
+- When Gemini ends a response with a malformed tool call before any reply text, the request is sent once more instead of failing (#79).
+- Tool arguments and results with an object named `thinking` are sent intact (#81).
+- User and assistant messages that start with thinking or debug marker text are no longer replaced by a period (#82).
 - Pi uses the same Antigravity request engine as OpenCode, including endpoint fallback, bounded retries, tool history and thinking replay. It still uses only one account and leaves the native Google login in place when reauthorization is needed.
 - An unrecognized Google stop reason is shown as `unknown`. Refusals no longer expose raw Google diagnostics or cause Pi to resend the request.
 - A local login or token refresh in progress stops without replacing the login if the credential source changes.

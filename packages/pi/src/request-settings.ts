@@ -16,7 +16,6 @@ const keys = [
   'thinking_warmup',
   'signature_cache',
   'claude_tool_hardening',
-  'claude_prompt_auto_caching',
   'max_rate_limit_wait_seconds',
   'default_retry_after_seconds',
   'request_jitter_max_ms',
@@ -78,9 +77,6 @@ export function piEngineConfig(
     },
     get claude_tool_hardening() {
       return settings().claude_tool_hardening
-    },
-    get claude_prompt_auto_caching() {
-      return settings().claude_prompt_auto_caching
     },
     get max_rate_limit_wait_seconds() {
       return settings().max_rate_limit_wait_seconds

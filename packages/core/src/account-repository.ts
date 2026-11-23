@@ -821,27 +821,44 @@ export function applyRateLimitObservation(
   resets: Readonly<StoredRateLimitResetTimes>,
   writtenAt: Readonly<StoredRateLimitResetTimes> = {},
 ): ProviderMetadata {
-  const next = {
-    ...metadata,
-    rateLimitResetTimes: mergeRateLimitResets(
-      metadata.rateLimitResetTimes,
-      resets,
-    ),
-    rateLimitWrittenAt: mergeRateLimitResets(
-      metadata.rateLimitWrittenAt,
-      writtenAt,
-    ),
+  const clearedAt = metadata.rateLimitClearedAt ?? undefined
+  const storedResets = { ...metadata.rateLimitResetTimes }
+  const storedWrites = { ...metadata.rateLimitWrittenAt }
+  for (const [key, reset] of Object.entries(resets)) {
+    const stamp = writtenAt[key] ?? undefined
+    if (clearedAt !== undefined && (stamp === undefined || stamp <= clearedAt))
+      continue
+
+    const prior = storedResets[key]
+    const priorStamp = typeof prior === 'number' ? storedWrites[key] : undefined
+    if (priorStamp != null && (stamp === undefined || stamp <= priorStamp))
+      continue
+    // Unstamped observations can only extend another unstamped limit.
+    if (
+      stamp === undefined &&
+      typeof prior === 'number' &&
+      (reset === null || reset <= prior)
+    )
+      continue
+    if (reset === null && prior !== undefined) continue
+    storedResets[key] = reset
+    if (stamp === undefined || reset === null) delete storedWrites[key]
+    else storedWrites[key] = stamp
   }
-  if (metadata.rateLimitClearedAt != null) {
+  if (clearedAt !== undefined) {
     const state = {
-      rateLimitResetTimes: numericLimits(next.rateLimitResetTimes),
-      rateLimitWrittenAt: numericLimits(next.rateLimitWrittenAt),
-      rateLimitClearedAt: metadata.rateLimitClearedAt,
+      rateLimitResetTimes: numericLimits(storedResets),
+      rateLimitWrittenAt: numericLimits(storedWrites),
+      rateLimitClearedAt: clearedAt,
     }
     reconcileManualLimitClear(state)
-    return { ...next, ...state }
+    return { ...metadata, ...state }
   }
-  return next
+  return {
+    ...metadata,
+    rateLimitResetTimes: storedResets,
+    rateLimitWrittenAt: storedWrites,
+  }
 }
 
 export function clearAccountLimits(

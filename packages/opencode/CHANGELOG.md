@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- When Gemini ends a response with a malformed tool call before any reply text, the request is sent once more instead of failing (#79).
+- A rate limit cleared in the OpenCode 2 vault menu no longer comes back when another workspace saves an older limit (#80).
+- Tool arguments and results with an object named `thinking` are sent intact (#81).
+- User and assistant messages that start with thinking or debug marker text are no longer replaced by a period (#82).
 - Antigravity refusals no longer show Google's raw diagnostics or cause unintended retries. In-flight local sign-ins and refreshes stop if the credential source changes.
 - OpenCode 2 now uses each location's thinking, signature-cache and debug settings and shows every action offered by the Antigravity account drawer.
 - Both OpenCode hosts now honor health-score and token-bucket settings when routing through the account store or vault.

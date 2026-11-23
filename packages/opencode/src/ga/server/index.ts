@@ -2067,7 +2067,11 @@ async function setupGaActivationRuntime(
               signal: events.signal,
             })) {
               if (event.type === 'session.deleted') {
-                ownership.delete(event.data.sessionID)
+                const id = event.data.sessionID
+                ownership.delete(id)
+                runtime.agySessions.delete(id)
+                for (const kind of ['title', 'compaction', 'generate'])
+                  runtime.agySessions.delete(`${id}#${kind}`)
               }
             }
           } catch {

@@ -1506,10 +1506,20 @@ describe('request.ts', () => {
       })
     })
 
-    it('does not inject Claude auto-caching markers on the Antigravity proxy even when enabled', () => {
+    it('strips existing Claude auto-caching markers on the Antigravity proxy', () => {
       const unwrappedBody = {
+        cache_control: { type: 'ephemeral' },
         messages: [
-          { role: 'user', content: [{ type: 'text', text: 'Hello' }] },
+          {
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Hello',
+                cache_control: { type: 'ephemeral' },
+              },
+            ],
+          },
         ],
       }
       const result = prepareAntigravityRequest(
@@ -1517,9 +1527,6 @@ describe('request.ts', () => {
         { method: 'POST', body: JSON.stringify(unwrappedBody) },
         mockAccessToken,
         mockProjectId,
-        undefined,
-        false,
-        { claudePromptAutoCaching: true },
       )
 
       const wrapped = JSON.parse(result.init.body as string)
@@ -1527,6 +1534,38 @@ describe('request.ts', () => {
       expect(
         wrapped.request.messages[0].content[0].cache_control,
       ).toBeUndefined()
+    })
+
+    it('leaves object-valued thinking untouched in both Gemini tool history directions', () => {
+      const args = { thinking: { steps: ['a'] } }
+      const response = { thinking: { note: 'x' } }
+      const request = prepareAntigravityRequest(
+        'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.8-flash:streamGenerateContent',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'model',
+                parts: [{ functionCall: { name: 'lookup', args } }],
+              },
+              {
+                role: 'user',
+                parts: [{ functionResponse: { name: 'lookup', response } }],
+              },
+            ],
+          }),
+        },
+        mockAccessToken,
+        mockProjectId,
+      )
+      const { contents } = JSON.parse(String(request.init.body)).request
+      expect(JSON.stringify(contents[0].parts[0].functionCall.args)).toBe(
+        '{"thinking":{"steps":["a"]}}',
+      )
+      expect(
+        JSON.stringify(contents[1].parts[0].functionResponse.response),
+      ).toBe('{"thinking":{"note":"x"}}')
     })
 
     it('strips host-only cache fields and omits toolConfig on the agy path', () => {

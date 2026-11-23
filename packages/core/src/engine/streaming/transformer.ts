@@ -505,6 +505,27 @@ export function cacheThinkingSignaturesFromResponse(
   }
 }
 
+/** Keep signature and thinking state between frames without owning stream termination. */
+export function createSseLineTransformer(
+  signatureStore: SignatureStore,
+  callbacks: StreamingCallbacks,
+  options: StreamingOptions,
+): (line: string) => string {
+  const thoughtBuffer = createThoughtBuffer()
+  const sentThinkingBuffer = createThoughtBuffer()
+  const debugState = { injected: false }
+  return (line) =>
+    transformSseLine(
+      line,
+      signatureStore,
+      thoughtBuffer,
+      sentThinkingBuffer,
+      callbacks,
+      options,
+      debugState,
+    )
+}
+
 export function createStreamingTransformer(
   signatureStore: SignatureStore,
   callbacks: StreamingCallbacks,

@@ -2,6 +2,7 @@
  * Account selection, retries, endpoint fallback, warmups and response handling
  * for one adapter location. All host state and effects arrive through ports.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { createHash, randomUUID } from 'node:crypto'
 import { AgyResponseHeaderTimeoutError } from '../agy-transport.ts'
 import {
@@ -117,6 +118,7 @@ import type {
   RoutingIdentity,
   RoutingRefusal,
 } from './routing-port.ts'
+import { forwardInvalidOutputResend } from './streaming/invalid-output-resend.ts'
 import { VaultBillingAttempt } from './vault-billing.ts'
 import {
   observeVaultServed,
@@ -611,7 +613,7 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
   /** Sign-in command used in host-visible reauthorization guidance. */
   readonly authCommand: string
   /** Verification guidance for a host without a Verify accounts action. */
-  readonly verificationNotice?: string
+  readonly verificationRemedy?: 'browser_sign_in'
   /** Fixed refusal for hosts whose account can only be replaced by signing in again. */
   readonly reauthorize?: () => HostRefusalError
   /**
@@ -853,6 +855,19 @@ const WAIT_MESSAGES = {
   rate_limited: 'Rate limited. Retrying...',
   server_busy: 'Server busy. Retrying...',
 } as const
+const REQUEST_NOTICES = {
+  waiting: (ms: number) =>
+    `Waiting ${Math.max(1, Math.ceil(ms / 1000))}s for an available Antigravity account.`,
+  capacity: (seconds: number) =>
+    `Antigravity is waiting for capacity. Retrying in ${seconds}s.`,
+  empty: (attempt: number, total: number) =>
+    `Empty response received. Retrying (${attempt}/${total})...`,
+  verification: (remedy: string) =>
+    `An Antigravity account needs verification. ${remedy}`,
+  ineligible: (remedy: string) =>
+    `An account is not eligible for Antigravity and has been disabled. ${remedy}`,
+} as const
+
 type RequestWaitReason = keyof typeof WAIT_MESSAGES
 type RoutingWait = {
   sessionId: string
@@ -874,40 +889,34 @@ interface RoutingWaits {
 }
 
 /** A finished sleep is not a resumed request: resume only at the next upstream send. */
-async function withRoutingWaitReports<T>(
+function createRoutingWaitReports(
   routing: RequestRouting,
   cancellation: AbortSignal,
-  run: (waits: RoutingWaits) => Promise<T>,
-): Promise<T> {
+): RoutingWaits & { finish(): void } {
   const pending: RoutingWait[] = []
-  let closed = false
   const finish = (outcome: 'resumed' | 'cancelled' | 'abandoned') => {
     for (const wait of pending.splice(0)) {
       routing.report({ kind: 'wait', phase: 'end', ...wait, outcome })
     }
   }
-  try {
-    return await run({
-      sleep(ms, signal, sessionId, reason, attempt) {
-        if (!closed && ms >= 2000 && sessionId && routing.hasAccessor()) {
-          const wait: RoutingWait = {
-            sessionId,
-            waitId: randomUUID(),
-            reason,
-            nextMs: Date.now() + ms,
-            ...(attempt === undefined ? {} : { attempt }),
-            message: WAIT_MESSAGES[reason],
-          }
-          pending.push(wait)
-          routing.report({ kind: 'wait', phase: 'start', ...wait })
+  return {
+    sleep(ms, signal, sessionId, reason, attempt) {
+      if (ms >= 2000 && sessionId && routing.hasAccessor()) {
+        const wait: RoutingWait = {
+          sessionId,
+          waitId: randomUUID(),
+          reason,
+          nextMs: Date.now() + ms,
+          ...(attempt === undefined ? {} : { attempt }),
+          message: WAIT_MESSAGES[reason],
         }
-        return sleep(ms, signal)
-      },
-      resumed: () => finish('resumed'),
-    })
-  } finally {
-    closed = true
-    finish(cancellation.aborted ? 'cancelled' : 'abandoned')
+        pending.push(wait)
+        routing.report({ kind: 'wait', phase: 'start', ...wait })
+      }
+      return sleep(ms, signal)
+    },
+    resumed: () => finish('resumed'),
+    finish: () => finish(cancellation.aborted ? 'cancelled' : 'abandoned'),
   }
 }
 
@@ -1227,7 +1236,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     }
   }
 
-  async function execute(
+  async function* execute(
     input: RequestInfo | URL,
     init: RequestInit | undefined,
     options: RequestExecuteOptions,
@@ -1236,7 +1245,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     deadline: PreResponseDeadline,
     waitPolicy: RequestCompletion,
     waits: RoutingWaits,
-  ): Promise<Response> {
+  ): AsyncGenerator<Response, Response, true> {
     const assertAdmission = async (): Promise<void> => {
       await deadline.wait(() => deps.assertAdmission?.(deadline.signal))
     }
@@ -1381,6 +1390,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       }
     }
     let physicalSendCount = 0
+    let invalidOutputResend:
+      | {
+          prepared: PreparedAgyRequest
+          admission?: RequestSendAdmission
+          sent?: boolean
+        }
+      | undefined
     // Empty-response retries are budgeted per logical request: a success or
     // an exhausted budget in another request must not refill this one.
     let emptyResponseAttempts = 0
@@ -1474,9 +1490,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           context.toolDebugSummary,
           debugLines,
           context.dumpContext,
-          ...(deps.typedEvents
-            ? ([agyRequestSession.conversationId] as const)
-            : []),
+          agyRequestSession.conversationId,
         )
       }
       log.debug(fallbackMessage, {
@@ -1522,6 +1536,14 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
     const quietMode = config.quiet_mode
     const toastScope = config.toast_scope
+    const verifyRemedy =
+      deps.verificationRemedy === 'browser_sign_in'
+        ? 'Complete verification in your browser, then sign in again with /login google.'
+        : `Run '${authCommand}' and use Verify accounts.`
+    const ineligibleRemedy =
+      deps.verificationRemedy === 'browser_sign_in'
+        ? 'Sign in with an eligible account using /login google.'
+        : `Recheck it from ${authCommand} > Verify accounts.`
 
     const showToast = async (
       message: string,
@@ -1641,7 +1663,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       checkAborted()
       routing.report({ ...identity, kind: 'transient_backoff', retryAtMs })
       void response.body?.cancel().catch(() => {})
-      if (unconfirmedRetries >= MAX_UNCONFIRMED_RATE_LIMIT_RETRIES)
+      if (
+        invalidOutputResend ||
+        unconfirmedRetries >= MAX_UNCONFIRMED_RATE_LIMIT_RETRIES
+      )
         return unconfirmedRefusal()
       unconfirmedRetries++
       if (
@@ -1655,6 +1680,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     }
 
     while (true) {
+      if (invalidOutputResend?.sent)
+        return terminalMainAttemptFailure('Invalid-output resend ended')
       await assertAdmission()
       checkAborted()
       const choice = routedCandidate
@@ -2212,10 +2239,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           )
 
           if (!retryState.softQuotaToastShown()) {
-            await showToast(
-              `All ${accountCount} account(s) over ${threshold}% quota. Waiting ${formatWaitTime(waitMs)}...`,
-              'warning',
-            )
+            await showToast(REQUEST_NOTICES.waiting(waitMs), 'warning')
             retryState.markSoftQuotaToastShown()
           }
 
@@ -2265,11 +2289,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         }
 
         if (!retryState.rateLimitToastShown()) {
-          const waitSecValue = Math.max(1, Math.ceil(waitMs / 1000))
-          await showToast(
-            `All ${accountCount} account(s) rate-limited for ${family}. Waiting ${waitSecValue}s...`,
-            'warning',
-          )
+          await showToast(REQUEST_NOTICES.waiting(waitMs), 'warning')
           retryState.markRateLimitToastShown()
         }
 
@@ -2720,6 +2740,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               warmupUrl,
               prepared.effectiveModel,
               prepared.sessionId,
+              undefined,
+              undefined,
+              undefined,
+              undefined,
+              agyRequestSession.conversationId,
+              true,
             ),
           )
           await deadline.wait(() => transformed.text())
@@ -2764,23 +2790,23 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           )
           reportVault401(probeSend.admission, probeResponse.status)
 
+          const status = probeResponse.status
+          let errorSnippet = ''
           if (probeResponse.body) {
             const reader = probeResponse.body.getReader()
-            await deadline.wait(() => reader.read())
-            await deadline.wait(() => reader.cancel())
+            try {
+              const first = await deadline.wait(() => reader.read())
+              if (status >= 400 && first.value)
+                errorSnippet = new TextDecoder()
+                  .decode(first.value)
+                  .slice(0, 200)
+            } finally {
+              await reader.cancel().catch(() => {})
+              reader.releaseLock()
+            }
           }
 
-          const status = probeResponse.status
           if (status >= 400) {
-            let errorSnippet = ''
-            try {
-              const errText = await deadline.wait(() =>
-                probeResponse.text().catch(() => ''),
-              )
-              errorSnippet = errText.slice(0, 200)
-            } catch {
-              /* ignore */
-            }
             pushDebug(
               `cache-warmup-probe: done status=${status}${errorSnippet ? ` error=${errorSnippet}` : ''}`,
             )
@@ -2839,6 +2865,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             lastEndpointIndex = i
           }
 
+          if (invalidOutputResend?.sent)
+            return terminalMainAttemptFailure('Invalid-output resend ended')
           const currentEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS[i]
 
           let tokenConsumed = false
@@ -2889,24 +2917,40 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             }
             if (sendProjectId) selectedProjectIds.add(sendProjectId)
             selectedCredentials.add(sendAccessToken)
-            const prepared = prepareAgyWireRequest(wire, {
-              input,
-              init,
-              accessToken: sendAccessToken,
-              projectId: sendProjectId,
-              endpoint: currentEndpoint,
+            if (
+              invalidOutputResend?.admission &&
+              (invalidOutputResend.admission.credentialId !==
+                sendAdmission?.credentialId ||
+                invalidOutputResend.admission.accountIdentity !==
+                  sendAdmission?.accountIdentity ||
+                invalidOutputResend.admission.projectId !== sendProjectId)
+            )
+              return engineRefusalResponse('authority_changed')
+            const prepared =
+              invalidOutputResend?.prepared ??
+              prepareAgyWireRequest(wire, {
+                input,
+                init,
+                accessToken: sendAccessToken,
+                projectId: sendProjectId,
+                endpoint: currentEndpoint,
 
-              forceThinkingRecovery,
-              options: {
-                claudeToolHardening: config.claude_tool_hardening,
-                claudePromptAutoCaching: config.claude_prompt_auto_caching,
-                fingerprint: account.fingerprint,
-                agySession: agyRequestSession,
-                agyRequestTimestamp: agyRequestScope.timestamp,
-                variant,
-              },
-            })
+                forceThinkingRecovery,
+                options: {
+                  claudeToolHardening: config.claude_tool_hardening,
+                  fingerprint: account.fingerprint,
+                  agySession: agyRequestSession,
+                  agyRequestTimestamp: agyRequestScope.timestamp,
+                  variant,
+                },
+              })
 
+            let sendInit = prepared.init
+            if (invalidOutputResend && sendAdmission) {
+              const headers = new Headers(sendInit.headers)
+              headers.set('authorization', `Bearer ${sendAccessToken}`)
+              sendInit = { ...sendInit, headers }
+            }
             const originalUrl = toUrlString(input)
             const resolvedUrl = toUrlString(prepared.request)
             pushDebug(`endpoint=${currentEndpoint}`)
@@ -2955,8 +2999,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               }
             }
 
-            await runThinkingWarmup(prepared, sendProjectId)
-            await runCacheWarmupProbe(prepared)
+            if (!invalidOutputResend) {
+              await runThinkingWarmup(prepared, sendProjectId)
+              await runCacheWarmupProbe(prepared)
+            }
 
             if (config.request_jitter_max_ms > 0) {
               const jitterMs = Math.floor(
@@ -3000,9 +3046,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 }),
               )
             physicalAttemptStarted = true
+            if (invalidOutputResend) invalidOutputResend.sent = true
             let response = await sendPhysical(
               toUrlString(prepared.request),
-              prepared.init,
+              sendInit,
               sendAdmission,
               prepared.effectiveModel ?? model ?? 'unknown',
               kind ?? 'primary',
@@ -3075,6 +3122,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               if (
                 !sendAdmission.fromKeptReceipt &&
                 !vault401Retried &&
+                !invalidOutputResend &&
                 !abortSignal?.aborted
               ) {
                 let next: RequestSendAdmission | undefined
@@ -3280,6 +3328,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     model,
                   )
                 accountManager.requestSaveToDisk()
+                if (invalidOutputResend) return unconfirmedRefusal()
                 if ((resets[quotaKey] ?? 0) > now + delayMs) {
                   switchedForUnconfirmed = true
                   shouldSwitchAccount = true
@@ -3370,6 +3419,16 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 rateLimitReason === 'SERVER_ERROR'
               ) {
                 totalCapacityRetries++
+                if (invalidOutputResend) {
+                  if (routingIdentity)
+                    routing.report({
+                      ...routingIdentity,
+                      kind: 'transient_backoff',
+                      retryAtMs,
+                    })
+                  void response.body?.cancel().catch(() => {})
+                  return engineRefusalResponse('capacity_exhausted')
+                }
                 if (isCapacityRetryBudgetExhausted(totalCapacityRetries)) {
                   if (routed429) {
                     const refusal = await retryAfterRoutedBackoff(
@@ -3416,10 +3475,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   `Server busy (${rateLimitReason}) on account ${account.index}, exponential backoff ${waitMs}ms (attempt ${capacityRetryCount + 1}, total ${totalCapacityRetries}/${MAX_TOTAL_CAPACITY_RETRIES})`,
                 )
 
-                await showToast(
-                  `Antigravity is waiting for capacity. Retrying in ${waitSec}s.`,
-                  'warning',
-                )
+                await showToast(REQUEST_NOTICES.capacity(waitSec), 'warning')
 
                 await routingSleep(
                   waitMs,
@@ -3481,7 +3537,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
               if (
                 backoff.attempt === 1 &&
-                rateLimitReason !== 'QUOTA_EXHAUSTED'
+                rateLimitReason !== 'QUOTA_EXHAUSTED' &&
+                !invalidOutputResend
               ) {
                 await showToast(`Rate limited. Quick retry in 1s...`, 'warning')
                 await sleep(FIRST_RETRY_DELAY_MS, abortSignal)
@@ -3495,7 +3552,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                       `cache_first: waiting ${effectiveDelayMs}ms for same account to recover`,
                     )
                     await showToast(
-                      `⏳ Waiting ${Math.ceil(effectiveDelayMs / 1000)}s for same account (prompt cache preserved)...`,
+                      REQUEST_NOTICES.waiting(effectiveDelayMs),
                       'info',
                     )
                     accountManager.markRateLimitedWithReason(
@@ -3560,6 +3617,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 if (refusal) return refusal
                 i -= 1
                 continue
+              }
+
+              if (invalidOutputResend) {
+                void response.body?.cancel().catch(() => {})
+                return rateLimitReason === 'QUOTA_EXHAUSTED'
+                  ? engineRefusalResponse('quota_exhausted')
+                  : unconfirmedRefusal()
               }
 
               if (routed429 && exhaustion) {
@@ -3652,6 +3716,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 void response.body?.cancel().catch(() => {})
                 modelUnavailableIndexes.add(account.index)
                 if (model) rememberUnavailable(availabilitySnapshot, model)
+                if (invalidOutputResend)
+                  return engineRefusalResponse('model_not_found')
                 skippedForModelUnavailable = true
                 shouldSwitchAccount = true
                 break
@@ -3723,8 +3789,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   accountManager.shouldShowAccountToast(account.index, 60000)
                 ) {
                   await showToast(
-                    'An account is not eligible for Antigravity and has been disabled. ' +
-                      `Recheck it from ${authCommand} > Verify accounts.`,
+                    REQUEST_NOTICES.ineligible(ineligibleRemedy),
                     'warning',
                   )
                   accountManager.markToastShown(account.index)
@@ -3737,6 +3802,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 retainHttpFailure(response)
                 shouldSwitchAccount = true
                 reportCondition('provider_ineligible')
+                if (invalidOutputResend)
+                  return engineRefusalResponse('account_reauthorize')
                 if (deps.reauthorize) throw deps.reauthorize()
                 break
               }
@@ -3767,8 +3834,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   accountManager.shouldShowAccountToast(account.index, 60000)
                 ) {
                   await showToast(
-                    deps.verificationNotice ??
-                      `An Antigravity account needs verification. Run '${authCommand}' and use Verify accounts.`,
+                    REQUEST_NOTICES.verification(verifyRemedy),
                     'warning',
                   )
                   accountManager.markToastShown(account.index)
@@ -3781,6 +3847,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 retainHttpFailure(response)
                 shouldSwitchAccount = true
                 reportCondition('provider_verification_required')
+                if (invalidOutputResend)
+                  return engineRefusalResponse('account_reauthorize')
                 if (deps.reauthorize) throw deps.reauthorize()
                 break
               }
@@ -3802,6 +3870,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
             if (
               shouldRetryEndpoint &&
+              !invalidOutputResend &&
               i < ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1
             ) {
               await logResponseBody(debugContext, response, response.status)
@@ -3909,7 +3978,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 if (currentAttempts < maxAttempts) {
                   deadline.resume()
                   await showToast(
-                    `Empty response received. Retrying (${currentAttempts}/${maxAttempts})...`,
+                    REQUEST_NOTICES.empty(currentAttempts, maxAttempts),
                     'warning',
                   )
                   await sleep(retryDelayMs, abortSignal)
@@ -3943,9 +4012,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 prepared.toolDebugSummary,
                 debugLines,
                 dumpContext,
-                ...(deps.typedEvents
-                  ? ([agyRequestSession.conversationId] as const)
-                  : []),
+                agyRequestSession.conversationId,
               ),
             )
 
@@ -4034,24 +4101,43 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               (!credentials.boundRoute || routing.hasAccessor())
             )
               waitPolicy.vaultConditions.push(() => served.clearCondition?.())
-            return routingObservation &&
+            const reply =
+              routingObservation &&
               credentials.domain === 'vault' &&
               sendAdmission &&
               sessionKey &&
               routing.hasAccessor() &&
               response.ok
-              ? observeVaultServed(
-                  routing,
-                  {
-                    sessionId: sessionKey,
-                    accountId: sendAdmission.accountIdentity,
-                    credentialId: sendAdmission.credentialId,
-                  },
-                  transformedResponse,
-                  abortSignal,
-                  routingObservation,
-                )
-              : transformedResponse
+                ? observeVaultServed(
+                    routing,
+                    {
+                      sessionId: sessionKey,
+                      accountId: sendAdmission.accountIdentity,
+                      credentialId: sendAdmission.credentialId,
+                    },
+                    transformedResponse,
+                    abortSignal,
+                    routingObservation,
+                  )
+                : transformedResponse
+            if (
+              !invalidOutputResend &&
+              reply.ok &&
+              reply.body &&
+              prepared.streaming &&
+              reply.headers.get('content-type')?.includes('text/event-stream')
+            ) {
+              // The body may ask for one more send, using this selection and
+              // the serialized envelope rather than preparing new metadata.
+              yield reply
+              deadline.resume()
+              invalidOutputResend = { prepared, admission: sendAdmission }
+              await assertAdmission()
+              retainedMainAttemptFailure = undefined
+              i -= 1
+              continue
+            }
+            return reply
           } catch (error) {
             if (error instanceof PreResponseTimeoutError) throw error
             if (error instanceof EngineRefusalError) throw error
@@ -4081,7 +4167,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               // and request scope, without failure penalties or endpoint retry.
               if (
                 error instanceof LocalGrantSupersededError &&
-                !localRecaptureUsed
+                !localRecaptureUsed &&
+                !invalidOutputResend
               ) {
                 localRecaptureUsed = true
                 try {
@@ -4277,23 +4364,45 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         }
         return redacted
       }
-      const pending = withRoutingWaitReports(
-        routing,
-        cancellation.signal,
-        (waits) =>
-          deadline.wait(() =>
-            execute(
-              input,
-              { ...init, signal: deadline.signal },
-              requestOptions ?? {},
-              selectedCredentials,
-              selectedProjectIds,
-              deadline,
-              waitPolicy,
-              waits,
-            ),
-          ),
+      const waits = createRoutingWaitReports(routing, cancellation.signal)
+      const attempts = execute(
+        input,
+        { ...init, signal: deadline.signal },
+        requestOptions ?? {},
+        selectedCredentials,
+        selectedProjectIds,
+        deadline,
+        waitPolicy,
+        waits,
       )
+      // A late pull runs in the HTTP/stream consumer's context, not the
+      // adapter's admission context that originally selected the account.
+      const runInRequest = AsyncLocalStorage.snapshot()
+      const advance = () =>
+        runInRequest(() =>
+          deadline.wait(() => attempts.next(true)).finally(waits.finish),
+        )
+      const pending = advance()
+        .then(({ value, done }) => {
+          if (done) return value
+          return forwardInvalidOutputResend(value, async () => {
+            try {
+              return (await advance()).value
+            } catch (error) {
+              if (cancellation.signal.aborted)
+                throw new EngineRefusalError('cancelled')
+              if (error instanceof PreResponseTimeoutError)
+                throw new EngineRefusalError('deadline')
+              if (error instanceof EngineRefusalError) throw error
+              log.debug('invalid-output-resend-failed', {
+                error: String(redactFailure(error)),
+              })
+              throw new EngineRefusalError('transport_error')
+            } finally {
+              publishVaultConditions()
+            }
+          })
+        })
         .catch((error: unknown) => {
           if (cancellation.signal.aborted)
             throw new EngineRefusalError('cancelled')

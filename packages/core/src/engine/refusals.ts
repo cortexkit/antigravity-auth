@@ -140,6 +140,8 @@ const googleStopCodes = new Set([
   'SPII',
   'OTHER',
   'MALFORMED_FUNCTION_CALL',
+  'MALFORMED_RESPONSE',
+  'UNEXPECTED_TOOL_CALL',
 ])
 
 export function googleStopCode(reason: unknown): string {

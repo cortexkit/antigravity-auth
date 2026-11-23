@@ -16,7 +16,6 @@ export interface RequestConfig {
   cache_warmup_on_switch: boolean
   thinking_warmup: boolean
   claude_tool_hardening: boolean
-  claude_prompt_auto_caching: boolean
   request_jitter_max_ms: number
   default_retry_after_seconds?: number
   max_backoff_seconds?: number

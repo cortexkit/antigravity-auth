@@ -101,6 +101,7 @@ import {
   type RefreshQueueAccountView,
   type RefreshQueueTokenRefresher,
 } from '../refresh-queue.ts'
+import { AgySessionRegistry } from '../session-context.ts'
 
 // Ordered resource scope
 
@@ -341,6 +342,7 @@ export interface LocationRuntime {
   readonly settings: ProjectSettings
   readonly signatures: LocationSignatureCache
   readonly requestWireLocation: RequestWireLocation
+  readonly agySessions: AgySessionRegistry
   readonly quotaManager: QuotaManager
   /** `null` when the `background_quota_refresh` config option is off. */
   readonly backgroundQuotaRefresh: BackgroundQuotaRefresh | null
@@ -631,6 +633,7 @@ async function buildLocationRuntime(
     settings,
     signatures,
     requestWireLocation,
+    agySessions: new AgySessionRegistry({ now: options.now }),
     quotaManager,
     backgroundQuotaRefresh,
     refreshQueue: () => refreshQueue,

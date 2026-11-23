@@ -54,7 +54,7 @@ import type {
   SaveResponseImage,
 } from './ports.ts'
 import { detectErrorType } from './recovery-error.ts'
-import { engineRefusalResponse } from './refusals.ts'
+import { EngineRefusalError, engineRefusalResponse } from './refusals.ts'
 import { attachResponseCleanup } from './request-cancellation.ts'
 import {
   type AntigravityApiBody,
@@ -87,6 +87,7 @@ import {
   type DisplayedThinkingRegistry,
 } from './streaming/displayed-thinking.ts'
 import {
+  createSseLineTransformer,
   createStreamingTransformer,
   type SignatureStore,
   transformSseLine,
@@ -247,51 +248,29 @@ function buildSignatureSessionKey(
  * by checking for JSON Schema primitive types. Everything else that's
  * a non-string `thinking` value gets flattened to "".
  */
-const JSON_SCHEMA_TYPES = new Set([
-  'boolean',
-  'string',
-  'number',
-  'integer',
-  'array',
-  'object',
-])
-
-function thinkingSafeReplacer(key: string, value: unknown): unknown {
-  if (key === 'thinking' && typeof value === 'object' && value !== null) {
-    // Preserve tool schemas before and after Gemini uppercases their type.
-    const rec = value as Record<string, unknown>
-    if (
-      typeof rec.type === 'string' &&
-      JSON_SCHEMA_TYPES.has(rec.type.toLowerCase())
-    ) {
-      return value
+function ensureThinkingFields(payload: Record<string, unknown>): void {
+  // Tool arguments and results are application data, even if they use fields
+  // named thinking or thought. Only inspect the history parts themselves.
+  const fixParts = (parts: unknown) => {
+    if (!Array.isArray(parts)) return
+    for (const part of parts) {
+      if (!part || typeof part !== 'object') continue
+      if (part.type === 'thinking' && typeof part.thinking !== 'string')
+        part.thinking = ''
+      if (part.thought === true && typeof part.text !== 'string') part.text = ''
     }
-    // Flatten any non-string, non-Schema thinking to empty string
-    return ''
   }
-  return value
-}
-
-/** Stringify with built-in thinking sanitization. Impossible to bypass. */
-function ensureThinkingFields(obj: unknown): void {
-  if (!obj || typeof obj !== 'object') return
-  if (Array.isArray(obj)) {
-    for (const item of obj) ensureThinkingFields(item)
-    return
+  if (Array.isArray(payload.contents)) {
+    for (const turn of payload.contents) {
+      fixParts(turn?.parts)
+      fixParts(turn?.content)
+    }
   }
-  const rec = obj as Record<string, unknown>
-  // Fix: check for missing OR undefined OR non-string thinking field.
-  // JSON.stringify silently drops undefined values, so key-exists-but-undefined
-  // produces { type: "thinking", signature: "..." } with NO thinking field.
-  if (rec.type === 'thinking' && typeof rec.thinking !== 'string') {
-    rec.thinking = ''
+  if (Array.isArray(payload.messages)) {
+    for (const turn of payload.messages) fixParts(turn?.content)
   }
-  if (rec.thought === true && typeof rec.text !== 'string') {
-    rec.text = ''
-  }
-  for (const val of Object.values(rec)) {
-    ensureThinkingFields(val)
-  }
+  if (payload.request && typeof payload.request === 'object')
+    ensureThinkingFields(payload.request as Record<string, unknown>)
 }
 
 function systemInstructionOf(request: unknown): unknown {
@@ -300,9 +279,9 @@ function systemInstructionOf(request: unknown): unknown {
     : undefined
 }
 
-function safeStringify(obj: unknown): string {
-  ensureThinkingFields(obj)
-  return JSON.stringify(obj, thinkingSafeReplacer)
+function safeStringify(payload: Record<string, unknown>): string {
+  ensureThinkingFields(payload)
+  return JSON.stringify(payload)
 }
 
 function shouldCacheThinkingSignatures(model?: string): boolean {
@@ -516,7 +495,8 @@ function stripInjectedDebugFromParts(
       return part
     }
 
-    const record = part as any
+    const record = part as Record<string, unknown>
+    if (record.thought !== true && record.type !== 'thinking') return part
     const text =
       typeof record.text === 'string'
         ? record.text
@@ -527,8 +507,10 @@ function stripInjectedDebugFromParts(
     // Replace debug blocks and synthetic thinking placeholders with empty text sentinel
     if (
       text &&
-      (text.startsWith(debugMessagePrefix) ||
-        text.startsWith(SYNTHETIC_THINKING_PLACEHOLDER.trim()))
+      (text.startsWith(
+        `${debugMessagePrefix}\n- [ThinkingResolution] source=debug_tui `,
+      ) ||
+        text.trimEnd() === SYNTHETIC_THINKING_PLACEHOLDER.trimEnd())
     ) {
       const sentinel: Record<string, unknown> = { text: '.' }
       if (record.cache_control !== undefined)
@@ -547,7 +529,7 @@ function stripInjectedDebugFromRequestPayload(
 
   if (Array.isArray(anyPayload.contents)) {
     anyPayload.contents = anyPayload.contents.map((content: any) => {
-      if (!content || typeof content !== 'object') {
+      if (content?.role !== 'model' && content?.role !== 'assistant') {
         return content
       }
 
@@ -574,7 +556,7 @@ function stripInjectedDebugFromRequestPayload(
 
   if (Array.isArray(anyPayload.messages)) {
     anyPayload.messages = anyPayload.messages.map((message: any) => {
-      if (!message || typeof message !== 'object') {
+      if (message?.role !== 'model' && message?.role !== 'assistant') {
         return message
       }
 
@@ -1412,7 +1394,6 @@ export interface PrepareRequestOptions {
   /** Enable Claude tool hardening (parameter signatures + system instruction). Default: true */
   claudeToolHardening?: boolean
   /** Enable top-level Claude prompt auto-caching (`cache_control`). Default: false */
-  claudePromptAutoCaching?: boolean
   /** Google Search configuration (global default) */
   googleSearch?: GoogleSearchConfig
   /** Per-account fingerprint for rate limit mitigation. Falls back to session fingerprint if not provided. */
@@ -1524,7 +1505,7 @@ function prepareAntigravityRequestIn(
   let tierThinkingBudget = resolved.thinkingBudget
   let tierThinkingLevel = resolved.thinkingLevel
   let signatureSessionKey = buildSignatureSessionKey(
-    effects.pluginSessionId,
+    options?.agySession?.conversationId ?? effects.pluginSessionId,
     effectiveModel,
     undefined,
     resolveProjectKey(projectId),
@@ -1578,7 +1559,7 @@ function prepareAntigravityRequestIn(
           '',
         )
         signatureSessionKey = buildSignatureSessionKey(
-          effects.pluginSessionId,
+          options?.agySession?.conversationId ?? effects.pluginSessionId,
           modelForCacheKey,
           conversationKey,
           resolveProjectKey(parsedBody.project),
@@ -2206,7 +2187,7 @@ function prepareAntigravityRequestIn(
         }
         const conversationKey = resolveConversationKey(requestPayload)
         signatureSessionKey = buildSignatureSessionKey(
-          effects.pluginSessionId,
+          options?.agySession?.conversationId ?? effects.pluginSessionId,
           effectiveModel,
           conversationKey,
           resolveProjectKey(projectId),
@@ -2409,23 +2390,6 @@ function prepareAntigravityRequestIn(
             wire.signatures.signatureStore.delete(signatureSessionKey)
           }
         }
-        if (Array.isArray(requestPayload.contents))
-          appendAgyContinuation(requestPayload.contents, effectiveModel)
-        if (Array.isArray(requestPayload.messages)) {
-          const lastMessage = (requestPayload.messages as any[])[
-            requestPayload.messages.length - 1
-          ]
-          if (
-            lastMessage?.role === 'model' ||
-            lastMessage?.role === 'assistant'
-          ) {
-            ;(requestPayload.messages as any[]).push({
-              role: 'user',
-              parts: [{ text: '[Continue]' }],
-            })
-          }
-        }
-
         if ('model' in requestPayload) {
           delete requestPayload.model
         }
@@ -2456,6 +2420,17 @@ function prepareAntigravityRequestIn(
           normalizeNativeFunctionResponseRoles(requestPayload, effectiveModel)
           if (Array.isArray(requestPayload.contents))
             appendAgyContinuation(requestPayload.contents, effectiveModel)
+        }
+        if (Array.isArray(requestPayload.messages)) {
+          const lastMessage = requestPayload.messages.at(-1)
+          if (
+            lastMessage?.role === 'model' ||
+            lastMessage?.role === 'assistant'
+          )
+            requestPayload.messages.push({
+              role: 'user',
+              parts: [{ text: '[Continue]' }],
+            })
         }
         // Use the stable default project ID (never a per-request random one):
         // a fresh random project each request busts the prompt cache and
@@ -2658,6 +2633,7 @@ async function transformAntigravityResponseIn(
   debugLines?: string[],
   dumpContext?: GeminiDumpContext | null,
   displayedThinkingScope?: string,
+  allowThinkingOnly = false,
 ): Promise<Response> {
   const contentType = response.headers.get('content-type') ?? ''
   const isJsonResponse = contentType.includes('application/json')
@@ -2688,9 +2664,15 @@ async function transformAntigravityResponseIn(
     }
   }
 
-  // For successful streaming responses, use TransformStream to transform SSE events
-  // while maintaining real-time streaming (no buffering of entire response).
-  // This enables thinking tokens to be displayed as they arrive, like the Codex plugin.
+  if (
+    allowThinkingOnly &&
+    (!response.ok || !isEventStreamResponse || !response.body)
+  ) {
+    await response.body?.cancel().catch(() => {})
+    throw new EngineRefusalError('incomplete')
+  }
+
+  // Forward content as it arrives and put all usage on the first terminal.
   if (streaming && response.ok && isEventStreamResponse && response.body) {
     const headers = new Headers({ 'content-type': 'text/event-stream' })
     if (!contentType) headers.set('Content-Type', 'text/event-stream')
@@ -2702,32 +2684,13 @@ async function transformAntigravityResponseIn(
 
     const rawDumpTransformer = effects.dump.createResponseTransform(dumpContext)
 
-    const streamingTransformer = createStreamingTransformer(
+    const transformLine = createSseLineTransformer(
       wire.signatures.signatureStore,
       {
         onMalformedFrame: () =>
           wire.logger.warn('Skipping malformed Antigravity stream frame'),
         onCacheSignature: wire.signatures.cacheSignature,
         onInjectDebug: injectDebugThinking,
-        onUsageMetadata: (usage) => {
-          if (effectiveModel) {
-            const cacheRead = usage.cachedContentTokenCount
-            const totalInput = usage.promptTokenCount ?? usage.totalTokenCount
-            const hitRate =
-              totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
-            const status = cacheRead > 0 ? 'HIT' : 'MISS'
-            wire.debug.logCacheStats(effectiveModel, cacheRead, 0, totalInput)
-            wire.logger.debug(
-              `[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`,
-            )
-            wire.cacheStats.last = {
-              model: effectiveModel,
-              read: cacheRead,
-              total: totalInput,
-              hitRate,
-            }
-          }
-        },
         processImageData: effects.processImageData,
         transformThinkingParts: (response) =>
           transformThinkingParts(
@@ -2741,49 +2704,58 @@ async function transformAntigravityResponseIn(
         debugText,
         cacheSignatures,
         displayedThinkingHashes:
-          effectiveModel && isGemini3Model(effectiveModel)
+          !allowThinkingOnly && effectiveModel && isGemini3Model(effectiveModel)
             ? wire.displayedThinking.forSession(
                 displayedThinkingScope ?? sessionId,
               )
             : undefined,
-        // injectSyntheticThinking removed - keep_thinking now unified with debug via debugText
       },
     )
-    const enforce = (stream: ReadableStream<Uint8Array>) =>
-      enforceStreamRefusals(stream, (diagnostic) =>
-        wire.logger.debug(
-          redactCredentialText(
-            diagnostic,
-            undefined,
-            projectId ? [projectId] : undefined,
+    const pipe =
+      rawDumpTransformer && response.body.pipeTo(rawDumpTransformer.writable)
+    const body = enforceStreamRefusals(
+      rawDumpTransformer?.readable ?? response.body,
+      {
+        log: (diagnostic) =>
+          wire.logger.debug(
+            redactCredentialText(
+              diagnostic,
+              undefined,
+              projectId ? [projectId] : undefined,
+            ),
           ),
-        ),
-      )
-    if (displayedThinkingScope) {
-      // A typed consumer publishes done only after the sender finishes cancelling
-      // the upstream body. pipeThrough would hide that completion promise.
-      const pipes: Promise<void>[] = []
-      if (rawDumpTransformer)
-        pipes.push(response.body.pipeTo(rawDumpTransformer.writable))
-      const source = rawDumpTransformer?.readable ?? response.body
-      pipes.push(source.pipeTo(streamingTransformer.writable))
-      const transformed = new Response(enforce(streamingTransformer.readable), {
-        status: response.status,
-        headers,
-      })
+        transformLine,
+        allowEmpty: allowThinkingOnly,
+        onUsage(usage) {
+          if (!effectiveModel) return
+          const count = (key: string) =>
+            typeof usage[key] === 'number' ? usage[key] : undefined
+          const cacheRead = count('cachedContentTokenCount') ?? 0
+          const totalInput =
+            count('promptTokenCount') ?? count('totalTokenCount') ?? 0
+          const hitRate =
+            totalInput > 0 ? Math.round((cacheRead / totalInput) * 100) : 0
+          const status = cacheRead > 0 ? 'HIT' : 'MISS'
+          wire.debug.logCacheStats(effectiveModel, cacheRead, 0, totalInput)
+          wire.logger.debug(
+            `[Cache] ${status} model=${effectiveModel} read=${cacheRead} total=${totalInput} hitRate=${hitRate}%`,
+          )
+          wire.cacheStats.last = {
+            model: effectiveModel,
+            read: cacheRead,
+            total: totalInput,
+            hitRate,
+          }
+        },
+      },
+    )
+    const transformed = new Response(body, { status: response.status, headers })
+    if (pipe)
       attachResponseCleanup(
         transformed,
-        Promise.allSettled(pipes).then(() => {}),
+        pipe.catch(() => {}),
       )
-      return transformed
-    }
-    const sourceBody = rawDumpTransformer
-      ? response.body.pipeThrough(rawDumpTransformer)
-      : response.body
-    return new Response(enforce(sourceBody.pipeThrough(streamingTransformer)), {
-      status: response.status,
-      headers,
-    })
+    return transformed
   }
 
   if (!response.ok) {

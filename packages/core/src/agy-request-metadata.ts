@@ -121,7 +121,13 @@ export class AgyRequestSessionStore {
     return context
   }
 
-  beginRequest(key: string): AgyRequestScope {
+  beginRequest(key: string | null): AgyRequestScope {
+    if (!key) {
+      const session = createAgyRequestSessionContext()
+      if (this.createExecutionId)
+        session.createExecutionId = this.createExecutionId
+      return { session, timestamp: this.now() }
+    }
     const session = this.getOrCreate(key)
     const stored = this.entries.get(key)!
     const timestamp = Math.max(

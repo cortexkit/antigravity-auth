@@ -5,8 +5,6 @@ import {
   type AgyRequestSessionStoreOptions,
 } from './agy-request-metadata'
 
-const FALLBACK_SESSION_KEY = '__default__'
-
 export interface OpenCodeSessionIdentity {
   sessionId: string | null
   parentSessionId: string | null
@@ -38,7 +36,8 @@ export class AgySessionRegistry {
   }
 
   getOrCreate(identity: OpenCodeSessionIdentity): AgyRequestSessionContext {
-    const key = identity.sessionId ?? FALLBACK_SESSION_KEY
+    const key = identity.sessionId
+    if (!key) return this.requestSessions.beginRequest(null).session
     const request = this.requestSessions.getOrCreate(key)
     this.recordParent(key, identity.parentSessionId)
     this.pruneParentRelationships()
@@ -46,9 +45,9 @@ export class AgySessionRegistry {
   }
 
   beginRequest(identity: OpenCodeSessionIdentity): AgyRequestScope {
-    const key = identity.sessionId ?? FALLBACK_SESSION_KEY
+    const key = identity.sessionId
     const scope = this.requestSessions.beginRequest(key)
-    this.recordParent(key, identity.parentSessionId)
+    if (key) this.recordParent(key, identity.parentSessionId)
     this.pruneParentRelationships()
     return scope
   }

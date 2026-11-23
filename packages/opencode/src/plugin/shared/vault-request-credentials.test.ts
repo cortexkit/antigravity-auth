@@ -841,6 +841,39 @@ describe('vault pools sharing one provider-state file', () => {
     })
   })
 
+  it('does not resurrect a longer vault limit after another pool clears it', async () => {
+    const a = await f.open()
+    const firstWrite = f.now()
+    a.pool.selector.markRateLimited(a.row, limitMs, 'gemini', model)
+    await a.pool.flush()
+    expect((await f.read())?.metadata?.rateLimitResetTimes?.[key]).toBe(
+      firstWrite + limitMs,
+    )
+
+    const b = await f.open()
+    const clearedAt = f.advance(100)
+    await b.pool.clearLimits(b.row)
+    expect((await f.read())?.metadata?.rateLimitClearedAt).toBe(clearedAt)
+    expect(
+      (await f.read())?.metadata?.rateLimitResetTimes?.[key],
+    ).toBeUndefined()
+
+    const secondWrite = f.advance(100)
+    const shortLimit = 1_000
+    b.pool.selector.markRateLimited(b.row, shortLimit, 'gemini', model)
+    await b.pool.flush()
+    expect((await f.read())?.metadata?.rateLimitResetTimes?.[key]).toBe(
+      secondWrite + shortLimit,
+    )
+
+    f.advance(100)
+    a.pool.selector.markRateLimited(a.row, limitMs, 'claude')
+    await a.pool.flush()
+    const metadata = (await f.read())?.metadata
+    expect(metadata?.rateLimitResetTimes?.[key]).toBe(secondWrite + shortLimit)
+    expect(metadata?.rateLimitWrittenAt?.[key]).toBe(secondWrite)
+  })
+
   it('does not adopt a reading written for the previous credential', async () => {
     const a = await f.open()
     const p = await f.open()

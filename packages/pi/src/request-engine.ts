@@ -79,12 +79,8 @@ export function createPiRequestEngine(options: PiRequestEngineOptions = {}) {
   const diagnostics = createPiRequestDiagnostics(settings, options.logDirectory)
   const config = piEngineConfig(settings)
   const requestSessions = new AgyRequestSessionStore({ now: () => Date.now() })
-  let anonymous = 0
   const sessions: RequestSessions = options.sessions ?? {
-    beginRequest: ({ sessionId }) =>
-      requestSessions.beginRequest(
-        sessionId ? `session:${sessionId}` : `anonymous:${++anonymous}`,
-      ),
+    beginRequest: ({ sessionId }) => requestSessions.beginRequest(sessionId),
   }
   // A cache hit is scoped to this activation and the engine's own conversation key.
   const signatures = new Map<
@@ -192,8 +188,7 @@ export function createPiRequestEngine(options: PiRequestEngineOptions = {}) {
                   hasVaultHost: no,
                 },
           authCommand: '/login google',
-          verificationNotice:
-            'An Antigravity account needs verification. Complete verification in your browser, then sign in again with /login google.',
+          verificationRemedy: 'browser_sign_in',
           reauthorize: () => new PiReauthorizeError(),
           wire,
           ...diagnostics,
