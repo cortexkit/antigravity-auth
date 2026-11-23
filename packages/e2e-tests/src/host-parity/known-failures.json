@@ -1940,43 +1940,13 @@
     "response-errors:D7"
   ],
   [
-    "[\"pre-response deadline\",\"pi\",\"local\",\"aborts\"]",
-    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"aborts\"]",
-    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
-    "response-errors:D1"
-  ],
-  [
     "[\"pre-response deadline\",\"opencode2\",\"vault\",\"reports\"]",
     "7f06c2844947820e35450a78ad2c92f9f0a27c0b29471b3cca417b0178af3652",
     "response-errors:D1"
   ],
   [
-    "[\"pre-response deadline\",\"pi\",\"vault\",\"delays\"]",
-    "9ef1eb1adbebaba43859c6adfe14cfc74549db1cc6e69e73c0863e063bc5337b",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"vault\",\"aborts\"]",
-    "17770081a77ebf6b48522949c73143a1796f9e8e453c5e87de430eb57300df66",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"vault\",\"cancellations\"]",
-    "63ef2df1f84ef34b8dcab801fce33c19afb9bbb9afc1497a1ca0ca36b5d623cc",
-    "response-errors:D1"
-  ],
-  [
     "[\"pre-response deadline\",\"pi\",\"vault\",\"reports\"]",
     "14dd8bb70af77c6dce300d7d97a346fe437ad2503e00d2a1a103341a065daa6c",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"aborts\"]",
-    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
     "response-errors:D1"
   ],
   [
@@ -1990,18 +1960,8 @@
     "response-errors:D1"
   ],
   [
-    "[\"pre-response deadline\",\"pi\",\"host\",\"aborts\"]",
-    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
-    "response-errors:D1"
-  ],
-  [
     "[\"pre-response deadline\",\"pi\",\"host\",\"reports\"]",
     "d443d4ac5f14b855152fcae2ce178c4c9308013ddc449295fa6fdfc30f255012",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"aborts\"]",
-    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
     "response-errors:D1"
   ],
   [
