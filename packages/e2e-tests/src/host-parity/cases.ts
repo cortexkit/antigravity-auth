@@ -1,6 +1,6 @@
 export const hostPackages = {
   opencode1: { package: '@ai-sdk/google', version: '3.0.73' },
-  opencode2: { package: '@opencode/plugin', version: '2.0.22' },
+  opencode2: { package: '@opencode/ai', version: '2.0.22' },
   pi: { package: '@earendil-works/pi-ai', version: '1.6.0' },
 } as const
 

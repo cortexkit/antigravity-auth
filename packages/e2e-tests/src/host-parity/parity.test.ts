@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test'
 import { requestCases, subjects } from './cases.ts'
-import { baseCommit, recordCorpus } from './record.ts'
+import { baseCommit } from './gate-data.ts'
+import { recordCorpus } from './record.ts'
 import { runConversation } from './runner.ts'
 
 const capturePath = process.env.HOST_PARITY_RECORD

@@ -8,12 +8,9 @@ import {
   subjects,
   unrepresentable,
 } from './cases.ts'
+import { caseKey as key } from './gate-data.ts'
 import { type Observation, runConversation } from './runner.ts'
 import { responseScenarios } from './scenarios.ts'
-
-export const baseCommit = 'b845e1a9bdf76a94f9c8869eaa43376032ba8e21'
-export const key = (id: string, subject: Subject, custody: Custody) =>
-  JSON.stringify([id, subject, custody])
 
 export async function recordCorpus(
   sourceCommit: string,
@@ -37,7 +34,6 @@ export async function recordCorpus(
                 subject,
                 custody: 'local',
                 input,
-                timed: true,
               })),
             }),
       }
@@ -56,7 +52,10 @@ export async function recordCorpus(
             custody,
             input: scenario.input,
             reply,
-            timed: true,
+            timed: scenario.replies.some(
+              ({ stall, status }) =>
+                stall !== undefined || (status !== undefined && status >= 400),
+            ),
           })
       }
     }
