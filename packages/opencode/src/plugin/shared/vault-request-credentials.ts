@@ -471,26 +471,51 @@ function legacyLimitKey(
   return JSON.stringify([by.accountIdentity, by.routeId, by.credentialId])
 }
 
+/**
+ * Tells if `incoming` is older than `stored`, by the same rule as the local
+ * account store: a reading without a date is never older and is not refused.
+ */
+function isOlderQuotaReading(
+  stored: Pick<QuotaState, 'cachedQuotaUpdatedAt'> | undefined,
+  incoming: Pick<QuotaState, 'cachedQuotaUpdatedAt'>,
+): boolean {
+  const previousAt = stored?.cachedQuotaUpdatedAt
+  const observedAt = incoming.cachedQuotaUpdatedAt
+  return (
+    typeof previousAt === 'number' &&
+    typeof observedAt === 'number' &&
+    observedAt < previousAt
+  )
+}
+
 function quotaUpdate(
   quota: QuotaState,
   now: () => number,
   legacy: LegacyLimitStamps = {},
-): (current: VaultAccountState | undefined) => VaultAccountStateValue {
-  return (current) => ({
-    ...(current?.metadata !== undefined
-      ? {
-          metadata: applyRateLimitReadingUpdate(
-            stampLoadedLegacyLimits(current.metadata, legacy),
-            rateLimitReadingUpdateOf(quota),
-            now(),
-          ),
-        }
-      : {}),
-    quota,
-    ...(current?.extensions !== undefined
-      ? { extensions: current.extensions }
-      : {}),
-  })
+): (
+  current: VaultAccountState | undefined,
+) => VaultAccountStateValue | undefined {
+  return (current) => {
+    // The update runs under the provider-state lock, so a check that ends
+    // late cannot replace a newer reading or its rate-limit decision.
+    // `undefined` makes the commit `unchanged`.
+    if (isOlderQuotaReading(current?.quota, quota)) return undefined
+    return {
+      ...(current?.metadata !== undefined
+        ? {
+            metadata: applyRateLimitReadingUpdate(
+              stampLoadedLegacyLimits(current.metadata, legacy),
+              rateLimitReadingUpdateOf(quota),
+              now(),
+            ),
+          }
+        : {}),
+      quota,
+      ...(current?.extensions !== undefined
+        ? { extensions: current.extensions }
+        : {}),
+    }
+  }
 }
 
 function stampLoadedLegacyLimits(
@@ -1152,6 +1177,8 @@ export function vaultQuotaState(quota: QuotaSummary, at: number): QuotaState {
  * account or a newer record version) is not checked and is not shown, and
  * does not stop the other readings from being written. A written reading is
  * also put on the row that is still at that route, credential and account.
+ * A dated reading older than the stored one or the row's one is not written
+ * or put on the row; the row still counts as checked.
  * An aborted `signal` stops the check: the remaining rows are not fetched,
  * and readings already fetched are not written.
  */
@@ -1238,6 +1265,16 @@ export async function checkVaultQuota(input: {
       )
       continue
     }
+    if (
+      result.status === 'unchanged' &&
+      isOlderQuotaReading(result.state?.quota, reading)
+    ) {
+      // The account already holds a newer reading, as the local store keeps
+      // one: the check is complete and the older reading is dropped.
+      checked += 1
+      input.onOutcome?.('recorded')
+      continue
+    }
     if (result.status !== 'written') {
       input.onOutcome?.(
         result.status === 'uncertain' ? 'write-uncertain' : 'commit-unchanged',
@@ -1250,7 +1287,8 @@ export async function checkVaultQuota(input: {
     const live = liveByRoute.get(attribution.routeId)
     if (
       live?.route.credentialId === attribution.credentialId &&
-      live.route.accountIdentity === attribution.accountIdentity
+      live.route.accountIdentity === attribution.accountIdentity &&
+      !isOlderQuotaReading(live, reading)
     ) {
       const cached = cachedQuotaOf(reading)
       if (cached !== undefined) live.cachedQuota = cached

@@ -782,7 +782,7 @@ describe('vault pools sharing one provider-state file', () => {
     a.pool.selector.markRateLimited(a.row, limitMs, 'gemini', model)
     await a.pool.flush()
     await f.checkQuota(p.pool, older, 0.9)
-    expect((await f.read())?.quota?.cachedQuotaUpdatedAt).toBe(older)
+    expect((await f.read())?.quota?.cachedQuotaUpdatedAt).toBe(newer)
 
     await a.pool.sync()
     expect(a.row.cachedQuotaUpdatedAt).toBe(newer)
