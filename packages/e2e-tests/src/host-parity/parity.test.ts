@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { requestCases, subjects } from './cases.ts'
-import { epoch } from './fixtures.ts'
+import { bodyOf, epoch } from './fixtures.ts'
 import { admittedCapture, checkCorpus } from './gate.ts'
 import {
   baseCommit,
@@ -88,6 +88,81 @@ test('the gate rejects a stale or changed known failure by exact field', () => {
     `${name} passes now: remove the known failure`,
   ])
   expect(check({ terminal: [['failure:deadline']] })[0]).toContain(name)
+})
+
+test('the cited legacy attachment layout still pins image bytes, MIME and text', () => {
+  const input = requestCases.find(
+    ({ id }) => id === 'tool-result image: mixed',
+  )!
+  const wire = (role: string, parts: object[]) => [
+    {
+      target: 'https://captured.test',
+      headers: [] as [string, string][],
+      bodyBase64: Buffer.from(
+        JSON.stringify({ request: { contents: [{ role, parts }] } }),
+      ).toString('base64'),
+    },
+  ]
+  const image = { inlineData: { mimeType: 'image/png', data: 'aGVsbG8=' } }
+  const result = {
+    name: 'capture',
+    response: { name: 'capture', content: 'text' },
+  }
+  const reference = wire('model', [
+    { functionResponse: { id: 'call', ...result, parts: [image] } },
+  ])
+  const legacy = (imagePart: typeof image, text: string) =>
+    wire('user', [
+      {
+        functionResponse: {
+          ...result,
+          response: { ...result.response, content: text },
+        },
+      },
+      imagePart,
+      {
+        text: 'Tool executed successfully and returned this image as a response',
+      },
+    ])
+  const expected = wireFields(reference, input, {
+    host: 'opencode1',
+    reference: true,
+  })
+  const fields = (observed: ReturnType<typeof wire>) =>
+    wireFields(observed, input, { host: 'opencode1' })
+  expect(fields(legacy(image, 'text'))).toEqual(expected)
+  expect(
+    fields(
+      legacy({ inlineData: { ...image.inlineData, data: 'd29ybGQ=' } }, 'text'),
+    ),
+  ).not.toEqual(expected)
+  expect(
+    fields(
+      legacy(
+        { inlineData: { ...image.inlineData, mimeType: 'image/jpeg' } },
+        'text',
+      ),
+    ),
+  ).not.toEqual(expected)
+  expect(fields(legacy(image, 'different'))).not.toEqual(expected)
+})
+
+test('OpenCode 2 drops an unsigned empty model part without dropping the turn', async () => {
+  const input = requestCases.find(({ id }) =>
+    id.endsWith('explicit empty text'),
+  )!
+  const result = await runConversation({
+    input,
+    subject: 'opencode2',
+    custody: 'local',
+  })
+  expect(bodyOf(result.wire[0]!).request).toMatchObject({
+    contents: [
+      { role: 'user', parts: [{ text: 'Look up the value.' }] },
+      { role: 'model', parts: [{ text: '.' }] },
+      { role: 'user', parts: [{ text: 'What did you find?' }] },
+    ],
+  })
 })
 
 const reportId = (suffix: number) =>

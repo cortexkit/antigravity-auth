@@ -75,6 +75,7 @@ export class Environment {
   private randomIndex = 0
   private nodeId = 0
   private scopeId = 0
+  private executionId = 10_001
   private webId = 0
   private latestSend = epoch
   private readonly restore: (() => void)[] = []
@@ -174,8 +175,11 @@ export class Environment {
   nextNodeId() {
     // Account, bridge and reporting IDs must not advance the request-scope
     // sequence. Keep the production scope lookup; only supply its next IDs.
-    if (new Error().stack?.includes('createAgyRequestSessionContext'))
+    const stack = new Error().stack
+    if (stack?.includes('createAgyRequestSessionContext'))
       return uuid(++this.scopeId)
+    if (stack?.includes('buildAgyAgentRequestMetadata'))
+      return uuid(++this.executionId)
     return uuid(10_000 + ++this.nodeId)
   }
 

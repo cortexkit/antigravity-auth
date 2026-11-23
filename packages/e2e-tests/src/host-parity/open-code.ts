@@ -390,7 +390,12 @@ export async function openCode2(
               model: {
                 id: conversation.model,
                 providerID: 'google',
-                variant: conversation.options.level,
+                // The budget case tests the explicit Google option, not a
+                // separate catalog selection that intentionally overrides it.
+                variant:
+                  conversation.options.budget === undefined
+                    ? conversation.options.level
+                    : undefined,
               },
               request,
             }

@@ -1,4 +1,5 @@
 import type { Conversation, Custody, Subject } from './cases.ts'
+import { excepts } from './exceptions.ts'
 import { bodyOf, credential, type Wire } from './fixtures.ts'
 import type { Observation } from './runner.ts'
 import { expectedScenarioNotices, type Scenario } from './scenarios.ts'
@@ -150,21 +151,70 @@ const inner = (wire: Wire) =>
     generationConfig?: { thinkingConfig?: { thinkingLevel?: unknown } }
   }
 
-/** Decodes one captured send's body: chunked framing removed, JSON parsed. */
-function decodedBody(wire: Wire): Record<string, unknown> {
-  let text = Buffer.from(wire.bodyBase64, 'base64').toString('utf8')
-  if (/^[0-9a-f]+\r\n/i.test(text)) {
-    let data = ''
-    for (;;) {
-      const end = text.indexOf('\r\n')
-      const size = Number.parseInt(text.slice(0, end), 16)
-      if (!size) break
-      data += text.slice(end + 2, end + 2 + size)
-      text = text.slice(end + 2 + size + 2)
-    }
-    text = data
+type WirePart = Record<string, unknown> & {
+  functionCall?: Record<string, unknown>
+  functionResponse?: {
+    id?: string
+    response?: { content?: string }
+    parts?: WirePart[]
   }
-  return JSON.parse(text)
+}
+type WireContent = { role: string; parts: WirePart[] }
+const contentsOf = (body: Record<string, unknown>) =>
+  (body.request as { contents?: WireContent[] })?.contents
+
+function limitedBodies(
+  wire: Wire[],
+  input: Conversation,
+  { host, reference }: { host: Subject; reference?: boolean },
+) {
+  const lacksToolIds = excepts(input.id, host, 'wire.toolIds')
+  const lacksEmptySignature = excepts(input.id, host, 'wire.emptyTextSignature')
+  const lacksAttachmentLayout = excepts(
+    input.id,
+    host,
+    'wire.toolResultAttachmentLayout',
+  )
+  if (!lacksToolIds && !lacksEmptySignature && !lacksAttachmentLayout) return
+  return wire.map((item) => {
+    const body = bodyOf(item)
+    for (const content of contentsOf(body) ?? []) {
+      content.parts = content.parts.flatMap((part) => {
+        const result = part.functionResponse
+        if (lacksToolIds) {
+          if (part.functionCall) delete part.functionCall.id
+          if (result) delete result.id
+        }
+        if (
+          reference &&
+          lacksEmptySignature &&
+          part.text === '' &&
+          part.thoughtSignature
+        ) {
+          delete part.thoughtSignature
+          part.text = '.'
+        }
+        if (reference && lacksAttachmentLayout && result?.parts?.length) {
+          // Reconstruct only the legacy SDK's layout in the reference. The
+          // observed request must still carry the same image bytes and text.
+          content.role = 'user'
+          const images = result.parts
+          delete result.parts
+          return [
+            ...(result.response?.content === '' ? [] : [part]),
+            ...images.flatMap((image) => [
+              image,
+              {
+                text: 'Tool executed successfully and returned this image as a response',
+              },
+            ]),
+          ]
+        }
+        return [part]
+      })
+    }
+    return body
+  })
 }
 
 /**
@@ -180,33 +230,40 @@ function decodedBody(wire: Wire): Record<string, unknown> {
  *   reference for it. The gate checks the signature separately against
  *   OpenCode 2 as `replay.textSignature`. Every other byte still has to match.
  */
-export function wireFields(wire: Wire[], input?: Conversation): Fields {
+export function wireFields(
+  wire: Wire[],
+  input?: Conversation,
+  limits?: { host: Subject; reference?: boolean },
+): Fields {
   const caseId = input?.id
+  // The same-host byte check remains in force even for a cited SDK loss.
+  const bodies =
+    input && limits ? limitedBodies(wire, input, limits) : undefined
   if (caseId?.startsWith('Claude tool reply ending the history'))
     return {
       'wire.target': wire.map(({ target }) => target),
-      'wire.contents': wire.map((w) => inner(w).contents ?? null),
+      'wire.contents': bodies
+        ? bodies.map((body) => contentsOf(body) ?? null)
+        : wire.map((w) => inner(w).contents ?? null),
     }
   if (input?.replayText)
     return {
       'wire.target': wire.map(({ target }) => target),
       'wire.headers': wire.map(({ headers }) => headers),
-      'wire.bodyWithoutTextSignature': wire.map((w) => {
-        const body = decodedBody(w)
-        const request = body.request as {
-          contents?: { parts?: Record<string, unknown>[] }[]
-        }
-        for (const content of request?.contents ?? [])
-          for (const part of content.parts ?? [])
-            if (typeof part.text === 'string' && !part.functionCall)
-              delete part.thoughtSignature
-        return body
-      }),
+      'wire.bodyWithoutTextSignature': (bodies ?? wire.map(bodyOf)).map(
+        (body) => {
+          for (const content of contentsOf(body) ?? [])
+            for (const part of content.parts ?? [])
+              if (typeof part.text === 'string' && !part.functionCall)
+                delete part.thoughtSignature
+          return body
+        },
+      ),
     }
   return {
     'wire.target': wire.map(({ target }) => target),
     'wire.headers': wire.map(({ headers }) => headers),
-    'wire.body': wire.map(({ bodyBase64 }) => bodyBase64),
+    'wire.body': bodies ?? wire.map(({ bodyBase64 }) => bodyBase64),
   }
 }
 
