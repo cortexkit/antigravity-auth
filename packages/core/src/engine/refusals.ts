@@ -48,6 +48,11 @@ export const ENGINE_REFUSALS = {
     429,
     { rpcStatus: 'RESOURCE_EXHAUSTED' },
   ),
+  rate_limit_exceeded: refusal(
+    'rate_limit_exceeded',
+    'Antigravity asked to slow down. Wait before sending another request.',
+    412,
+  ),
   capacity_exhausted: refusal(
     'capacity_exhausted',
     'Antigravity could not obtain capacity for this request.',
@@ -218,7 +223,7 @@ export function engineRefusalResponse(
   const { status, headers: standardHeaders } = entry[host]
   const headers = new Headers(standardHeaders)
   const milliseconds =
-    id === 'quota_exhausted'
+    id === 'quota_exhausted' || id === 'rate_limit_exceeded'
       ? quotaMilliseconds(details.resetAfterMs)
       : undefined
   if (milliseconds !== undefined) {

@@ -106,6 +106,7 @@ import {
 } from './request-helpers.ts'
 import {
   extractAntigravityError,
+  extractRateLimitErrorInfoReason,
   createNativeGoogleErrorResponse as nativeErrorResponse,
   resolveRetryMetadata,
 } from './retry-metadata.ts'
@@ -4451,21 +4452,7 @@ function extractRateLimitBodyInfo(
       ? errorRecord.details
       : undefined
 
-  let reason: string | undefined
-  if (Array.isArray(details)) {
-    for (const detail of details) {
-      if (!detail || typeof detail !== 'object' || Array.isArray(detail))
-        continue
-      const type = (detail as { '@type'?: string })['@type']
-      if (typeof type === 'string' && type.includes('google.rpc.ErrorInfo')) {
-        const detailReason = (detail as { reason?: string }).reason
-        if (typeof detailReason === 'string') {
-          reason = detailReason
-          break
-        }
-      }
-    }
-  }
+  const reason = extractRateLimitErrorInfoReason(details)
 
   const resolved = resolveRetryMetadata({
     details,

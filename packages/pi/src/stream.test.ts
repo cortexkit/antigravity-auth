@@ -486,7 +486,7 @@ describe('selected credential boundary', () => {
     expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
   })
 
-  it('keeps the structured HTTP refusal after the engine same-account waits', async () => {
+  it('returns the fixed slowdown refusal after the engine same-account waits', async () => {
     const body = JSON.stringify({
       error: {
         code: 429,
@@ -499,13 +499,34 @@ describe('selected credential boundary', () => {
         ],
       },
     })
-    const { result, waits } = await runRateLimit(body)
+    const { events, result, waits } = await runRateLimit(body)
     // Replies within the two-second deduplication window share a quick retry; the final refusal backs off.
     expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(3)
     expect(waits).toEqual([1000, 1000, 2000])
+    expect(events.map((event) => event.type)).toEqual(['start', 'error'])
+    expect(result.stopReason).toBe('error')
     expect(result.errorMessage).toBe(
-      `Antigravity request failed: HTTP 429 ${body}`,
+      'Antigravity asked to slow down. Wait before sending another request.',
     )
+  })
+
+  it('keeps the quota refusal for structured QUOTA_EXHAUSTED', async () => {
+    const { events, result } = await runRateLimit(
+      JSON.stringify({
+        error: {
+          message: 'Request refused',
+          details: [
+            {
+              '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+              reason: 'QUOTA_EXHAUSTED',
+            },
+          ],
+        },
+      }),
+    )
+    expect(events.map((event) => event.type)).toEqual(['start', 'error'])
+    expect(result.stopReason).toBe('error')
+    expect(result.errorMessage).toBe('Antigravity quota has been used up.')
   })
 
   it('leaves no mark or retry when a Pi rewrite seam sends a recognised phrase', async () => {

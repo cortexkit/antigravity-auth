@@ -15,6 +15,7 @@ import { isRetryableAssistantError as pi160WouldRetry } from './vendor/pi-1.6.0-
 const entries = [
   ['quota_wait_exhausted', 412, 412],
   ['quota_exhausted', 429, 429],
+  ['rate_limit_exceeded', 412, 412],
   ['capacity_exhausted', 412, 412],
   ['model_not_found', 412, 412],
   ['account_reauthorize', 401, 401],
@@ -93,6 +94,24 @@ test('the closed refusal table cannot induce an unintended host resend', async (
   expect(quota.headers.get('retry-after')).toBe('62')
   expect(quota.headers.get('retry-after-ms')).toBe('61250')
   expect(await quota.text()).toContain('Quota resets in 1m 2s.')
+  for (const host of ['openCode1', 'openCode2'] as const) {
+    const slowdown = engine.engineRefusalResponse(
+      'rate_limit_exceeded',
+      { resetAfterMs: 1_250 },
+      host,
+    )
+    expect(slowdown.status).toBe(412)
+    expect(slowdown.headers.get('retry-after')).toBe('2')
+    expect(slowdown.headers.get('retry-after-ms')).toBe('1250')
+    expect(await slowdown.json()).toEqual({
+      error: {
+        code: 412,
+        status: 'FAILED_PRECONDITION',
+        message:
+          'Antigravity asked to slow down. Wait before sending another request.',
+      },
+    })
+  }
   const overflow = await google2(conversation('safe overflow'), async () =>
     engine.engineRefusalResponse('context_overflow', {}, 'openCode2'),
   )
@@ -119,6 +138,50 @@ test('Pi returns a safe cancellation instead of a caller-supplied abort reason',
 })
 
 for (const subject of ['opencode1', 'opencode2', 'pi'] as const) {
+  test(`${subject} distinguishes structured slowdown from quota exhaustion`, async () => {
+    for (const { reason, id, message, sends } of [
+      {
+        reason: 'RATE_LIMIT_EXCEEDED',
+        id: 'rate_limit_exceeded',
+        message:
+          'Antigravity asked to slow down. Wait before sending another request.',
+        sends: 3,
+      },
+      {
+        reason: 'QUOTA_EXHAUSTED',
+        id: 'quota_exhausted',
+        message: 'Antigravity quota has been used up.',
+        sends: 1,
+      },
+    ]) {
+      const result = await runConversation({
+        subject,
+        custody: 'local',
+        input: conversation(`fixed refusal for ${reason}`),
+        timed: true,
+        reply: () => ({
+          status: 429,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            error: {
+              code: 429,
+              status: 'RESOURCE_EXHAUSTED',
+              message: marker,
+              details: [
+                { '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason },
+              ],
+            },
+          }),
+        }),
+      })
+      expect(result.physicalSends).toHaveLength(sends)
+      expect(result.turns[0]?.terminal).toEqual([`failure:${id}`])
+      expect(result.turns[0]?.errors).toEqual([message])
+      if (reason === 'RATE_LIMIT_EXCEEDED')
+        expect(result.delays).toEqual([1000, 1000, 2000])
+    }
+  })
+
   test(`${subject} never publishes upstream refusal bodies or arbitrary headers`, async () => {
     const result = await runConversation({
       subject,

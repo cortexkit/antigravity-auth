@@ -30,6 +30,7 @@ import {
   rewriteSystemInstruction,
   supportsGeminiXHigh,
 } from '../index.ts'
+import { parseRateLimitReason } from '../rotation.ts'
 import { sanitizeCrossModelPayloadInPlace } from '../transform/cross-model-sanitizer.ts'
 import {
   appendClaudeThinkingHint,
@@ -80,6 +81,7 @@ import {
 } from './request-helpers.ts'
 import {
   extractAntigravityError,
+  extractRateLimitErrorInfoReason,
   resolveRetryMetadata,
 } from './retry-metadata.ts'
 import {
@@ -2843,6 +2845,15 @@ async function transformAntigravityResponseIn(
       return engineRefusalResponse('context_overflow')
     }
     if (response.status === 429) {
+      const reason = parseRateLimitReason(
+        extractRateLimitErrorInfoReason(upstream?.details),
+        message,
+        response.status,
+      )
+      if (reason === 'MODEL_CAPACITY_EXHAUSTED')
+        return engineRefusalResponse('capacity_exhausted')
+      if (reason !== 'QUOTA_EXHAUSTED' && reason !== 'RATE_LIMIT_EXCEEDED')
+        return engineRefusalResponse('quota_wait_exhausted')
       const retry = resolveRetryMetadata({
         details: upstream?.details,
         message,
@@ -2850,9 +2861,12 @@ async function transformAntigravityResponseIn(
         headers: response.headers,
         allowZero: false,
       })
-      return engineRefusalResponse('quota_exhausted', {
-        resetAfterMs: retry?.delayMs,
-      })
+      return engineRefusalResponse(
+        reason === 'QUOTA_EXHAUSTED'
+          ? 'quota_exhausted'
+          : 'rate_limit_exceeded',
+        { resetAfterMs: retry?.delayMs },
+      )
     }
     const refusal = engineRefusalResponse(
       response.status === 401 || response.status === 403
