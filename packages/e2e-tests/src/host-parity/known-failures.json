@@ -40,26 +40,6 @@
     "request-wire:D4"
   ],
   [
-    "[\"two sessions without ids\",\"opencode1\",\"local\",\"wire.freshScope\"]",
-    "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
-    "request-wire:D6"
-  ],
-  [
-    "[\"two sessions without ids\",\"opencode2\",\"local\",\"wire.freshScope\"]",
-    "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
-    "request-wire:D6"
-  ],
-  [
-    "[\"two sessions without ids\",\"pi\",\"local\",\"wire.body\"]",
-    "9cfe23481eecc992909a14de6f325d89115790309a78579cacce7a88369af5f7",
-    "request-wire:D6"
-  ],
-  [
-    "[\"two sessions without ids\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "9cfe23481eecc992909a14de6f325d89115790309a78579cacce7a88369af5f7",
-    "request-wire:D6"
-  ],
-  [
     "[\"tool-result image: image-only\",\"opencode2\",\"local\",\"wire.body\"]",
     "1236e9897d19d9f2fc288a4257c4be567ae8712fb3541ef6e5d64fdcd621e927",
     "request-wire:D8"
@@ -70,18 +50,8 @@
     "request-wire:D8"
   ],
   [
-    "[\"object tool arguments with a thinking key\",\"opencode1\",\"local\",\"wire.toolArguments\"]",
-    "e2d442b7e8532dc0d106ad13d48d20923beb253487d1d405e6d6530630522999",
-    "request-wire:D9"
-  ],
-  [
     "[\"object tool arguments with a thinking key\",\"opencode2\",\"local\",\"wire.body\"]",
-    "f777d160269578ed0cef5d59acbd387e53eec6232a05b1df7c93a28158333f7d",
-    "request-wire:D9"
-  ],
-  [
-    "[\"object tool arguments with a thinking key\",\"opencode2\",\"local\",\"wire.toolArguments\"]",
-    "e2d442b7e8532dc0d106ad13d48d20923beb253487d1d405e6d6530630522999",
+    "e90576dc96ea65a5ed2b43fd87618e3e5749655ba2c0a9301ea2c16a262c0a13",
     "request-wire:D9"
   ],
   [
@@ -585,38 +555,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"finish on candidate 1 only\",\"opencode1\",\"local\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"opencode2\",\"local\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"pi\",\"local\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"opencode1\",\"vault\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
     "[\"finish on candidate 1 only\",\"opencode2\",\"vault\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"opencode2\",\"vault\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
     "response-errors:D5"
   ],
   [
@@ -625,23 +565,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"finish on candidate 1 only\",\"pi\",\"vault\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
     "[\"finish on candidate 1 only\",\"pi-transcript\",\"vault\",\"reports\"]",
     "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"opencode1\",\"host\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
     "response-errors:D5"
   ],
   [
@@ -650,28 +575,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"finish on candidate 1 only\",\"opencode2\",\"host\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
     "[\"finish on candidate 1 only\",\"pi\",\"host\",\"reports\"]",
     "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
-    "[\"finish on candidate 1 only\",\"pi\",\"host\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
     "[\"finish on candidate 1 only\",\"pi-transcript\",\"host\",\"reports\"]",
     "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
     "response-errors:D5"
   ],
   [
@@ -825,11 +735,6 @@
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"opencode1\",\"vault\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"opencode2\",\"vault\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
     "response-errors:D5"
@@ -842,11 +747,6 @@
   [
     "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"reports\"]",
     "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"opencode1\",\"host\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
     "response-errors:D5"
   ],
   [
@@ -865,38 +765,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"split usage\",\"opencode1\",\"local\",\"usage\"]",
-    "0924b0db2be770a357da4cfab92232db30ab78d54c3462587a3ab78f6d00268a",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"opencode2\",\"local\",\"usage\"]",
-    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi\",\"local\",\"usage\"]",
-    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi-transcript\",\"local\",\"usage\"]",
-    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"opencode1\",\"vault\",\"usage\"]",
-    "0924b0db2be770a357da4cfab92232db30ab78d54c3462587a3ab78f6d00268a",
-    "response-errors:D4"
-  ],
-  [
     "[\"split usage\",\"opencode2\",\"vault\",\"reports\"]",
     "9145fb6b6c05817fcd79c12b0537f408182b8a4a312c4ea95a6974cb5476f33c",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"opencode2\",\"vault\",\"usage\"]",
-    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
     "response-errors:D4"
   ],
   [
@@ -905,23 +775,8 @@
     "response-errors:D4"
   ],
   [
-    "[\"split usage\",\"pi\",\"vault\",\"usage\"]",
-    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
-    "response-errors:D4"
-  ],
-  [
     "[\"split usage\",\"pi-transcript\",\"vault\",\"reports\"]",
     "f4b26a198b9576c834e1316a3cfe5259f2b987be6eadcb9b687031f2b963388f",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi-transcript\",\"vault\",\"usage\"]",
-    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"opencode1\",\"host\",\"usage\"]",
-    "0924b0db2be770a357da4cfab92232db30ab78d54c3462587a3ab78f6d00268a",
     "response-errors:D4"
   ],
   [
@@ -930,18 +785,8 @@
     "response-errors:D4"
   ],
   [
-    "[\"split usage\",\"opencode2\",\"host\",\"usage\"]",
-    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
-    "response-errors:D4"
-  ],
-  [
     "[\"split usage\",\"pi\",\"host\",\"reports\"]",
     "5e94b07520e53e315a7c05c07cc3c2b7028a971a29fad52083f3fed74e98ea9d",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi\",\"host\",\"usage\"]",
-    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
     "response-errors:D4"
   ],
   [
@@ -950,43 +795,8 @@
     "response-errors:D4"
   ],
   [
-    "[\"split usage\",\"pi-transcript\",\"host\",\"usage\"]",
-    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"opencode1\",\"local\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"opencode2\",\"local\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"pi\",\"local\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"pi-transcript\",\"local\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"opencode1\",\"vault\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
     "[\"usage after STOP\",\"opencode2\",\"vault\",\"reports\"]",
     "9145fb6b6c05817fcd79c12b0537f408182b8a4a312c4ea95a6974cb5476f33c",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"opencode2\",\"vault\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
     "response-errors:D4"
   ],
   [
@@ -995,23 +805,8 @@
     "response-errors:D4"
   ],
   [
-    "[\"usage after STOP\",\"pi\",\"vault\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
     "[\"usage after STOP\",\"pi-transcript\",\"vault\",\"reports\"]",
     "f4b26a198b9576c834e1316a3cfe5259f2b987be6eadcb9b687031f2b963388f",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"pi-transcript\",\"vault\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"opencode1\",\"host\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
     "response-errors:D4"
   ],
   [
@@ -1020,28 +815,13 @@
     "response-errors:D4"
   ],
   [
-    "[\"usage after STOP\",\"opencode2\",\"host\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
     "[\"usage after STOP\",\"pi\",\"host\",\"reports\"]",
     "5e94b07520e53e315a7c05c07cc3c2b7028a971a29fad52083f3fed74e98ea9d",
     "response-errors:D4"
   ],
   [
-    "[\"usage after STOP\",\"pi\",\"host\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
     "[\"usage after STOP\",\"pi-transcript\",\"host\",\"reports\"]",
     "5e94b07520e53e315a7c05c07cc3c2b7028a971a29fad52083f3fed74e98ea9d",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"pi-transcript\",\"host\",\"usage\"]",
-    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
     "response-errors:D4"
   ],
   [
@@ -1075,16 +855,6 @@
     "response-errors:D5"
   ],
   [
-    "[\"duplicate thinking\",\"opencode1\",\"local\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"opencode1\",\"vault\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D6"
-  ],
-  [
     "[\"duplicate thinking\",\"opencode2\",\"vault\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
     "response-errors:D6"
@@ -1097,11 +867,6 @@
   [
     "[\"duplicate thinking\",\"pi-transcript\",\"vault\",\"reports\"]",
     "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"opencode1\",\"host\",\"thinking\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
     "response-errors:D6"
   ],
   [
@@ -1120,28 +885,8 @@
     "response-errors:D6"
   ],
   [
-    "[\"identical thinking in two sessions\",\"opencode1\",\"local\",\"thinking\"]",
-    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"opencode2\",\"local\",\"thinking\"]",
-    "835f31cf10f41e6babaf935c0d0da886f0ed6ca6eb083ca3796c7bb99e391c1d",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"opencode1\",\"vault\",\"thinking\"]",
-    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
-    "response-errors:D6"
-  ],
-  [
     "[\"identical thinking in two sessions\",\"opencode2\",\"vault\",\"reports\"]",
     "9a070f6f1d46885bc5b045f63f48fe35be72590932a255569bf6677f55547889",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"opencode2\",\"vault\",\"thinking\"]",
-    "835f31cf10f41e6babaf935c0d0da886f0ed6ca6eb083ca3796c7bb99e391c1d",
     "response-errors:D6"
   ],
   [
@@ -1155,18 +900,8 @@
     "response-errors:D6"
   ],
   [
-    "[\"identical thinking in two sessions\",\"opencode1\",\"host\",\"thinking\"]",
-    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
-    "response-errors:D6"
-  ],
-  [
     "[\"identical thinking in two sessions\",\"opencode2\",\"host\",\"reports\"]",
     "9a070f6f1d46885bc5b045f63f48fe35be72590932a255569bf6677f55547889",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"opencode2\",\"host\",\"thinking\"]",
-    "835f31cf10f41e6babaf935c0d0da886f0ed6ca6eb083ca3796c7bb99e391c1d",
     "response-errors:D6"
   ],
   [
@@ -1268,15 +1003,5 @@
     "[\"Claude tool reply ending the history: wrapped\",\"opencode2\",\"local\",\"wire.contents\"]",
     "3f15baa8b2763184f8c675eae291b2306d47bdd0625becfc6dd1847fa4b18ae9",
     "request-wire:D4"
-  ],
-  [
-    "[\"object tool arguments with a thinking key\",\"pi\",\"local\",\"wire.toolArguments\"]",
-    "e2d442b7e8532dc0d106ad13d48d20923beb253487d1d405e6d6530630522999",
-    "request-wire:D9"
-  ],
-  [
-    "[\"object tool arguments with a thinking key\",\"pi-transcript\",\"local\",\"wire.toolArguments\"]",
-    "e2d442b7e8532dc0d106ad13d48d20923beb253487d1d405e6d6530630522999",
-    "request-wire:D9"
   ]
 ]

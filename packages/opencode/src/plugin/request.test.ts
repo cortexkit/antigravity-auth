@@ -3166,6 +3166,8 @@ describe('request.ts', () => {
     })
 
     it('normalizes a raw Claude tool-result turn before deciding whether to continue', () => {
+      const accessToken = 'test-access'
+      const project = 'test-project'
       const contents = [
         { role: 'user', parts: [{ text: 'Look up the value.' }] },
         {
@@ -3199,12 +3201,12 @@ describe('request.ts', () => {
             prepareAntigravityRequest(
               'https://generativelanguage.googleapis.com/v1beta/models/antigravity-claude-sonnet-5-5:streamGenerateContent',
               { method: 'POST', body: JSON.stringify(body) },
-              mockAccessToken,
-              mockProjectId,
+              accessToken,
+              project,
             ).init.body,
           ),
         ).request.contents
-      const wrapped = prepare({ project: mockProjectId, request: { contents } })
+      const wrapped = prepare({ project, request: { contents } })
       const raw = prepare({ contents })
       expect(raw.at(-1)).toEqual(wrapped.at(-1))
       expect(raw.at(-1)).toMatchObject({

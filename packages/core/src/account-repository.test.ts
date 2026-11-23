@@ -782,7 +782,10 @@ async function freshGeneration(
   return binding.paths
 }
 
-async function withPool(body: (pool: Pool) => Promise<void>): Promise<void> {
+async function withPool(
+  body: (pool: Pool) => Promise<void>,
+  now: () => number = () => Date.now(),
+): Promise<void> {
   const admitted = await admittedStore()
   const { module, fs, bridge, fsBridge } = admitted
   const dir = await realTempDir()
@@ -807,7 +810,7 @@ async function withPool(body: (pool: Pool) => Promise<void>): Promise<void> {
           options,
         )({
           paths,
-          now: () => Date.now(),
+          now,
           exchange,
         })
         opened.push(repository)
@@ -1776,38 +1779,42 @@ describe('repository on the genuine public store', () => {
   )
 
   it(
-    'adds up usage increments from two store instances and keeps the later rate limit',
+    'adds up usage increments from two store instances and keeps the newer rate-limit observation',
     async () => {
-      await withPool(async (pool) => {
-        const a = pool.open()
-        const b = pool.open()
-        const { ref } = await a.login(login('main', 'tok-1', {}, 'acct-1'))
-        const dayBefore = utcDay(Date.now())
-        await Promise.all([
-          ...Array.from({ length: 5 }, (_, i) =>
-            a.recordUsage(ref, { family: 'claude', at: 100 + i }),
-          ),
-          ...Array.from({ length: 5 }, (_, i) =>
-            b.recordUsage(ref, { family: 'claude', at: 200 + i }),
-          ),
-          b.recordUsage(ref, { family: 'gemini', at: 50 }),
-        ])
-        await Promise.all([
-          a.recordRateLimits(ref, { claude: 900 }),
-          b.recordRateLimits(ref, { claude: 500, 'gemini-cli': 700 }),
-        ])
-        const metadata = await metadataOf(a, 'main')
-        expect([dayBefore, utcDay(Date.now())]).toContain(
-          metadata.dailyRequestCounts?.date ?? '',
-        )
-        expect(metadata.dailyRequestCounts?.claude).toBe(10)
-        expect(metadata.dailyRequestCounts?.gemini).toBe(1)
-        expect(metadata.lastUsed).toBe(204)
-        expect(metadata.rateLimitResetTimes).toEqual({
-          claude: 900,
-          'gemini-cli': 700,
-        })
-      })
+      let clock = Date.now()
+      await withPool(
+        async (pool) => {
+          const a = pool.open()
+          const b = pool.open()
+          const { ref } = await a.login(login('main', 'tok-1', {}, 'acct-1'))
+          const dayBefore = utcDay(Date.now())
+          await Promise.all([
+            ...Array.from({ length: 5 }, (_, i) =>
+              a.recordUsage(ref, { family: 'claude', at: 100 + i }),
+            ),
+            ...Array.from({ length: 5 }, (_, i) =>
+              b.recordUsage(ref, { family: 'claude', at: 200 + i }),
+            ),
+            b.recordUsage(ref, { family: 'gemini', at: 50 }),
+          ])
+          await a.recordRateLimits(ref, { claude: 900 })
+          clock++
+          await b.recordRateLimits(ref, { claude: 500, 'gemini-cli': 700 })
+          const metadata = await metadataOf(a, 'main')
+          expect([dayBefore, utcDay(Date.now())]).toContain(
+            metadata.dailyRequestCounts?.date ?? '',
+          )
+          expect(metadata.dailyRequestCounts?.claude).toBe(10)
+          expect(metadata.dailyRequestCounts?.gemini).toBe(1)
+          expect(metadata.lastUsed).toBe(204)
+          expect(metadata.rateLimitResetTimes).toEqual({
+            claude: 500,
+            'gemini-cli': 700,
+          })
+          expect(metadata.rateLimitWrittenAt?.claude).toBe(clock)
+        },
+        () => clock,
+      )
     },
     STORE_TEST_TIMEOUT_MS,
   )
