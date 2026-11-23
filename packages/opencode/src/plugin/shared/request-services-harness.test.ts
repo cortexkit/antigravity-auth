@@ -10,9 +10,10 @@ import {
   type OAuthAuthDetails,
   TokenBucketTracker,
 } from '@cortexkit/antigravity-auth-core'
-import type {
-  RequestSendAdmission,
-  RequestWire,
+import {
+  type RequestSendAdmission,
+  type RequestWire,
+  StaleLocalGrantError,
 } from '@cortexkit/antigravity-auth-core/engine'
 import { extractAccountAccessErrorDetails } from '../account-access'
 import { DEFAULT_CONFIG } from '../config'
@@ -197,7 +198,7 @@ export function harness(
               pool.toAuthDetails(account).access !== accessToken ||
               pool.toAuthDetails(account).refresh !== identity
             ) {
-              throw new Error('stale grant')
+              throw new StaleLocalGrantError()
             }
           },
         }
