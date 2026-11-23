@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [3.1.13] - 2026-11-23
 
 - When vault routing has no room for a new request, OpenCode waits for capacity before sending it to Google. Cancelling or reaching the pre-response time limit stops the wait without sending the request.
 - Update the shared authentication library to common-auth 0.57.0. Its other changes are opt-in or don't apply to antigravity-auth.
