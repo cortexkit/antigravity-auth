@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { ENGINE_REFUSALS } from '@cortexkit/antigravity-auth-core/engine'
 import { type Custody, conversation, type Subject } from '../cases.ts'
 import { candidate, type Reply, sse } from '../fixtures.ts'
 import { runConversation } from '../runner.ts'
@@ -94,6 +95,10 @@ for (const subject of ['opencode1', 'opencode2', 'pi'] satisfies Subject[]) {
           expect(result.physicalSends[1]).toEqual(result.physicalSends[0])
           expect(result.wire[1]?.bodyBase64).toBe(result.wire[0]?.bodyBase64)
         }
+        if (scenario.terminal === 'failure:quota_wait_exhausted')
+          expect(turn.errors).toEqual([
+            ENGINE_REFUSALS.quota_wait_exhausted.text,
+          ])
         expect(turn.terminal).toEqual([scenario.terminal])
         expect(turn.text).toBe(scenario.text ?? '')
         expect(turn.thinking).toBe(scenario.thinking ?? '')
@@ -101,7 +106,12 @@ for (const subject of ['opencode1', 'opencode2', 'pi'] satisfies Subject[]) {
         expect(result.notices).toEqual([])
         if (custody === 'vault') {
           const reports = result.reports.map(
-            ({ report }) => report as { kind?: string; outcome?: string },
+            (entry) =>
+              (
+                entry as {
+                  report: { kind?: string; outcome?: string }
+                }
+              ).report,
           )
           expect(reports.filter(({ kind }) => kind === 'billing')).toHaveLength(
             scenario.replies.length,

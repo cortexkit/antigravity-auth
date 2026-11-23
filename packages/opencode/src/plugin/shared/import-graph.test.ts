@@ -157,6 +157,7 @@ describe('shared request engine import graph', () => {
     }
 
     expect(imports).toEqual({
+      'node:async_hooks': ['AsyncLocalStorage'],
       'node:crypto': ['createHash', 'randomUUID'],
       '../agy-transport.ts': ['AgyResponseHeaderTimeoutError'],
       '../index.ts': [
@@ -234,6 +235,7 @@ describe('shared request engine import graph', () => {
         'type RequestSessions',
       ],
       './request.ts': ['type PrepareRequestOptions', 'type RequestWire'],
+      './streaming/invalid-output-resend.ts': ['forwardInvalidOutputResend'],
       './refusals.ts': [
         'EngineRefusalError',
         'engineRefusalResponse',

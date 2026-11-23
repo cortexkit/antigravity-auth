@@ -102,5 +102,5 @@ test('OpenCode raw Claude tool results use the wrapped capture’s continuation 
     custody: 'local',
     input: raw,
   })
-  expect(inner(wire[0]!).contents).toEqual(inner(expected.wire[0]!).contents)
+  expect(inner(wire[0]!).contents).toEqual(inner(expected.wire![0]!).contents)
 })
