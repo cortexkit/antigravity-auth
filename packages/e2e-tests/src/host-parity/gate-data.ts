@@ -91,7 +91,59 @@ const inner = (wire: Wire) =>
     generationConfig?: { thinkingConfig?: { thinkingLevel?: unknown } }
   }
 
-export function wireFields(wire: Wire[]): Fields {
+/** Decodes one captured send's body: chunked framing removed, JSON parsed. */
+function decodedBody(wire: Wire): Record<string, unknown> {
+  let text = Buffer.from(wire.bodyBase64, 'base64').toString('utf8')
+  if (/^[0-9a-f]+\r\n/i.test(text)) {
+    let data = ''
+    for (;;) {
+      const end = text.indexOf('\r\n')
+      const size = Number.parseInt(text.slice(0, end), 16)
+      if (!size) break
+      data += text.slice(end + 2, end + 2 + size)
+      text = text.slice(end + 2 + size + 2)
+    }
+    text = data
+  }
+  return JSON.parse(text)
+}
+
+/**
+ * The request fields compared across hosts.
+ *
+ * - Claude tool-reply cases compare only the conversation turns. The raw
+ *   OpenCode path and Pi add Claude tool-hardening text to the system
+ *   instruction that the wrapped reference omits by design. These cases pin
+ *   where the continuation turn goes; other Claude cases pin the system text.
+ * - Gemini text-reply replay cases compare the parsed body without the
+ *   signature on replayed text parts. OpenCode 1's ai library drops that
+ *   signature (see exceptions.ts), so its frozen capture can't be the
+ *   reference for it. The gate checks the signature separately against
+ *   OpenCode 2 as `replay.textSignature`. Every other byte still has to match.
+ */
+export function wireFields(wire: Wire[], input?: Conversation): Fields {
+  const caseId = input?.id
+  if (caseId?.startsWith('Claude tool reply ending the history'))
+    return {
+      'wire.target': wire.map(({ target }) => target),
+      'wire.contents': wire.map((w) => inner(w).contents ?? null),
+    }
+  if (input?.replayText)
+    return {
+      'wire.target': wire.map(({ target }) => target),
+      'wire.headers': wire.map(({ headers }) => headers),
+      'wire.bodyWithoutTextSignature': wire.map((w) => {
+        const body = decodedBody(w)
+        const request = body.request as {
+          contents?: { parts?: Record<string, unknown>[] }[]
+        }
+        for (const content of request?.contents ?? [])
+          for (const part of content.parts ?? [])
+            if (typeof part.text === 'string' && !part.functionCall)
+              delete part.thoughtSignature
+        return body
+      }),
+    }
   return {
     'wire.target': wire.map(({ target }) => target),
     'wire.headers': wire.map(({ headers }) => headers),

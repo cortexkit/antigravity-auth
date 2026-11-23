@@ -1,40 +1,7 @@
 [
   [
-    "[\"plain chat\",\"pi\",\"local\",\"wire.body\"]",
-    "be402bed9da30536fd3c4aabbd8df28465d27927278291455bbba75a5ebc0363"
-  ],
-  [
-    "[\"plain chat\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "be402bed9da30536fd3c4aabbd8df28465d27927278291455bbba75a5ebc0363"
-  ],
-  [
-    "[\"Gemini tool loop\",\"opencode2\",\"local\",\"wire.body\"]",
-    "afcdf4ef1ad86d7c54ce4fc5dade654e139b972c723b96c5768a2f5acd63b925",
-    "request-wire:D1"
-  ],
-  [
-    "[\"Gemini tool loop\",\"pi\",\"local\",\"wire.body\"]",
-    "bab9a1372749148c08b249bee760a6c73f46a4c486b77aab8ceb7f7a9c4bd0a7",
-    "request-wire:D1"
-  ],
-  [
-    "[\"Gemini tool loop\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "bab9a1372749148c08b249bee760a6c73f46a4c486b77aab8ceb7f7a9c4bd0a7",
-    "request-wire:D1"
-  ],
-  [
     "[\"parallel calls\",\"opencode2\",\"local\",\"wire.body\"]",
     "7ca1773a12f25689101530fb780d5d6685e6c8da9b5718e47a882ac79963253a",
-    "request-wire:D1"
-  ],
-  [
-    "[\"parallel calls\",\"pi\",\"local\",\"wire.body\"]",
-    "1fdc6f2f3c0a18da2ee963afe45533b2adb3b7ed70d1c75dada9982cd7761548",
-    "request-wire:D1"
-  ],
-  [
-    "[\"parallel calls\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "1fdc6f2f3c0a18da2ee963afe45533b2adb3b7ed70d1c75dada9982cd7761548",
     "request-wire:D1"
   ],
   [
@@ -43,43 +10,8 @@
     "request-wire:D1"
   ],
   [
-    "[\"unsigned call\",\"pi\",\"local\",\"wire.body\"]",
-    "dad68be7bc03fd7f40166e371c7583d74e120608521df2b2c4edebe1d12717af",
-    "request-wire:D1"
-  ],
-  [
-    "[\"unsigned call\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "dad68be7bc03fd7f40166e371c7583d74e120608521df2b2c4edebe1d12717af",
-    "request-wire:D1"
-  ],
-  [
-    "[\"Gemini → Claude → Gemini\",\"opencode2\",\"local\",\"wire.body\"]",
-    "ce85b068cc73fc4c76742684884f7540bb17570b8362c07c2f7f169e5e99c224",
-    "request-wire:D2"
-  ],
-  [
-    "[\"Gemini → Claude → Gemini\",\"pi\",\"local\",\"wire.body\"]",
-    "5bb76ab176968bbd4c952054e491f2a13c8957fb664affb6ccbfd761652ad4ac",
-    "request-wire:D2"
-  ],
-  [
-    "[\"Gemini → Claude → Gemini\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "5bb76ab176968bbd4c952054e491f2a13c8957fb664affb6ccbfd761652ad4ac",
-    "request-wire:D2"
-  ],
-  [
     "[\"Claude thinking on\",\"opencode2\",\"local\",\"wire.body\"]",
     "799413da26b0776df57821fb680945fef8e443c739ecfb8c568fc046daee9c19",
-    "request-wire:D2"
-  ],
-  [
-    "[\"Claude thinking on\",\"pi\",\"local\",\"wire.body\"]",
-    "a9dd289b87a1876ef568407f3c4a7dd7ba792a63e6a57e222e70a2c5fe41d8f1",
-    "request-wire:D2"
-  ],
-  [
-    "[\"Claude thinking on\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "a9dd289b87a1876ef568407f3c4a7dd7ba792a63e6a57e222e70a2c5fe41d8f1",
     "request-wire:D2"
   ],
   [
@@ -88,38 +20,8 @@
     "request-wire:D2"
   ],
   [
-    "[\"Claude thinking off\",\"pi\",\"local\",\"wire.body\"]",
-    "a9dd289b87a1876ef568407f3c4a7dd7ba792a63e6a57e222e70a2c5fe41d8f1",
-    "request-wire:D2"
-  ],
-  [
-    "[\"Claude thinking off\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "a9dd289b87a1876ef568407f3c4a7dd7ba792a63e6a57e222e70a2c5fe41d8f1",
-    "request-wire:D2"
-  ],
-  [
-    "[\"Claude tool with union types\",\"pi\",\"local\",\"wire.body\"]",
-    "b54ca8b92d3220f5e6cebd9d5970dd40c027cf59c91e5933547487eedb9b933d",
-    "request-wire:D3"
-  ],
-  [
-    "[\"Claude tool with union types\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "b54ca8b92d3220f5e6cebd9d5970dd40c027cf59c91e5933547487eedb9b933d",
-    "request-wire:D3"
-  ],
-  [
     "[\"empty and whitespace turns: empty parts array\",\"opencode2\",\"local\",\"wire.body\"]",
     "87d5c7a9b50f45b6ceee6cd8ef702dc11b4970cbb7fe582cdf2150dd963332ff",
-    "request-wire:D4"
-  ],
-  [
-    "[\"empty and whitespace turns: empty parts array\",\"pi\",\"local\",\"wire.body\"]",
-    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
-    "request-wire:D4"
-  ],
-  [
-    "[\"empty and whitespace turns: empty parts array\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
     "request-wire:D4"
   ],
   [
@@ -128,78 +30,13 @@
     "request-wire:D4"
   ],
   [
-    "[\"empty and whitespace turns: explicit empty text\",\"pi\",\"local\",\"wire.body\"]",
-    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
-    "request-wire:D4"
-  ],
-  [
-    "[\"empty and whitespace turns: explicit empty text\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
-    "request-wire:D4"
-  ],
-  [
     "[\"empty and whitespace turns: whitespace\",\"opencode2\",\"local\",\"wire.body\"]",
     "11ecd229c6ad0843e1a8f72940539b5e9fcc85003e0a7c2a8b0653b8312a52ac",
     "request-wire:D4"
   ],
   [
-    "[\"empty and whitespace turns: whitespace\",\"pi\",\"local\",\"wire.body\"]",
-    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
-    "request-wire:D4"
-  ],
-  [
-    "[\"empty and whitespace turns: whitespace\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
-    "request-wire:D4"
-  ],
-  [
     "[\"empty and whitespace turns: signature-bearing empty part\",\"opencode2\",\"local\",\"wire.body\"]",
     "0db1e71a74026a9f9c6850e1b8f79e130a014b838e78b7623b5a36ef01261488",
-    "request-wire:D4"
-  ],
-  [
-    "[\"empty and whitespace turns: signature-bearing empty part\",\"pi\",\"local\",\"wire.body\"]",
-    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
-    "request-wire:D4"
-  ],
-  [
-    "[\"empty and whitespace turns: signature-bearing empty part\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
-    "request-wire:D4"
-  ],
-  [
-    "[\"Claude tool reply ending the history: raw\",\"opencode1\",\"local\",\"wire.body\"]",
-    "597655c8522334baef81578241a4bf9619b20d85f4498e833238a4a0048744a5",
-    "request-wire:D4"
-  ],
-  [
-    "[\"Claude tool reply ending the history: raw\",\"opencode2\",\"local\",\"wire.body\"]",
-    "8c18ac9381a793cff74ef3cdec94203707d5f757ce1e1566c16b0aafe3138309",
-    "request-wire:D4"
-  ],
-  [
-    "[\"Claude tool reply ending the history: raw\",\"pi\",\"local\",\"wire.body\"]",
-    "35171ec759df131cbe303f3a43a7aebe7e2b9045e856de9b943407793630f99d",
-    "request-wire:D4"
-  ],
-  [
-    "[\"Claude tool reply ending the history: raw\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "35171ec759df131cbe303f3a43a7aebe7e2b9045e856de9b943407793630f99d",
-    "request-wire:D4"
-  ],
-  [
-    "[\"Claude tool reply ending the history: wrapped\",\"opencode2\",\"local\",\"wire.body\"]",
-    "0fdff4a8087026e29dd60ee4a05eed7787d8542756d855370a44e1fce32ee480",
-    "request-wire:D4"
-  ],
-  [
-    "[\"Claude tool reply ending the history: wrapped\",\"pi\",\"local\",\"wire.body\"]",
-    "35171ec759df131cbe303f3a43a7aebe7e2b9045e856de9b943407793630f99d",
-    "request-wire:D4"
-  ],
-  [
-    "[\"Claude tool reply ending the history: wrapped\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "35171ec759df131cbe303f3a43a7aebe7e2b9045e856de9b943407793630f99d",
     "request-wire:D4"
   ],
   [
@@ -214,41 +51,13 @@
   ],
   [
     "[\"two sessions without ids\",\"pi\",\"local\",\"wire.body\"]",
-    "50017af35ebce94f02685d096764319f9946f3e5d32247a401388f6b01373b8b",
-    "request-wire:D6"
-  ],
-  [
-    "[\"two sessions without ids\",\"pi\",\"local\",\"wire.freshScope\"]",
-    "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+    "9cfe23481eecc992909a14de6f325d89115790309a78579cacce7a88369af5f7",
     "request-wire:D6"
   ],
   [
     "[\"two sessions without ids\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "50017af35ebce94f02685d096764319f9946f3e5d32247a401388f6b01373b8b",
+    "9cfe23481eecc992909a14de6f325d89115790309a78579cacce7a88369af5f7",
     "request-wire:D6"
-  ],
-  [
-    "[\"two sessions without ids\",\"pi-transcript\",\"local\",\"wire.freshScope\"]",
-    "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
-    "request-wire:D6"
-  ],
-  [
-    "[\"two requests with one explicit session id\",\"pi\",\"local\",\"wire.body\"]",
-    "50017af35ebce94f02685d096764319f9946f3e5d32247a401388f6b01373b8b",
-    "request-wire:D6"
-  ],
-  [
-    "[\"two requests with one explicit session id\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "50017af35ebce94f02685d096764319f9946f3e5d32247a401388f6b01373b8b",
-    "request-wire:D6"
-  ],
-  [
-    "[\"user image\",\"pi\",\"local\",\"wire.body\"]",
-    "c756bac7b8967a15e43a51452c6d551ae56f5980328229c86612b6362ffccc73"
-  ],
-  [
-    "[\"user image\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "c756bac7b8967a15e43a51452c6d551ae56f5980328229c86612b6362ffccc73"
   ],
   [
     "[\"tool-result image: image-only\",\"opencode2\",\"local\",\"wire.body\"]",
@@ -256,28 +65,8 @@
     "request-wire:D8"
   ],
   [
-    "[\"tool-result image: image-only\",\"pi\",\"local\",\"wire.body\"]",
-    "699531b3b1355686a13e87701ab794e6be2837f0e785dc6879841109d0f611f5",
-    "request-wire:D8"
-  ],
-  [
-    "[\"tool-result image: image-only\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "699531b3b1355686a13e87701ab794e6be2837f0e785dc6879841109d0f611f5",
-    "request-wire:D8"
-  ],
-  [
     "[\"tool-result image: mixed\",\"opencode2\",\"local\",\"wire.body\"]",
     "adf2fcd1832b2c7e4b9195afefaf2ca9baeadb1fd924e5fbf5e7f72ce7f4988a",
-    "request-wire:D8"
-  ],
-  [
-    "[\"tool-result image: mixed\",\"pi\",\"local\",\"wire.body\"]",
-    "256e81a4586f6ae3852b6ad1e7fe307457873bc49bd8a6f474d7b85c7b919f5f",
-    "request-wire:D8"
-  ],
-  [
-    "[\"tool-result image: mixed\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "256e81a4586f6ae3852b6ad1e7fe307457873bc49bd8a6f474d7b85c7b919f5f",
     "request-wire:D8"
   ],
   [
@@ -296,97 +85,9 @@
     "request-wire:D9"
   ],
   [
-    "[\"object tool arguments with a thinking key\",\"pi\",\"local\",\"wire.body\"]",
-    "bd7038689c06e0e265888bc9fff8184704c7ee74d00b5b8b5e23a03248a41500",
-    "request-wire:D9"
-  ],
-  [
-    "[\"object tool arguments with a thinking key\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "bd7038689c06e0e265888bc9fff8184704c7ee74d00b5b8b5e23a03248a41500",
-    "request-wire:D9"
-  ],
-  [
     "[\"custom thinking budgets and temperature\",\"opencode2\",\"local\",\"wire.body\"]",
     "fbf08278e68b7eb3cdee4136b093dfd5592c93bddd3307d310e865faf2954f48",
     "request-wire:D5"
-  ],
-  [
-    "[\"custom thinking budgets and temperature\",\"pi\",\"local\",\"wire.body\"]",
-    "363eb66d1e39d7ea5f90554dc0b899f0244db838cc0f7112a4421ed426fa9bc6",
-    "request-wire:D5"
-  ],
-  [
-    "[\"custom thinking budgets and temperature\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "363eb66d1e39d7ea5f90554dc0b899f0244db838cc0f7112a4421ed426fa9bc6",
-    "request-wire:D5"
-  ],
-  [
-    "[\"neon low\",\"pi\",\"local\",\"wire.body\"]",
-    "0d609c87eca1bcd069c61a5bab08a46f5146e95f723921e23cbb6f3c189d11dd"
-  ],
-  [
-    "[\"neon low\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "0d609c87eca1bcd069c61a5bab08a46f5146e95f723921e23cbb6f3c189d11dd"
-  ],
-  [
-    "[\"neon medium\",\"pi\",\"local\",\"wire.body\"]",
-    "22debe5704880ab14677759647757efdc515732cdb48bf220336f4bae5b6b620"
-  ],
-  [
-    "[\"neon medium\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "22debe5704880ab14677759647757efdc515732cdb48bf220336f4bae5b6b620"
-  ],
-  [
-    "[\"neon high\",\"pi\",\"local\",\"wire.body\"]",
-    "551839cc3671ee0da4c75a1948e80c075217a0a5ae98dab33fdf695b1e133874"
-  ],
-  [
-    "[\"neon high\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "551839cc3671ee0da4c75a1948e80c075217a0a5ae98dab33fdf695b1e133874"
-  ],
-  [
-    "[\"neon xhigh\",\"pi\",\"local\",\"wire.body\"]",
-    "e3cf66918fbdceff727eea3d4d277cb402c1f1405da545be78e20d1f2e57fabc",
-    "accounts-features:D1"
-  ],
-  [
-    "[\"neon xhigh\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "e3cf66918fbdceff727eea3d4d277cb402c1f1405da545be78e20d1f2e57fabc",
-    "accounts-features:D1"
-  ],
-  [
-    "[\"hydrogen low\",\"pi\",\"local\",\"wire.body\"]",
-    "580ff1aecc3e7ab95c21ca3e5a7be860cdabcb25d4100996db31be395d3a376c"
-  ],
-  [
-    "[\"hydrogen low\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "580ff1aecc3e7ab95c21ca3e5a7be860cdabcb25d4100996db31be395d3a376c"
-  ],
-  [
-    "[\"hydrogen medium\",\"pi\",\"local\",\"wire.body\"]",
-    "3569d28e4d30691cf95f11f9c3e0c82365c965e120b0813035b99ab86f31e0c3"
-  ],
-  [
-    "[\"hydrogen medium\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "3569d28e4d30691cf95f11f9c3e0c82365c965e120b0813035b99ab86f31e0c3"
-  ],
-  [
-    "[\"hydrogen high\",\"pi\",\"local\",\"wire.body\"]",
-    "3d95d64c02ba5711e8703687fcea079ed0fa3b2ebd21b30a387c168d987a2ea8"
-  ],
-  [
-    "[\"hydrogen high\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "3d95d64c02ba5711e8703687fcea079ed0fa3b2ebd21b30a387c168d987a2ea8"
-  ],
-  [
-    "[\"hydrogen xhigh\",\"pi\",\"local\",\"wire.body\"]",
-    "0b6807a56c7ed2a45ecebeab511584b91c2733a1ca01027692ea0d7806b75755",
-    "accounts-features:D1"
-  ],
-  [
-    "[\"hydrogen xhigh\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "0b6807a56c7ed2a45ecebeab511584b91c2733a1ca01027692ea0d7806b75755",
-    "accounts-features:D1"
   ],
   [
     "[\"unexplained 429\",\"opencode1\",\"local\",\"terminal\"]",
@@ -399,43 +100,13 @@
     "response-errors:D2"
   ],
   [
-    "[\"unexplained 429\",\"pi\",\"local\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi\",\"local\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
     "[\"unexplained 429\",\"pi\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D2"
   ],
   [
-    "[\"unexplained 429\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"local\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"local\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
     "[\"unexplained 429\",\"pi-transcript\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D2"
   ],
   [
@@ -449,18 +120,8 @@
     "response-errors:D2"
   ],
   [
-    "[\"unexplained 429\",\"pi\",\"vault\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi\",\"vault\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
     "[\"unexplained 429\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2fc184d70cc9f86be669ae8d8770c3f43860dfe61a39ccdde330f4a0b4bc461f",
     "response-errors:D2"
   ],
   [
@@ -469,33 +130,13 @@
     "response-errors:D2"
   ],
   [
-    "[\"unexplained 429\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
     "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "2fc184d70cc9f86be669ae8d8770c3f43860dfe61a39ccdde330f4a0b4bc461f",
     "response-errors:D2"
   ],
   [
     "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D2"
   ],
   [
@@ -514,18 +155,8 @@
     "response-errors:D2"
   ],
   [
-    "[\"unexplained 429\",\"pi\",\"host\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi\",\"host\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
     "[\"unexplained 429\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "f9cbe229b1369c23f3f8272a3b66b4b7d389e61658e8958f8afe5eef45f3d20b",
     "response-errors:D2"
   ],
   [
@@ -534,33 +165,13 @@
     "response-errors:D2"
   ],
   [
-    "[\"unexplained 429\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"host\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"host\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
     "[\"unexplained 429\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "f9cbe229b1369c23f3f8272a3b66b4b7d389e61658e8958f8afe5eef45f3d20b",
     "response-errors:D2"
   ],
   [
     "[\"unexplained 429\",\"pi-transcript\",\"host\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D2"
-  ],
-  [
-    "[\"unexplained 429\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D2"
   ],
   [
@@ -580,22 +191,12 @@
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"local\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "1de233f5ecb89b349113b1297606acad42eea1dd3ae1ebe0d7bf456762451845",
     "response-errors:D2"
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"local\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "1de233f5ecb89b349113b1297606acad42eea1dd3ae1ebe0d7bf456762451845",
     "response-errors:D2"
   ],
   [
@@ -620,32 +221,22 @@
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "774a4d08bad12d9c75bd2b4f7f222a2ea25f3dbddc4d1c692868cddd6e8bc0a2",
     "response-errors:D2"
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"vault\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "1de233f5ecb89b349113b1297606acad42eea1dd3ae1ebe0d7bf456762451845",
     "response-errors:D2"
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "774a4d08bad12d9c75bd2b4f7f222a2ea25f3dbddc4d1c692868cddd6e8bc0a2",
     "response-errors:D2"
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"vault\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "1de233f5ecb89b349113b1297606acad42eea1dd3ae1ebe0d7bf456762451845",
     "response-errors:D2"
   ],
   [
@@ -670,32 +261,22 @@
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "a9faced509dc544738498151db349d8e363b4de2cf80b4ce0bcda6fba9548044",
     "response-errors:D2"
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"host\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "1de233f5ecb89b349113b1297606acad42eea1dd3ae1ebe0d7bf456762451845",
     "response-errors:D2"
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "a9faced509dc544738498151db349d8e363b4de2cf80b4ce0bcda6fba9548044",
     "response-errors:D2"
   ],
   [
     "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"host\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D2"
-  ],
-  [
-    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "1de233f5ecb89b349113b1297606acad42eea1dd3ae1ebe0d7bf456762451845",
     "response-errors:D2"
   ],
   [
@@ -704,63 +285,13 @@
     "response-errors:D3"
   ],
   [
-    "[\"503 then success\",\"pi\",\"local\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"local\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"local\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D3"
-  ],
-  [
     "[\"503 then success\",\"pi\",\"local\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"local\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"local\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"local\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
     "response-errors:D3"
   ],
   [
     "[\"503 then success\",\"pi-transcript\",\"local\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
     "response-errors:D3"
   ],
   [
@@ -774,73 +305,23 @@
     "response-errors:D3"
   ],
   [
-    "[\"503 then success\",\"pi\",\"vault\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"vault\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
     "[\"503 then success\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"vault\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "9d64085e28b5cfca0dea1ce95647758188e7a36f25e54a90a1cca1fcb60ec1c5",
     "response-errors:D3"
   ],
   [
     "[\"503 then success\",\"pi\",\"vault\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"vault\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
     "response-errors:D3"
   ],
   [
     "[\"503 then success\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"vault\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "9d64085e28b5cfca0dea1ce95647758188e7a36f25e54a90a1cca1fcb60ec1c5",
     "response-errors:D3"
   ],
   [
     "[\"503 then success\",\"pi-transcript\",\"vault\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
     "response-errors:D3"
   ],
   [
@@ -854,114 +335,24 @@
     "response-errors:D3"
   ],
   [
-    "[\"503 then success\",\"pi\",\"host\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"host\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
     "[\"503 then success\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"host\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "def3442017a9629f7e36ec27a9866c1766156d876a4a9d3eaed8142df4563641",
     "response-errors:D3"
   ],
   [
     "[\"503 then success\",\"pi\",\"host\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"host\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"host\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
     "response-errors:D3"
   ],
   [
     "[\"503 then success\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"host\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "def3442017a9629f7e36ec27a9866c1766156d876a4a9d3eaed8142df4563641",
     "response-errors:D3"
   ],
   [
     "[\"503 then success\",\"pi-transcript\",\"host\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "92922619e560fe2e135583cc2ded3eb45ff017c2ae7225ce03e128fccd6006f7",
     "response-errors:D3"
-  ],
-  [
-    "[\"503 then success\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"local\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"local\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"local\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"local\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "request-wire:D7"
   ],
   [
     "[\"daily failure then prod success\",\"opencode2\",\"vault\",\"reports\"]",
@@ -969,53 +360,13 @@
     "request-wire:D7"
   ],
   [
-    "[\"daily failure then prod success\",\"pi\",\"vault\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "request-wire:D7"
-  ],
-  [
     "[\"daily failure then prod success\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"vault\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "82a050c0bb1ca3f693de7955811bc964790dabdb75a08e9bf3e063a3898ce334",
     "request-wire:D7"
   ],
   [
     "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "82a050c0bb1ca3f693de7955811bc964790dabdb75a08e9bf3e063a3898ce334",
     "request-wire:D7"
   ],
   [
@@ -1024,53 +375,13 @@
     "request-wire:D7"
   ],
   [
-    "[\"daily failure then prod success\",\"pi\",\"host\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "request-wire:D7"
-  ],
-  [
     "[\"daily failure then prod success\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"host\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "c008651f00684efa22a57eb9741f392a83f3f7eec6ebb04b37b730257b903095",
     "request-wire:D7"
   ],
   [
     "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "request-wire:D7"
-  ],
-  [
-    "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c008651f00684efa22a57eb9741f392a83f3f7eec6ebb04b37b730257b903095",
     "request-wire:D7"
   ],
   [
@@ -1084,43 +395,13 @@
     "response-errors:D3"
   ],
   [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"local\",\"physicalSends\"]",
-    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"local\",\"text\"]",
-    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
-    "response-errors:D3"
-  ],
-  [
     "[\"NOT_FOUND then a second request and control model\",\"pi\",\"local\",\"terminal\"]",
-    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"local\",\"physicalSends\"]",
-    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"local\",\"text\"]",
-    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
     "response-errors:D3"
   ],
   [
     "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
     "response-errors:D3"
   ],
   [
@@ -1139,53 +420,23 @@
     "response-errors:D3"
   ],
   [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"physicalSends\"]",
-    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
-    "response-errors:D3"
-  ],
-  [
     "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"text\"]",
-    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "b0b409945f2378779e3eb4692f6e8ef25954f10d5291007311b3d31930b67f59",
     "response-errors:D3"
   ],
   [
     "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"terminal\"]",
-    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
-    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
     "response-errors:D3"
   ],
   [
     "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"text\"]",
-    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "b0b409945f2378779e3eb4692f6e8ef25954f10d5291007311b3d31930b67f59",
     "response-errors:D3"
   ],
   [
     "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
     "response-errors:D3"
   ],
   [
@@ -1204,53 +455,23 @@
     "response-errors:D3"
   ],
   [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"physicalSends\"]",
-    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
-    "response-errors:D3"
-  ],
-  [
     "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"text\"]",
-    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "6fd28e94d3fbb4fb1e0aaada84aa34ca05795b903cdb8d632f671b0821695d9a",
     "response-errors:D3"
   ],
   [
     "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"terminal\"]",
-    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"physicalSends\"]",
-    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
     "response-errors:D3"
   ],
   [
     "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"text\"]",
-    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "6fd28e94d3fbb4fb1e0aaada84aa34ca05795b903cdb8d632f671b0821695d9a",
     "response-errors:D3"
   ],
   [
     "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
     "response-errors:D3"
   ],
   [
@@ -1269,33 +490,13 @@
     "response-errors:D3"
   ],
   [
-    "[\"lasting 403\",\"pi\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D3"
-  ],
-  [
     "[\"lasting 403\",\"pi\",\"local\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
     "response-errors:D3"
   ],
   [
     "[\"lasting 403\",\"pi-transcript\",\"local\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
     "response-errors:D3"
   ],
   [
@@ -1320,42 +521,22 @@
   ],
   [
     "[\"lasting 403\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "cba377e0353a463bed0c31b2e2425e52261c20c04653a2f318c7d7a0bb722493",
     "response-errors:D3"
   ],
   [
     "[\"lasting 403\",\"pi\",\"vault\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
     "response-errors:D3"
   ],
   [
     "[\"lasting 403\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "cba377e0353a463bed0c31b2e2425e52261c20c04653a2f318c7d7a0bb722493",
     "response-errors:D3"
   ],
   [
     "[\"lasting 403\",\"pi-transcript\",\"vault\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
     "response-errors:D3"
   ],
   [
@@ -1380,83 +561,23 @@
   ],
   [
     "[\"lasting 403\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "5740bf5bb8258998540ae427f6f520dbc1d21231594fecb95cabdf902e6f6c79",
     "response-errors:D3"
   ],
   [
     "[\"lasting 403\",\"pi\",\"host\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
     "response-errors:D3"
   ],
   [
     "[\"lasting 403\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "5740bf5bb8258998540ae427f6f520dbc1d21231594fecb95cabdf902e6f6c79",
     "response-errors:D3"
   ],
   [
     "[\"lasting 403\",\"pi-transcript\",\"host\",\"notices\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "ca730a92d9498c502dc5ea2e8f65eb8b5ab07cd2e26cce9e604b20dc5b8476a6",
     "response-errors:D3"
-  ],
-  [
-    "[\"lasting 403\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D3"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"local\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"local\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"local\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"local\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"local\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"local\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
   ],
   [
     "[\"thinking-signature 400 then recovery\",\"opencode2\",\"vault\",\"reports\"]",
@@ -1464,53 +585,13 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
     "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "a4dc0edaee695649212ce08d524f2b876932e364d4be04e5c270ceb4769dc350",
     "response-errors:D11"
   ],
   [
     "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "a4dc0edaee695649212ce08d524f2b876932e364d4be04e5c270ceb4769dc350",
     "response-errors:D11"
   ],
   [
@@ -1519,78 +600,18 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
     "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "819bb56967e2efa56edf509945fce66c938bc42e45d7d261bca6b2a0d22de080",
     "response-errors:D11"
   ],
   [
     "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "819bb56967e2efa56edf509945fce66c938bc42e45d7d261bca6b2a0d22de080",
     "response-errors:D11"
   ],
   [
     "[\"thinking-signature terminal refusal\",\"opencode1\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi\",\"local\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"local\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D11"
   ],
   [
@@ -1604,33 +625,13 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature terminal refusal\",\"pi\",\"vault\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
     "[\"thinking-signature terminal refusal\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "3fe8169b0e02286cdd180bfc8b131229eaea3e4f70ca3344108f6e307ad37140",
     "response-errors:D11"
   ],
   [
     "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "3fe8169b0e02286cdd180bfc8b131229eaea3e4f70ca3344108f6e307ad37140",
     "response-errors:D11"
   ],
   [
@@ -1644,44 +645,14 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature terminal refusal\",\"pi\",\"host\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
     "[\"thinking-signature terminal refusal\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"host\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "9df209c6a31978f141892d6c3778bffc4f902081070435a8aa61094b94b70cae",
     "response-errors:D11"
   ],
   [
     "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "9df209c6a31978f141892d6c3778bffc4f902081070435a8aa61094b94b70cae",
     "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D11"
-  ],
-  [
-    "[\"prompt too long\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"prompt too long\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
   ],
   [
     "[\"prompt too long\",\"opencode2\",\"vault\",\"reports\"]",
@@ -1690,22 +661,12 @@
   ],
   [
     "[\"prompt too long\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"prompt too long\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "a3b2a46a412ad58e1aca57d0d4d88be1c05a95e63ca27c8f642c46784d938098",
     "response-errors:D1"
   ],
   [
     "[\"prompt too long\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"prompt too long\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "a3b2a46a412ad58e1aca57d0d4d88be1c05a95e63ca27c8f642c46784d938098",
     "response-errors:D1"
   ],
   [
@@ -1715,33 +676,13 @@
   ],
   [
     "[\"prompt too long\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"prompt too long\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "4dc663693890c176505b5e6afbebf714c9b0b9c73fa6170bebb63be71b1ac7b0",
     "response-errors:D1"
   ],
   [
     "[\"prompt too long\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "4dc663693890c176505b5e6afbebf714c9b0b9c73fa6170bebb63be71b1ac7b0",
     "response-errors:D1"
-  ],
-  [
-    "[\"prompt too long\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"tool call then STOP\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"tool call then STOP\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
   ],
   [
     "[\"tool call then STOP\",\"opencode2\",\"vault\",\"reports\"]",
@@ -1750,22 +691,12 @@
   ],
   [
     "[\"tool call then STOP\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"tool call then STOP\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
     "[\"tool call then STOP\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"tool call then STOP\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
@@ -1775,22 +706,12 @@
   ],
   [
     "[\"tool call then STOP\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"tool call then STOP\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"tool call then STOP\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"tool call then STOP\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
@@ -1799,18 +720,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"safety stop\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"safety stop\",\"pi-transcript\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"safety stop\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -1820,7 +731,7 @@
   ],
   [
     "[\"safety stop\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
@@ -1829,23 +740,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"safety stop\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"safety stop\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
     "[\"safety stop\",\"pi-transcript\",\"vault\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"safety stop\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -1855,7 +756,7 @@
   ],
   [
     "[\"safety stop\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
@@ -1864,13 +765,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"safety stop\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"safety stop\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
@@ -1879,28 +775,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"safety stop\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"RECITATION stop\",\"pi\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
-    "[\"RECITATION stop\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"RECITATION stop\",\"pi-transcript\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"RECITATION stop\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -1910,7 +791,7 @@
   ],
   [
     "[\"RECITATION stop\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
@@ -1919,23 +800,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"RECITATION stop\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"RECITATION stop\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
     "[\"RECITATION stop\",\"pi-transcript\",\"vault\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"RECITATION stop\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -1945,7 +816,7 @@
   ],
   [
     "[\"RECITATION stop\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
@@ -1954,23 +825,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"RECITATION stop\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"RECITATION stop\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"RECITATION stop\",\"pi-transcript\",\"host\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"RECITATION stop\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -1999,18 +860,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"unlisted finish code\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"unlisted finish code\",\"pi-transcript\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2040,7 +891,7 @@
   ],
   [
     "[\"unlisted finish code\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
@@ -2049,23 +900,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"unlisted finish code\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"unlisted finish code\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
     "[\"unlisted finish code\",\"pi-transcript\",\"vault\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2095,7 +936,7 @@
   ],
   [
     "[\"unlisted finish code\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
@@ -2104,33 +945,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"unlisted finish code\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"unlisted finish code\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"unlisted finish code\",\"pi-transcript\",\"host\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"unlisted finish code\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"length stop\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"length stop\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2140,22 +961,12 @@
   ],
   [
     "[\"length stop\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"length stop\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
     "[\"length stop\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"length stop\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
@@ -2165,22 +976,12 @@
   ],
   [
     "[\"length stop\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"length stop\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"length stop\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"length stop\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
@@ -2199,18 +1000,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"finish on candidate 1 only\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"finish on candidate 1 only\",\"pi-transcript\",\"local\",\"terminal\"]",
     "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2230,7 +1021,7 @@
   ],
   [
     "[\"finish on candidate 1 only\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
@@ -2239,23 +1030,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"finish on candidate 1 only\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"finish on candidate 1 only\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
     "[\"finish on candidate 1 only\",\"pi-transcript\",\"vault\",\"terminal\"]",
     "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2275,7 +1056,7 @@
   ],
   [
     "[\"finish on candidate 1 only\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
@@ -2284,23 +1065,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"finish on candidate 1 only\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"finish on candidate 1 only\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"finish on candidate 1 only\",\"pi-transcript\",\"host\",\"terminal\"]",
     "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"finish on candidate 1 only\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2316,16 +1087,6 @@
   [
     "[\"malformed frame\",\"opencode2\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2350,22 +1111,12 @@
   ],
   [
     "[\"malformed frame\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
     "[\"malformed frame\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
@@ -2390,37 +1141,17 @@
   ],
   [
     "[\"malformed frame\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"malformed frame\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"malformed frame\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"embedded error before content\",\"opencode1\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error before content\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error before content\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2435,22 +1166,12 @@
   ],
   [
     "[\"embedded error before content\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error before content\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "058a30915e028064620b55aa25216aa91d1c96ec0c9ac674791832e9ada89243",
     "response-errors:D5"
   ],
   [
     "[\"embedded error before content\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error before content\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "058a30915e028064620b55aa25216aa91d1c96ec0c9ac674791832e9ada89243",
     "response-errors:D5"
   ],
   [
@@ -2465,37 +1186,17 @@
   ],
   [
     "[\"embedded error before content\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error before content\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "9f8cb21f51fc49dc9f98e2efb616022c91af5d1de36c7636fd2576853d4752c3",
     "response-errors:D5"
   ],
   [
     "[\"embedded error before content\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error before content\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "9f8cb21f51fc49dc9f98e2efb616022c91af5d1de36c7636fd2576853d4752c3",
     "response-errors:D5"
   ],
   [
     "[\"embedded error after content\",\"opencode1\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error after content\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error after content\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2510,22 +1211,12 @@
   ],
   [
     "[\"embedded error after content\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error after content\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "058a30915e028064620b55aa25216aa91d1c96ec0c9ac674791832e9ada89243",
     "response-errors:D5"
   ],
   [
     "[\"embedded error after content\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error after content\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "058a30915e028064620b55aa25216aa91d1c96ec0c9ac674791832e9ada89243",
     "response-errors:D5"
   ],
   [
@@ -2540,22 +1231,12 @@
   ],
   [
     "[\"embedded error after content\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error after content\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "9f8cb21f51fc49dc9f98e2efb616022c91af5d1de36c7636fd2576853d4752c3",
     "response-errors:D5"
   ],
   [
     "[\"embedded error after content\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"embedded error after content\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "9f8cb21f51fc49dc9f98e2efb616022c91af5d1de36c7636fd2576853d4752c3",
     "response-errors:D5"
   ],
   [
@@ -2574,18 +1255,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"[DONE] without finish\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"[DONE] without finish\",\"pi-transcript\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2605,7 +1276,7 @@
   ],
   [
     "[\"[DONE] without finish\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "0906fc0ed51e47052b85c10673fe5abb6a7ab9e9f89b8d218b51600a517f759d",
     "response-errors:D5"
   ],
   [
@@ -2614,23 +1285,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"[DONE] without finish\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"[DONE] without finish\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "0906fc0ed51e47052b85c10673fe5abb6a7ab9e9f89b8d218b51600a517f759d",
     "response-errors:D5"
   ],
   [
     "[\"[DONE] without finish\",\"pi-transcript\",\"vault\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2650,7 +1311,7 @@
   ],
   [
     "[\"[DONE] without finish\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "37826c434c1d3743f0c8381206dc00c4bc548908c92aec4fbea82e1cb966fc94",
     "response-errors:D5"
   ],
   [
@@ -2659,23 +1320,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"[DONE] without finish\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"[DONE] without finish\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "37826c434c1d3743f0c8381206dc00c4bc548908c92aec4fbea82e1cb966fc94",
     "response-errors:D5"
   ],
   [
     "[\"[DONE] without finish\",\"pi-transcript\",\"host\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"[DONE] without finish\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2689,33 +1340,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"empty response\",\"pi\",\"local\",\"aborts\"]",
-    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
-    "response-errors:D5"
-  ],
-  [
     "[\"empty response\",\"pi\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
-    "[\"empty response\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi-transcript\",\"local\",\"aborts\"]",
-    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
-    "response-errors:D5"
-  ],
-  [
     "[\"empty response\",\"pi-transcript\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2734,13 +1365,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"empty response\",\"pi\",\"vault\",\"aborts\"]",
-    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
-    "response-errors:D5"
-  ],
-  [
     "[\"empty response\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "0906fc0ed51e47052b85c10673fe5abb6a7ab9e9f89b8d218b51600a517f759d",
     "response-errors:D5"
   ],
   [
@@ -2749,28 +1375,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"empty response\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi-transcript\",\"vault\",\"aborts\"]",
-    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
-    "response-errors:D5"
-  ],
-  [
     "[\"empty response\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "0906fc0ed51e47052b85c10673fe5abb6a7ab9e9f89b8d218b51600a517f759d",
     "response-errors:D5"
   ],
   [
     "[\"empty response\",\"pi-transcript\",\"vault\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2789,13 +1400,8 @@
     "response-errors:D5"
   ],
   [
-    "[\"empty response\",\"pi\",\"host\",\"aborts\"]",
-    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
-    "response-errors:D5"
-  ],
-  [
     "[\"empty response\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "37826c434c1d3743f0c8381206dc00c4bc548908c92aec4fbea82e1cb966fc94",
     "response-errors:D5"
   ],
   [
@@ -2804,28 +1410,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"empty response\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi-transcript\",\"host\",\"aborts\"]",
-    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
-    "response-errors:D5"
-  ],
-  [
     "[\"empty response\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "37826c434c1d3743f0c8381206dc00c4bc548908c92aec4fbea82e1cb966fc94",
     "response-errors:D5"
   ],
   [
     "[\"empty response\",\"pi-transcript\",\"host\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D5"
-  ],
-  [
-    "[\"empty response\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2839,33 +1430,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"pi\",\"local\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"pi\",\"local\",\"terminal\"]",
     "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi-transcript\",\"local\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"pi-transcript\",\"local\",\"terminal\"]",
     "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2890,12 +1461,7 @@
   ],
   [
     "[\"thinking-only then STOP\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi\",\"vault\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
@@ -2904,28 +1470,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
     "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"terminal\"]",
     "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -2950,12 +1501,7 @@
   ],
   [
     "[\"thinking-only then STOP\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi\",\"host\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
@@ -2964,28 +1510,13 @@
     "response-errors:D5"
   ],
   [
-    "[\"thinking-only then STOP\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"terminal\"]",
     "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
-    "response-errors:D5"
-  ],
-  [
-    "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D5"
   ],
   [
@@ -3000,22 +1531,12 @@
   ],
   [
     "[\"split usage\",\"pi\",\"local\",\"usage\"]",
-    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
     "response-errors:D4"
   ],
   [
     "[\"split usage\",\"pi-transcript\",\"local\",\"usage\"]",
-    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
     "response-errors:D4"
   ],
   [
@@ -3035,32 +1556,22 @@
   ],
   [
     "[\"split usage\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "f4b26a198b9576c834e1316a3cfe5259f2b987be6eadcb9b687031f2b963388f",
     "response-errors:D4"
   ],
   [
     "[\"split usage\",\"pi\",\"vault\",\"usage\"]",
-    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
     "response-errors:D4"
   ],
   [
     "[\"split usage\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "f4b26a198b9576c834e1316a3cfe5259f2b987be6eadcb9b687031f2b963388f",
     "response-errors:D4"
   ],
   [
     "[\"split usage\",\"pi-transcript\",\"vault\",\"usage\"]",
-    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
     "response-errors:D4"
   ],
   [
@@ -3080,32 +1591,22 @@
   ],
   [
     "[\"split usage\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "5e94b07520e53e315a7c05c07cc3c2b7028a971a29fad52083f3fed74e98ea9d",
     "response-errors:D4"
   ],
   [
     "[\"split usage\",\"pi\",\"host\",\"usage\"]",
-    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
     "response-errors:D4"
   ],
   [
     "[\"split usage\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "5e94b07520e53e315a7c05c07cc3c2b7028a971a29fad52083f3fed74e98ea9d",
     "response-errors:D4"
   ],
   [
     "[\"split usage\",\"pi-transcript\",\"host\",\"usage\"]",
-    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
-    "response-errors:D4"
-  ],
-  [
-    "[\"split usage\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
     "response-errors:D4"
   ],
   [
@@ -3124,18 +1625,8 @@
     "response-errors:D4"
   ],
   [
-    "[\"usage after STOP\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D4"
-  ],
-  [
     "[\"usage after STOP\",\"pi-transcript\",\"local\",\"usage\"]",
     "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D4"
   ],
   [
@@ -3155,7 +1646,7 @@
   ],
   [
     "[\"usage after STOP\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "f4b26a198b9576c834e1316a3cfe5259f2b987be6eadcb9b687031f2b963388f",
     "response-errors:D4"
   ],
   [
@@ -3164,23 +1655,13 @@
     "response-errors:D4"
   ],
   [
-    "[\"usage after STOP\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D4"
-  ],
-  [
     "[\"usage after STOP\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "f4b26a198b9576c834e1316a3cfe5259f2b987be6eadcb9b687031f2b963388f",
     "response-errors:D4"
   ],
   [
     "[\"usage after STOP\",\"pi-transcript\",\"vault\",\"usage\"]",
     "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
-    "response-errors:D4"
-  ],
-  [
-    "[\"usage after STOP\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D4"
   ],
   [
@@ -3200,7 +1681,7 @@
   ],
   [
     "[\"usage after STOP\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "5e94b07520e53e315a7c05c07cc3c2b7028a971a29fad52083f3fed74e98ea9d",
     "response-errors:D4"
   ],
   [
@@ -3209,13 +1690,8 @@
     "response-errors:D4"
   ],
   [
-    "[\"usage after STOP\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D4"
-  ],
-  [
     "[\"usage after STOP\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "5e94b07520e53e315a7c05c07cc3c2b7028a971a29fad52083f3fed74e98ea9d",
     "response-errors:D4"
   ],
   [
@@ -3224,43 +1700,18 @@
     "response-errors:D4"
   ],
   [
-    "[\"usage after STOP\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D4"
-  ],
-  [
-    "[\"second finish during the usage drain\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"second finish during the usage drain\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
     "[\"second finish during the usage drain\",\"opencode2\",\"vault\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
     "response-errors:D5"
   ],
   [
     "[\"second finish during the usage drain\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"second finish during the usage drain\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
     "[\"second finish during the usage drain\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"second finish during the usage drain\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D5"
   ],
   [
@@ -3270,57 +1721,17 @@
   ],
   [
     "[\"second finish during the usage drain\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"second finish during the usage drain\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"second finish during the usage drain\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D5"
-  ],
-  [
-    "[\"second finish during the usage drain\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D5"
   ],
   [
     "[\"duplicate thinking\",\"opencode1\",\"local\",\"thinking\"]",
     "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi\",\"local\",\"thinking\"]",
-    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi\",\"local\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi-transcript\",\"local\",\"thinking\"]",
-    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi-transcript\",\"local\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D6"
   ],
   [
@@ -3335,42 +1746,12 @@
   ],
   [
     "[\"duplicate thinking\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi\",\"vault\",\"thinking\"]",
-    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi\",\"vault\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D6"
   ],
   [
     "[\"duplicate thinking\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi-transcript\",\"vault\",\"thinking\"]",
-    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi-transcript\",\"vault\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c6be6a938392580aee806de32f50aacc1de36d714b5d37dba2e1ee6f6d912fee",
     "response-errors:D6"
   ],
   [
@@ -3385,42 +1766,12 @@
   ],
   [
     "[\"duplicate thinking\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi\",\"host\",\"thinking\"]",
-    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi\",\"host\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D6"
   ],
   [
     "[\"duplicate thinking\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi-transcript\",\"host\",\"thinking\"]",
-    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi-transcript\",\"host\",\"signatures\"]",
-    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
-    "response-errors:D6"
-  ],
-  [
-    "[\"duplicate thinking\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "c4a41229744fed0c3120338186c0f6b658263499296eb24a29361d4ac5472f5f",
     "response-errors:D6"
   ],
   [
@@ -3431,26 +1782,6 @@
   [
     "[\"identical thinking in two sessions\",\"opencode2\",\"local\",\"thinking\"]",
     "835f31cf10f41e6babaf935c0d0da886f0ed6ca6eb083ca3796c7bb99e391c1d",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi\",\"local\",\"signatures\"]",
-    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi-transcript\",\"local\",\"signatures\"]",
-    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D6"
   ],
   [
@@ -3470,32 +1801,12 @@
   ],
   [
     "[\"identical thinking in two sessions\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi\",\"vault\",\"signatures\"]",
-    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "be437712edb2aed2edd1868e48070a0bc90dc7001ebcab56fe2607cdfe30f399",
     "response-errors:D6"
   ],
   [
     "[\"identical thinking in two sessions\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi-transcript\",\"vault\",\"signatures\"]",
-    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "be437712edb2aed2edd1868e48070a0bc90dc7001ebcab56fe2607cdfe30f399",
     "response-errors:D6"
   ],
   [
@@ -3515,32 +1826,12 @@
   ],
   [
     "[\"identical thinking in two sessions\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi\",\"host\",\"signatures\"]",
-    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "953d1ddab0f3c9fd9d6507be6c713167a44c05adcdf1ca3273c5d9ddc120902c",
     "response-errors:D6"
   ],
   [
     "[\"identical thinking in two sessions\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi-transcript\",\"host\",\"signatures\"]",
-    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
-    "response-errors:D6"
-  ],
-  [
-    "[\"identical thinking in two sessions\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "953d1ddab0f3c9fd9d6507be6c713167a44c05adcdf1ca3273c5d9ddc120902c",
     "response-errors:D6"
   ],
   [
@@ -3564,18 +1855,8 @@
     "response-errors:D7"
   ],
   [
-    "[\"idle stall\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D7"
-  ],
-  [
     "[\"idle stall\",\"pi-transcript\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D7"
   ],
   [
@@ -3600,7 +1881,7 @@
   ],
   [
     "[\"idle stall\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "058a30915e028064620b55aa25216aa91d1c96ec0c9ac674791832e9ada89243",
     "response-errors:D7"
   ],
   [
@@ -3609,23 +1890,13 @@
     "response-errors:D7"
   ],
   [
-    "[\"idle stall\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D7"
-  ],
-  [
     "[\"idle stall\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "058a30915e028064620b55aa25216aa91d1c96ec0c9ac674791832e9ada89243",
     "response-errors:D7"
   ],
   [
     "[\"idle stall\",\"pi-transcript\",\"vault\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
-    "response-errors:D7"
-  ],
-  [
-    "[\"idle stall\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D7"
   ],
   [
@@ -3650,7 +1921,7 @@
   ],
   [
     "[\"idle stall\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "9f8cb21f51fc49dc9f98e2efb616022c91af5d1de36c7636fd2576853d4752c3",
     "response-errors:D7"
   ],
   [
@@ -3659,13 +1930,8 @@
     "response-errors:D7"
   ],
   [
-    "[\"idle stall\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D7"
-  ],
-  [
     "[\"idle stall\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "9f8cb21f51fc49dc9f98e2efb616022c91af5d1de36c7636fd2576853d4752c3",
     "response-errors:D7"
   ],
   [
@@ -3674,58 +1940,13 @@
     "response-errors:D7"
   ],
   [
-    "[\"idle stall\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D7"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"local\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"local\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
     "[\"pre-response deadline\",\"pi\",\"local\",\"aborts\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"local\",\"cancellations\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
     "response-errors:D1"
   ],
   [
     "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"aborts\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"cancellations\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
     "response-errors:D1"
   ],
   [
@@ -3734,63 +1955,33 @@
     "response-errors:D1"
   ],
   [
-    "[\"pre-response deadline\",\"pi\",\"vault\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D1"
-  ],
-  [
     "[\"pre-response deadline\",\"pi\",\"vault\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "9ef1eb1adbebaba43859c6adfe14cfc74549db1cc6e69e73c0863e063bc5337b",
     "response-errors:D1"
   ],
   [
     "[\"pre-response deadline\",\"pi\",\"vault\",\"aborts\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "17770081a77ebf6b48522949c73143a1796f9e8e453c5e87de430eb57300df66",
     "response-errors:D1"
   ],
   [
     "[\"pre-response deadline\",\"pi\",\"vault\",\"cancellations\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "63ef2df1f84ef34b8dcab801fce33c19afb9bbb9afc1497a1ca0ca36b5d623cc",
     "response-errors:D1"
   ],
   [
     "[\"pre-response deadline\",\"pi\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "14dd8bb70af77c6dce300d7d97a346fe437ad2503e00d2a1a103341a065daa6c",
     "response-errors:D1"
   ],
   [
     "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"aborts\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"cancellations\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
     "response-errors:D1"
   ],
   [
     "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "14dd8bb70af77c6dce300d7d97a346fe437ad2503e00d2a1a103341a065daa6c",
     "response-errors:D1"
   ],
   [
@@ -3799,63 +1990,63 @@
     "response-errors:D1"
   ],
   [
-    "[\"pre-response deadline\",\"pi\",\"host\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"host\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
     "[\"pre-response deadline\",\"pi\",\"host\",\"aborts\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"host\",\"cancellations\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
     "response-errors:D1"
   ],
   [
     "[\"pre-response deadline\",\"pi\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"physicalSends\"]",
-    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"delays\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "d443d4ac5f14b855152fcae2ce178c4c9308013ddc449295fa6fdfc30f255012",
     "response-errors:D1"
   ],
   [
     "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"aborts\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"cancellations\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "cb24850c21f6ee3d0edb95a88bf1028a8215bac61a3534409b579d56a60ff7c9",
     "response-errors:D1"
   ],
   [
     "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"reports\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "d443d4ac5f14b855152fcae2ce178c4c9308013ddc449295fa6fdfc30f255012",
     "response-errors:D1"
   ],
   [
-    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"hooks\"]",
-    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-    "response-errors:D1"
+    "[\"Gemini tool loop\",\"opencode2\",\"local\",\"wire.bodyWithoutTextSignature\"]",
+    "7a482795adfd4c5e7fba38d098a04d9227862546ecefe483b2ba8dbb085f32a9",
+    "request-wire:D1"
+  ],
+  [
+    "[\"Gemini → Claude → Gemini\",\"opencode2\",\"local\",\"wire.bodyWithoutTextSignature\"]",
+    "87936d14eeb81a6fe821809824b1720498acc0e799994f4567a2f87c8849f5ed",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Gemini → Claude → Gemini\",\"pi\",\"local\",\"wire.bodyWithoutTextSignature\"]",
+    "2f6002872866a7d15c3f93efbc2ca19dc3c4da0deab48c1a60e75af04db6d7de",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Gemini → Claude → Gemini\",\"pi-transcript\",\"local\",\"wire.bodyWithoutTextSignature\"]",
+    "2f6002872866a7d15c3f93efbc2ca19dc3c4da0deab48c1a60e75af04db6d7de",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Claude tool reply ending the history: raw\",\"opencode2\",\"local\",\"wire.contents\"]",
+    "3f15baa8b2763184f8c675eae291b2306d47bdd0625becfc6dd1847fa4b18ae9",
+    "request-wire:D4"
+  ],
+  [
+    "[\"Claude tool reply ending the history: wrapped\",\"opencode2\",\"local\",\"wire.contents\"]",
+    "3f15baa8b2763184f8c675eae291b2306d47bdd0625becfc6dd1847fa4b18ae9",
+    "request-wire:D4"
+  ],
+  [
+    "[\"object tool arguments with a thinking key\",\"pi\",\"local\",\"wire.toolArguments\"]",
+    "e2d442b7e8532dc0d106ad13d48d20923beb253487d1d405e6d6530630522999",
+    "request-wire:D9"
+  ],
+  [
+    "[\"object tool arguments with a thinking key\",\"pi-transcript\",\"local\",\"wire.toolArguments\"]",
+    "e2d442b7e8532dc0d106ad13d48d20923beb253487d1d405e6d6530630522999",
+    "request-wire:D9"
   ]
 ]
