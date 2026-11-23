@@ -67,6 +67,7 @@ function source(environment: Environment) {
     reportServedStatus: async () => false,
     reportCondition: async (_admission: unknown, condition: unknown) => {
       environment.reports.push({ condition })
+      return 'reported' as const
     },
   }
 }
@@ -125,7 +126,7 @@ export async function openCode1(
     agySessionRegistry: new AgySessionRegistry({ now: () => Date.now() }),
     onRouting: noop,
     fetchImpl: noNetwork,
-  } as Parameters<typeof createVaultFetchInterceptor>[0]
+  } as Omit<Parameters<typeof createVaultFetchInterceptor>[0], 'source'>
 
   let manager: AccountManager | undefined
   const interceptor =
@@ -224,7 +225,10 @@ function repository(): AccountRepository {
   }
   return {
     read: async () => ({ status: 'ready', rows: [{ ...row }] }),
-    setEnabled: async (_ref, { enabled }) => {
+    setEnabled: async (
+      _ref: AccountRow['ref'],
+      { enabled }: { enabled: boolean },
+    ) => {
       row.enabled = enabled
       return { ref: row.ref }
     },
@@ -235,9 +239,11 @@ function repository(): AccountRepository {
     selectAccount: async () => {},
     writeMetadata: async () => ({ ref: row.ref }),
     writeQuota: async () => ({ ref: row.ref }),
+    recordFingerprint: async () => ({ ref: row.ref }),
+    settled: async () => {},
     flush: async () => {},
     dispose: async () => {},
-  } as AccountRepository
+  } as unknown as AccountRepository
 }
 
 export async function openCode2(

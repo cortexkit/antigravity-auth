@@ -2,7 +2,7 @@ import { mock, spyOn } from 'bun:test'
 import { Buffer } from 'node:buffer'
 import * as crypto from 'node:crypto'
 import { Duplex } from 'node:stream'
-import tls from 'node:tls'
+import * as tls from 'node:tls'
 
 export const epoch = Date.UTC(2026, 6, 22, 12)
 export const credential = {
@@ -94,6 +94,13 @@ const uuid = (n: number) =>
   `00000000-0000-4000-8000-${n.toString(16).padStart(12, '0')}` as const
 let active: Environment | undefined
 
+const originalConnect = tls.connect
+mock.module('node:tls', () => ({
+  ...tls,
+  connect: (options: tls.ConnectionOptions & { signal?: AbortSignal }) =>
+    active ? active.connect(options) : originalConnect(options),
+}))
+
 // Both crypto APIs are used by the public adapters. Keep their sequences
 // separate so an OpenCode bridge job does not consume an ingress fallback ID.
 mock.module('node:crypto', () => ({
@@ -130,7 +137,7 @@ export class Environment {
   ) {
     if (active) throw new Error('Host parity environments must run serially')
     active = this
-    const replace = <T, K extends keyof T>(
+    const replace = <T extends object, K extends keyof T>(
       object: T,
       key: K,
       implementation: T[K],
@@ -143,9 +150,6 @@ export class Environment {
     replace(globalThis.crypto, 'randomUUID', () =>
       active ? uuid(++this.webId) : originalWebUuid(),
     )
-    replace(tls, 'connect', ((
-      options: tls.ConnectionOptions & { signal?: AbortSignal },
-    ) => this.connect(options)) as typeof tls.connect)
 
     // Ignore the runner's proxy environment without altering the target or
     // replacing any part of the sender that prepares or writes request bytes.
@@ -163,7 +167,7 @@ export class Environment {
     return uuid(++this.nodeId)
   }
 
-  private connect(
+  connect(
     options: tls.ConnectionOptions & { signal?: AbortSignal },
   ): tls.TLSSocket {
     const host = options.host
@@ -252,8 +256,8 @@ export class Environment {
     )
     const clear = spyOn(globalThis, 'clearTimeout').mockImplementation(
       (handle) => {
-        if (typeof handle === 'object') this.timers.delete(handle)
-        realClearTimeout(handle)
+        if (typeof handle === 'object') this.timers.delete(handle as Timer)
+        realClearTimeout(handle as Timer | number | undefined)
       },
     )
     let finished = false

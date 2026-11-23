@@ -17,7 +17,7 @@ import {
 
 let activation = 0
 
-function content(part: Part) {
+function content(part: Part): Record<string, unknown> {
   switch (part.type) {
     case 'text':
       return { type: 'text', text: part.text, textSignature: part.signature }

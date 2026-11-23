@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { Media, Message } from '@opencode/ai'
+import { type ContentPart, Media, Message } from '@opencode/ai'
 import { make } from '@opencode/ai/promise'
 import { configure } from '@opencode/ai/providers/google'
 import { RequestExecutor } from '@opencode/ai/route/executor'
@@ -167,7 +167,7 @@ export async function google1(
   const options = input.options
   const google = createGoogleGenerativeAI({
     apiKey: placeholder,
-    fetch: (url, init) => receive(new Request(url, init)),
+    fetch: ((url, init) => receive(new Request(url, init))) as typeof fetch,
   })
   try {
     const result = streamText({
@@ -260,7 +260,7 @@ export async function google1(
   return output
 }
 
-function gaPart(part: Part): Message.ContentInput {
+function gaPart(part: Part): ContentPart {
   const metadata = providerMetadata(part)
   switch (part.type) {
     case 'text':
@@ -328,7 +328,7 @@ export async function google2(
         model: configure({ apiKey: placeholder }).model(input.model),
         system: input.prompt,
         messages: input.messages.map(({ role, parts }) =>
-          Message.make({ role, content: parts.flatMap(gaPart) }),
+          Message.make({ role, content: parts.map(gaPart) }),
         ),
         tools: input.tools.map(({ name, description, schema }) => ({
           name,
@@ -381,15 +381,12 @@ export async function google2(
         case 'finish': {
           const usage = event.usage
           if (usage) {
-            const details = usage.details as
-              | { cacheRead?: number; reasoning?: number }
-              | undefined
             output.usage = {
-              input: usage.input ?? 0,
-              output: usage.output ?? 0,
-              total: usage.total ?? 0,
-              cacheRead: details?.cacheRead ?? 0,
-              reasoning: details?.reasoning ?? 0,
+              input: usage.nonCachedInputTokens ?? usage.inputTokens ?? 0,
+              output: usage.outputTokens ?? 0,
+              total: usage.totalTokens ?? 0,
+              cacheRead: usage.cacheReadInputTokens ?? 0,
+              reasoning: usage.reasoningTokens ?? 0,
             }
           }
           terminal(output, event.reason.normalized)
