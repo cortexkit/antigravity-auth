@@ -68,6 +68,7 @@ import { hasVaultHost } from '../../common-auth-embedded/claustrum/host.js'
 import {
   type AskRoutingInput,
   askRouting,
+  askRoutingUntilCapacity,
   type BillingRequestKind,
   type RoutingCandidate,
   type RoutingRefusal,
@@ -1999,19 +2000,21 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 ),
                 refusals: true as const,
               }
-              return askRouting(
-                exhausted
-                  ? {
-                      ...input,
-                      mode: 'continue',
-                      requestId: randomUUID(),
-                      exhausted,
-                      holdWaitMaxS: canHold
-                        ? Math.floor(routingWaitRemainingMs() / 1000)
-                        : 0,
-                    }
-                  : input,
-              )
+              if (exhausted)
+                return askRouting({
+                  ...input,
+                  mode: 'continue',
+                  requestId: randomUUID(),
+                  exhausted,
+                  holdWaitMaxS: canHold
+                    ? Math.floor(routingWaitRemainingMs() / 1000)
+                    : 0,
+                })
+              // Each routing call has its own deadline. The pre-response
+              // deadline also stops the wait before another call can start.
+              return askRoutingUntilCapacity(input, {
+                signal: deadline.signal,
+              })
             })
           let answer = await ask()
           const firstRefusal =
