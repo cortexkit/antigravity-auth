@@ -32,6 +32,9 @@ export async function runConversation({
         : undefined),
   )
   const scope = `${encodeURIComponent(input.id)}:${subject}:${custody}:`
+  const priorHost = process.env.CORTEXKIT_VAULT_HOST
+  if (custody === 'host') process.env.CORTEXKIT_VAULT_HOST = 'thalamus'
+  else delete process.env.CORTEXKIT_VAULT_HOST
   const accessor = Symbol.for('cortexkit.routing')
   const prior = Reflect.getOwnPropertyDescriptor(globalThis, accessor)
   if (custody !== 'local') {
@@ -61,7 +64,7 @@ export async function runConversation({
           const previous = turns.at(-1)
           if (input.replayText && previous?.text) {
             // Replay exactly what the host exposed, including the absence of
-            // a signature if its public decoder dropped the signature delta.
+            // a signature if its public decoder dropped the empty text update.
             step.messages = [
               step.messages[0]!,
               {
@@ -104,6 +107,8 @@ export async function runConversation({
       await host.dispose()
     }
   } finally {
+    if (priorHost === undefined) delete process.env.CORTEXKIT_VAULT_HOST
+    else process.env.CORTEXKIT_VAULT_HOST = priorHost
     if (prior) Reflect.defineProperty(globalThis, accessor, prior)
     else Reflect.deleteProperty(globalThis, accessor)
     environment.dispose()

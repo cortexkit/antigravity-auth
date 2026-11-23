@@ -10,7 +10,9 @@ import {
   type Fields,
   fieldKey,
   type KnownFailure,
+  type OutcomeOracle,
   outcomeFields,
+  outcomeKey,
   replaySignatures,
   wireFields,
   wireSemantics,
@@ -33,7 +35,7 @@ async function main(baselinePath: string, observedPath: string) {
   const baseline: Recording = await Bun.file(baselinePath).json()
   const current: Recording = await Bun.file(observedPath).json()
   const requests: Record<string, Captured> = {}
-  const responses: Record<string, Fields> = {}
+  const responses: Record<string, OutcomeOracle> = {}
   const failures: KnownFailure[] = []
 
   function collect(
@@ -143,10 +145,13 @@ async function main(baselinePath: string, observedPath: string) {
         baseline.responses,
         caseKey(scenario.input.id, 'opencode1', custody),
       )
+      responses[outcomeKey(scenario.input.id, custody)] = {
+        record: expectedOutcome(scenario, oracle, 'opencode1'),
+        piHooks: expectedOutcome(scenario, oracle, 'pi').hooks,
+      }
       for (const subject of subjects) {
         const key = caseKey(scenario.input.id, subject, custody)
         const expected = expectedOutcome(scenario, oracle, subject)
-        responses[key] = expected
         collect(
           key,
           outcomeFields(requireEntry(current.responses, key)),

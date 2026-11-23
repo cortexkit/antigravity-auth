@@ -1,0 +1,5989 @@
+{
+  "[\"unexplained 429\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [5000, 5000],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:quota_wait_exhausted"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "83"
+        }
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "83"
+        }
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "83"
+        }
+      }
+    ]
+  },
+  "[\"unexplained 429\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [5000, 5000],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 429,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "wait",
+            "phase": "start",
+            "wait_id": "00000000-0000-4000-8000-000000002714",
+            "reason": "rate_limited",
+            "next_ms": 1784721605000,
+            "attempt": 1,
+            "message": "Rate limited. Retrying..."
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "wait",
+            "phase": "end",
+            "wait_id": "00000000-0000-4000-8000-000000002714",
+            "reason": "rate_limited",
+            "next_ms": 1784721605000,
+            "attempt": 1,
+            "message": "Rate limited. Retrying...",
+            "outcome": "resumed"
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002715",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 429,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "wait",
+            "phase": "start",
+            "wait_id": "00000000-0000-4000-8000-000000002716",
+            "reason": "rate_limited",
+            "next_ms": 1784721610000,
+            "attempt": 2,
+            "message": "Rate limited. Retrying..."
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "wait",
+            "phase": "end",
+            "wait_id": "00000000-0000-4000-8000-000000002716",
+            "reason": "rate_limited",
+            "next_ms": 1784721610000,
+            "attempt": 2,
+            "message": "Rate limited. Retrying...",
+            "outcome": "resumed"
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002717",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 429,
+            "attempt": 3,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:quota_wait_exhausted"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "83"
+        }
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "83"
+        }
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "83"
+        }
+      }
+    ]
+  },
+  "[\"unexplained 429\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [5000, 5000],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 429,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "wait",
+            "phase": "start",
+            "wait_id": "00000000-0000-4000-8000-000000002713",
+            "reason": "rate_limited",
+            "next_ms": 1784721605000,
+            "attempt": 1,
+            "message": "Rate limited. Retrying..."
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "wait",
+            "phase": "end",
+            "wait_id": "00000000-0000-4000-8000-000000002713",
+            "reason": "rate_limited",
+            "next_ms": 1784721605000,
+            "attempt": 1,
+            "message": "Rate limited. Retrying...",
+            "outcome": "resumed"
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002714",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 429,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "wait",
+            "phase": "start",
+            "wait_id": "00000000-0000-4000-8000-000000002715",
+            "reason": "rate_limited",
+            "next_ms": 1784721610000,
+            "attempt": 2,
+            "message": "Rate limited. Retrying..."
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "wait",
+            "phase": "end",
+            "wait_id": "00000000-0000-4000-8000-000000002715",
+            "reason": "rate_limited",
+            "next_ms": 1784721610000,
+            "attempt": 2,
+            "message": "Rate limited. Retrying...",
+            "outcome": "resumed"
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002716",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 429,
+            "attempt": 3,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:quota_wait_exhausted"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "83"
+        }
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "83"
+        }
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "83"
+        }
+      }
+    ]
+  },
+  "[\"structured QUOTA_EXHAUSTED\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:quota_exhausted"]],
+      "notices": [
+        {
+          "message": "Rate limited. Retrying in 1s (attempt 1)...",
+          "variant": "warning"
+        }
+      ],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "259"
+        }
+      }
+    ]
+  },
+  "[\"structured QUOTA_EXHAUSTED\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 429,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:quota_exhausted"]],
+      "notices": [
+        {
+          "message": "Rate limited. Retrying in 1s (attempt 1)...",
+          "variant": "warning"
+        }
+      ],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "259"
+        }
+      }
+    ]
+  },
+  "[\"structured QUOTA_EXHAUSTED\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 429,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:quota_exhausted"]],
+      "notices": [
+        {
+          "message": "Rate limited. Retrying in 1s (attempt 1)...",
+          "variant": "warning"
+        }
+      ],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 429,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "259"
+        }
+      }
+    ]
+  },
+  "[\"503 then success\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [1000],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [
+        {
+          "message": "⏳ Server busy (503). Retrying in 1s...",
+          "variant": "warning"
+        }
+      ],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 503,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "214"
+        }
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"503 then success\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [1000],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 503,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [
+        {
+          "message": "⏳ Server busy (503). Retrying in 1s...",
+          "variant": "warning"
+        }
+      ],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 503,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "214"
+        }
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"503 then success\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [1000],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 503,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [
+        {
+          "message": "⏳ Server busy (503). Retrying in 1s...",
+          "variant": "warning"
+        }
+      ],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 503,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "214"
+        }
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"daily failure then prod success\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"daily failure then prod success\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"daily failure then prod success\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"NOT_FOUND then a second request and control model\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-4-hydrogen-high",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["", "", "Four."],
+      "thinking": ["", "", ""],
+      "signatures": [[], [], []],
+      "calls": [[], [], []],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        },
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        },
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [
+        ["failure:model_not_found"],
+        ["failure:model_not_found"],
+        ["stop"]
+      ],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 404,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "79"
+        }
+      },
+      {
+        "payload": "86fe12ae732bde74446cfbdc0e4ef553b34693cdf155aa186832b5b7d3ff70ff"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"NOT_FOUND then a second request and control model\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-4-hydrogen-high",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 404,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-4-hydrogen-high",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["", "", "Four."],
+      "thinking": ["", "", ""],
+      "signatures": [[], [], []],
+      "calls": [[], [], []],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        },
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        },
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [
+        ["failure:model_not_found"],
+        ["failure:model_not_found"],
+        ["stop"]
+      ],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 404,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "79"
+        }
+      },
+      {
+        "payload": "86fe12ae732bde74446cfbdc0e4ef553b34693cdf155aa186832b5b7d3ff70ff"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"NOT_FOUND then a second request and control model\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-4-hydrogen-high",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 404,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-4-hydrogen-high",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["", "", "Four."],
+      "thinking": ["", "", ""],
+      "signatures": [[], [], []],
+      "calls": [[], [], []],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        },
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        },
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [
+        ["failure:model_not_found"],
+        ["failure:model_not_found"],
+        ["stop"]
+      ],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 404,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "79"
+        }
+      },
+      {
+        "payload": "86fe12ae732bde74446cfbdc0e4ef553b34693cdf155aa186832b5b7d3ff70ff"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"lasting 403\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:account_reauthorize"]],
+      "notices": [
+        {
+          "message": "⚠ Account 1 needs verification. Run 'opencode auth login' and use Verify accounts.",
+          "variant": "warning"
+        }
+      ],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 403,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "226"
+        }
+      }
+    ]
+  },
+  "[\"lasting 403\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 403,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "condition": {
+            "reason": "provider_verification_required",
+            "providerStatus": 403
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:account_reauthorize"]],
+      "notices": [
+        {
+          "message": "⚠ Account 1 needs verification. Run 'opencode auth login' and use Verify accounts.",
+          "variant": "warning"
+        }
+      ],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 403,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "226"
+        }
+      }
+    ]
+  },
+  "[\"lasting 403\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 403,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "condition": {
+            "reason": "provider_verification_required",
+            "providerStatus": 403
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:account_reauthorize"]],
+      "notices": [
+        {
+          "message": "⚠ Account 1 needs verification. Run 'opencode auth login' and use Verify accounts.",
+          "variant": "warning"
+        }
+      ],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 403,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "226"
+        }
+      }
+    ]
+  },
+  "[\"thinking-signature 400 then recovery\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "107"
+        }
+      },
+      {
+        "payload": "inner retry request"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"thinking-signature 400 then recovery\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "claude-sonnet-5-5-low",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 400,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "107"
+        }
+      },
+      {
+        "payload": "inner retry request"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"thinking-signature 400 then recovery\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "claude-sonnet-5-5-low",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 400,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "107"
+        }
+      },
+      {
+        "payload": "inner retry request"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"thinking-signature terminal refusal\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:signature_recovery_failed"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "107"
+        }
+      },
+      {
+        "payload": "inner retry request"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "107"
+        }
+      }
+    ]
+  },
+  "[\"thinking-signature terminal refusal\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "claude-sonnet-5-5-low",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 400,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:signature_recovery_failed"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "107"
+        }
+      },
+      {
+        "payload": "inner retry request"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "107"
+        }
+      }
+    ]
+  },
+  "[\"thinking-signature terminal refusal\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "claude-sonnet-5-5-low",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "claude-sonnet-5-5-low",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 400,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:signature_recovery_failed"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "107"
+        }
+      },
+      {
+        "payload": "inner retry request"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "107"
+        }
+      }
+    ]
+  },
+  "[\"prompt too long\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:context_overflow"]],
+      "notices": [],
+      "compaction": true,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "142"
+        }
+      }
+    ]
+  },
+  "[\"prompt too long\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 400,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:context_overflow"]],
+      "notices": [],
+      "compaction": true,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "142"
+        }
+      }
+    ]
+  },
+  "[\"prompt too long\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 400,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:context_overflow"]],
+      "notices": [],
+      "compaction": true,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 400,
+        "headers": {
+          "content-type": "application/json",
+          "content-length": "142"
+        }
+      }
+    ]
+  },
+  "[\"tool call then STOP\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [
+        [
+          {
+            "name": "lookup",
+            "input": {
+              "key": "value"
+            },
+            "signature": "response-thought-signature-response-thought-signature-response-thought-signature-response-thought-signature-response-thought-signature-response-thought-signature-"
+          }
+        ]
+      ],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "437"
+        }
+      }
+    ]
+  },
+  "[\"tool call then STOP\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [
+        [
+          {
+            "name": "lookup",
+            "input": {
+              "key": "value"
+            },
+            "signature": "response-thought-signature-response-thought-signature-response-thought-signature-response-thought-signature-response-thought-signature-response-thought-signature-"
+          }
+        ]
+      ],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "437"
+        }
+      }
+    ]
+  },
+  "[\"tool call then STOP\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [
+        [
+          {
+            "name": "lookup",
+            "input": {
+              "key": "value"
+            },
+            "signature": "response-thought-signature-response-thought-signature-response-thought-signature-response-thought-signature-response-thought-signature-response-thought-signature-"
+          }
+        ]
+      ],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "437"
+        }
+      }
+    ]
+  },
+  "[\"safety stop\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:stopped_by_google"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "111"
+        }
+      }
+    ]
+  },
+  "[\"safety stop\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:stopped_by_google"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "111"
+        }
+      }
+    ]
+  },
+  "[\"safety stop\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:stopped_by_google"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "111"
+        }
+      }
+    ]
+  },
+  "[\"RECITATION stop\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:stopped_by_google"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "115"
+        }
+      }
+    ]
+  },
+  "[\"RECITATION stop\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:stopped_by_google"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "115"
+        }
+      }
+    ]
+  },
+  "[\"RECITATION stop\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:stopped_by_google"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "115"
+        }
+      }
+    ]
+  },
+  "[\"unlisted finish code\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:stopped_by_google"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"unlisted finish code\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:stopped_by_google"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"unlisted finish code\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:stopped_by_google"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "125"
+        }
+      }
+    ]
+  },
+  "[\"length stop\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["length"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "131"
+        }
+      }
+    ]
+  },
+  "[\"length stop\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["length"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "131"
+        }
+      }
+    ]
+  },
+  "[\"length stop\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["length"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "131"
+        }
+      }
+    ]
+  },
+  "[\"finish on candidate 1 only\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:incomplete"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "212"
+        }
+      }
+    ]
+  },
+  "[\"finish on candidate 1 only\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:incomplete"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "212"
+        }
+      }
+    ]
+  },
+  "[\"finish on candidate 1 only\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:incomplete"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "212"
+        }
+      }
+    ]
+  },
+  "[\"malformed frame\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "143"
+        }
+      }
+    ]
+  },
+  "[\"malformed frame\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "143"
+        }
+      }
+    ]
+  },
+  "[\"malformed frame\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "143"
+        }
+      }
+    ]
+  },
+  "[\"embedded error before content\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:embedded_error"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "88"
+        }
+      }
+    ]
+  },
+  "[\"embedded error before content\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:embedded_error"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "88"
+        }
+      }
+    ]
+  },
+  "[\"embedded error before content\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:embedded_error"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "88"
+        }
+      }
+    ]
+  },
+  "[\"embedded error after content\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:embedded_error"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "191"
+        }
+      }
+    ]
+  },
+  "[\"embedded error after content\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:embedded_error"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "191"
+        }
+      }
+    ]
+  },
+  "[\"embedded error after content\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:embedded_error"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "191"
+        }
+      }
+    ]
+  },
+  "[\"[DONE] without finish\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:incomplete"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "117"
+        }
+      }
+    ]
+  },
+  "[\"[DONE] without finish\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:incomplete"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "117"
+        }
+      }
+    ]
+  },
+  "[\"[DONE] without finish\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:incomplete"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "117"
+        }
+      }
+    ]
+  },
+  "[\"empty response\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:empty"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "0"
+        }
+      }
+    ]
+  },
+  "[\"empty response\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:empty"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "0"
+        }
+      }
+    ]
+  },
+  "[\"empty response\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:empty"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "0"
+        }
+      }
+    ]
+  },
+  "[\"thinking-only then STOP\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": [""],
+      "thinking": ["Count twice."],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:empty"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "418"
+        }
+      }
+    ]
+  },
+  "[\"thinking-only then STOP\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": ["Count twice."],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:empty"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "418"
+        }
+      }
+    ]
+  },
+  "[\"thinking-only then STOP\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": ["Count twice."],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:empty"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "418"
+        }
+      }
+    ]
+  },
+  "[\"split usage\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 6,
+          "cacheRead": 4,
+          "output": 5,
+          "reasoning": 3,
+          "total": 15
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "411"
+        }
+      }
+    ]
+  },
+  "[\"split usage\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "usage": {
+              "input": 6,
+              "output": 2,
+              "cache_read": 4,
+              "reasoning": 3,
+              "reasoning_included_in_output": false
+            },
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 6,
+          "cacheRead": 4,
+          "output": 5,
+          "reasoning": 3,
+          "total": 15
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "411"
+        }
+      }
+    ]
+  },
+  "[\"split usage\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "usage": {
+              "input": 6,
+              "output": 2,
+              "cache_read": 4,
+              "reasoning": 3,
+              "reasoning_included_in_output": false
+            },
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 6,
+          "cacheRead": 4,
+          "output": 5,
+          "reasoning": 3,
+          "total": 15
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "411"
+        }
+      }
+    ]
+  },
+  "[\"usage after STOP\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 6,
+          "cacheRead": 4,
+          "output": 5,
+          "reasoning": 3,
+          "total": 15
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "284"
+        }
+      }
+    ]
+  },
+  "[\"usage after STOP\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "usage": {
+              "input": 6,
+              "output": 2,
+              "cache_read": 4,
+              "reasoning": 3,
+              "reasoning_included_in_output": false
+            },
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 6,
+          "cacheRead": 4,
+          "output": 5,
+          "reasoning": 3,
+          "total": 15
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "284"
+        }
+      }
+    ]
+  },
+  "[\"usage after STOP\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "usage": {
+              "input": 6,
+              "output": 2,
+              "cache_read": 4,
+              "reasoning": 3,
+              "reasoning_included_in_output": false
+            },
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 6,
+          "cacheRead": 4,
+          "output": 5,
+          "reasoning": 3,
+          "total": 15
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "284"
+        }
+      }
+    ]
+  },
+  "[\"second finish during the usage drain\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "240"
+        }
+      }
+    ]
+  },
+  "[\"second finish during the usage drain\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "240"
+        }
+      }
+    ]
+  },
+  "[\"second finish during the usage drain\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "240"
+        }
+      }
+    ]
+  },
+  "[\"duplicate thinking\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": ["Count twice."],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "743"
+        }
+      }
+    ]
+  },
+  "[\"duplicate thinking\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": ["Count twice."],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "743"
+        }
+      }
+    ]
+  },
+  "[\"duplicate thinking\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": ["Count twice."],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "743"
+        }
+      }
+    ]
+  },
+  "[\"identical thinking in two sessions\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [],
+      "text": ["Four.", "Four."],
+      "thinking": ["Count twice.", "Count twice."],
+      "signatures": [[], []],
+      "calls": [[], []],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        },
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"], ["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "434"
+        }
+      },
+      {
+        "payload": "77a25c0b5f8a28d92a4fbda90c48f3f7d6b9cb88632f1c57b7130f31d209bcf3"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "434"
+        }
+      }
+    ]
+  },
+  "[\"identical thinking in two sessions\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session-a",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session-a",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        },
+        {
+          "sessionId": "parity-session-b",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002714",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session-b",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four.", "Four."],
+      "thinking": ["Count twice.", "Count twice."],
+      "signatures": [[], []],
+      "calls": [[], []],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        },
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"], ["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "434"
+        }
+      },
+      {
+        "payload": "77a25c0b5f8a28d92a4fbda90c48f3f7d6b9cb88632f1c57b7130f31d209bcf3"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "434"
+        }
+      }
+    ]
+  },
+  "[\"identical thinking in two sessions\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        },
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [],
+      "reports": [
+        {
+          "sessionId": "parity-session-a",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session-a",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        },
+        {
+          "sessionId": "parity-session-b",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002714",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session-b",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
+        }
+      ],
+      "text": ["Four.", "Four."],
+      "thinking": ["Count twice.", "Count twice."],
+      "signatures": [[], []],
+      "calls": [[], []],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        },
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["stop"], ["stop"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "434"
+        }
+      },
+      {
+        "payload": "77a25c0b5f8a28d92a4fbda90c48f3f7d6b9cb88632f1c57b7130f31d209bcf3"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream",
+          "content-length": "434"
+        }
+      }
+    ]
+  },
+  "[\"idle stall\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [180000],
+      "reports": [],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:deadline"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        }
+      }
+    ]
+  },
+  "[\"idle stall\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [180000],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:deadline"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        }
+      }
+    ]
+  },
+  "[\"idle stall\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [180000],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": ["Four."],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:deadline"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "response": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        }
+      }
+    ]
+  },
+  "[\"pre-response deadline\",\"local\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [180000, 360000],
+      "reports": [],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:deadline"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      }
+    ]
+  },
+  "[\"pre-response deadline\",\"vault\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [180000, 360000],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:deadline"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      }
+    ]
+  },
+  "[\"pre-response deadline\",\"host\"]": {
+    "record": {
+      "physicalSends": [
+        {
+          "endpoint": "https://daily-cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
+        }
+      ],
+      "delays": [],
+      "aborts": [],
+      "cancellations": [180000, 360000],
+      "reports": [
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002712",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "attempt": 1,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002713",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "gemini-3.8-flash-medium",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        }
+      ],
+      "text": [""],
+      "thinking": [""],
+      "signatures": [[]],
+      "calls": [[]],
+      "usage": [
+        {
+          "input": 0,
+          "output": 0,
+          "cacheRead": 0,
+          "reasoning": 0,
+          "total": 0
+        }
+      ],
+      "terminal": [["failure:deadline"]],
+      "notices": [],
+      "compaction": false,
+      "hooks": []
+    },
+    "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      }
+    ]
+  }
+}

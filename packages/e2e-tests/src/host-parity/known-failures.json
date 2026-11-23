@@ -1,0 +1,3981 @@
+[
+  [
+    "[\"plain chat\",\"pi\",\"local\",\"wire.body\"]",
+    "be402bed9da30536fd3c4aabbd8df28465d27927278291455bbba75a5ebc0363"
+  ],
+  [
+    "[\"plain chat\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "be402bed9da30536fd3c4aabbd8df28465d27927278291455bbba75a5ebc0363"
+  ],
+  [
+    "[\"Gemini tool loop\",\"opencode2\",\"local\",\"wire.body\"]",
+    "afcdf4ef1ad86d7c54ce4fc5dade654e139b972c723b96c5768a2f5acd63b925",
+    "request-wire:D1"
+  ],
+  [
+    "[\"Gemini tool loop\",\"pi\",\"local\",\"wire.body\"]",
+    "bab9a1372749148c08b249bee760a6c73f46a4c486b77aab8ceb7f7a9c4bd0a7",
+    "request-wire:D1"
+  ],
+  [
+    "[\"Gemini tool loop\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "bab9a1372749148c08b249bee760a6c73f46a4c486b77aab8ceb7f7a9c4bd0a7",
+    "request-wire:D1"
+  ],
+  [
+    "[\"parallel calls\",\"opencode2\",\"local\",\"wire.body\"]",
+    "7ca1773a12f25689101530fb780d5d6685e6c8da9b5718e47a882ac79963253a",
+    "request-wire:D1"
+  ],
+  [
+    "[\"parallel calls\",\"pi\",\"local\",\"wire.body\"]",
+    "1fdc6f2f3c0a18da2ee963afe45533b2adb3b7ed70d1c75dada9982cd7761548",
+    "request-wire:D1"
+  ],
+  [
+    "[\"parallel calls\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "1fdc6f2f3c0a18da2ee963afe45533b2adb3b7ed70d1c75dada9982cd7761548",
+    "request-wire:D1"
+  ],
+  [
+    "[\"unsigned call\",\"opencode2\",\"local\",\"wire.body\"]",
+    "925d542b4679da5c7d07f881e086fbacb7dd41dc85f6c2f4d314e4981e469e90",
+    "request-wire:D1"
+  ],
+  [
+    "[\"unsigned call\",\"pi\",\"local\",\"wire.body\"]",
+    "dad68be7bc03fd7f40166e371c7583d74e120608521df2b2c4edebe1d12717af",
+    "request-wire:D1"
+  ],
+  [
+    "[\"unsigned call\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "dad68be7bc03fd7f40166e371c7583d74e120608521df2b2c4edebe1d12717af",
+    "request-wire:D1"
+  ],
+  [
+    "[\"Gemini → Claude → Gemini\",\"opencode2\",\"local\",\"wire.body\"]",
+    "ce85b068cc73fc4c76742684884f7540bb17570b8362c07c2f7f169e5e99c224",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Gemini → Claude → Gemini\",\"pi\",\"local\",\"wire.body\"]",
+    "5bb76ab176968bbd4c952054e491f2a13c8957fb664affb6ccbfd761652ad4ac",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Gemini → Claude → Gemini\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "5bb76ab176968bbd4c952054e491f2a13c8957fb664affb6ccbfd761652ad4ac",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Claude thinking on\",\"opencode2\",\"local\",\"wire.body\"]",
+    "1ed0d3e17cebff30f63dc1cc225461b66e35736156ac37e91d0daf8182852313",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Claude thinking on\",\"pi\",\"local\",\"wire.body\"]",
+    "ba4900262ef5301e157a6070782719c3dbcc5b489e090c578d9835b6897b640e",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Claude thinking on\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "ba4900262ef5301e157a6070782719c3dbcc5b489e090c578d9835b6897b640e",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Claude thinking off\",\"opencode2\",\"local\",\"wire.body\"]",
+    "1ed0d3e17cebff30f63dc1cc225461b66e35736156ac37e91d0daf8182852313",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Claude thinking off\",\"pi\",\"local\",\"wire.body\"]",
+    "ba4900262ef5301e157a6070782719c3dbcc5b489e090c578d9835b6897b640e",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Claude thinking off\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "ba4900262ef5301e157a6070782719c3dbcc5b489e090c578d9835b6897b640e",
+    "request-wire:D2"
+  ],
+  [
+    "[\"Claude tool with union types\",\"pi\",\"local\",\"wire.body\"]",
+    "b54ca8b92d3220f5e6cebd9d5970dd40c027cf59c91e5933547487eedb9b933d",
+    "request-wire:D3"
+  ],
+  [
+    "[\"Claude tool with union types\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "b54ca8b92d3220f5e6cebd9d5970dd40c027cf59c91e5933547487eedb9b933d",
+    "request-wire:D3"
+  ],
+  [
+    "[\"empty and whitespace turns: empty parts array\",\"opencode2\",\"local\",\"wire.body\"]",
+    "87d5c7a9b50f45b6ceee6cd8ef702dc11b4970cbb7fe582cdf2150dd963332ff",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: empty parts array\",\"pi\",\"local\",\"wire.body\"]",
+    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: empty parts array\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: explicit empty text\",\"opencode2\",\"local\",\"wire.body\"]",
+    "285fb7a7533d9e067f9dc4f666afb51c552c3a1025e2b65f23564ca17b6b2c5f",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: explicit empty text\",\"pi\",\"local\",\"wire.body\"]",
+    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: explicit empty text\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: whitespace\",\"opencode2\",\"local\",\"wire.body\"]",
+    "11ecd229c6ad0843e1a8f72940539b5e9fcc85003e0a7c2a8b0653b8312a52ac",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: whitespace\",\"pi\",\"local\",\"wire.body\"]",
+    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: whitespace\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: signature-bearing empty part\",\"opencode2\",\"local\",\"wire.body\"]",
+    "0db1e71a74026a9f9c6850e1b8f79e130a014b838e78b7623b5a36ef01261488",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: signature-bearing empty part\",\"pi\",\"local\",\"wire.body\"]",
+    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
+    "request-wire:D4"
+  ],
+  [
+    "[\"empty and whitespace turns: signature-bearing empty part\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "488228aca3ad12116db800bd470ceb8b21d16a6c7ce3533939673e98ec1393c0",
+    "request-wire:D4"
+  ],
+  [
+    "[\"Claude tool reply ending the history: raw\",\"opencode1\",\"local\",\"wire.body\"]",
+    "597655c8522334baef81578241a4bf9619b20d85f4498e833238a4a0048744a5",
+    "request-wire:D4"
+  ],
+  [
+    "[\"Claude tool reply ending the history: raw\",\"opencode2\",\"local\",\"wire.body\"]",
+    "8c18ac9381a793cff74ef3cdec94203707d5f757ce1e1566c16b0aafe3138309",
+    "request-wire:D4"
+  ],
+  [
+    "[\"Claude tool reply ending the history: raw\",\"pi\",\"local\",\"wire.body\"]",
+    "35171ec759df131cbe303f3a43a7aebe7e2b9045e856de9b943407793630f99d",
+    "request-wire:D4"
+  ],
+  [
+    "[\"Claude tool reply ending the history: raw\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "35171ec759df131cbe303f3a43a7aebe7e2b9045e856de9b943407793630f99d",
+    "request-wire:D4"
+  ],
+  [
+    "[\"Claude tool reply ending the history: wrapped\",\"opencode2\",\"local\",\"wire.body\"]",
+    "0fdff4a8087026e29dd60ee4a05eed7787d8542756d855370a44e1fce32ee480",
+    "request-wire:D4"
+  ],
+  [
+    "[\"Claude tool reply ending the history: wrapped\",\"pi\",\"local\",\"wire.body\"]",
+    "35171ec759df131cbe303f3a43a7aebe7e2b9045e856de9b943407793630f99d",
+    "request-wire:D4"
+  ],
+  [
+    "[\"Claude tool reply ending the history: wrapped\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "35171ec759df131cbe303f3a43a7aebe7e2b9045e856de9b943407793630f99d",
+    "request-wire:D4"
+  ],
+  [
+    "[\"two sessions without ids\",\"opencode1\",\"local\",\"wire.freshScope\"]",
+    "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+    "request-wire:D6"
+  ],
+  [
+    "[\"two sessions without ids\",\"opencode2\",\"local\",\"wire.freshScope\"]",
+    "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+    "request-wire:D6"
+  ],
+  [
+    "[\"two sessions without ids\",\"pi\",\"local\",\"wire.body\"]",
+    "50017af35ebce94f02685d096764319f9946f3e5d32247a401388f6b01373b8b",
+    "request-wire:D6"
+  ],
+  [
+    "[\"two sessions without ids\",\"pi\",\"local\",\"wire.freshScope\"]",
+    "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+    "request-wire:D6"
+  ],
+  [
+    "[\"two sessions without ids\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "50017af35ebce94f02685d096764319f9946f3e5d32247a401388f6b01373b8b",
+    "request-wire:D6"
+  ],
+  [
+    "[\"two sessions without ids\",\"pi-transcript\",\"local\",\"wire.freshScope\"]",
+    "fcbcf165908dd18a9e49f7ff27810176db8e9f63b4352213741664245224f8aa",
+    "request-wire:D6"
+  ],
+  [
+    "[\"two requests with one explicit session id\",\"pi\",\"local\",\"wire.body\"]",
+    "50017af35ebce94f02685d096764319f9946f3e5d32247a401388f6b01373b8b",
+    "request-wire:D6"
+  ],
+  [
+    "[\"two requests with one explicit session id\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "50017af35ebce94f02685d096764319f9946f3e5d32247a401388f6b01373b8b",
+    "request-wire:D6"
+  ],
+  [
+    "[\"user image\",\"pi\",\"local\",\"wire.body\"]",
+    "c756bac7b8967a15e43a51452c6d551ae56f5980328229c86612b6362ffccc73"
+  ],
+  [
+    "[\"user image\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "c756bac7b8967a15e43a51452c6d551ae56f5980328229c86612b6362ffccc73"
+  ],
+  [
+    "[\"tool-result image: image-only\",\"opencode2\",\"local\",\"wire.body\"]",
+    "1236e9897d19d9f2fc288a4257c4be567ae8712fb3541ef6e5d64fdcd621e927",
+    "request-wire:D8"
+  ],
+  [
+    "[\"tool-result image: image-only\",\"pi\",\"local\",\"wire.body\"]",
+    "699531b3b1355686a13e87701ab794e6be2837f0e785dc6879841109d0f611f5",
+    "request-wire:D8"
+  ],
+  [
+    "[\"tool-result image: image-only\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "699531b3b1355686a13e87701ab794e6be2837f0e785dc6879841109d0f611f5",
+    "request-wire:D8"
+  ],
+  [
+    "[\"tool-result image: mixed\",\"opencode2\",\"local\",\"wire.body\"]",
+    "adf2fcd1832b2c7e4b9195afefaf2ca9baeadb1fd924e5fbf5e7f72ce7f4988a",
+    "request-wire:D8"
+  ],
+  [
+    "[\"tool-result image: mixed\",\"pi\",\"local\",\"wire.body\"]",
+    "256e81a4586f6ae3852b6ad1e7fe307457873bc49bd8a6f474d7b85c7b919f5f",
+    "request-wire:D8"
+  ],
+  [
+    "[\"tool-result image: mixed\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "256e81a4586f6ae3852b6ad1e7fe307457873bc49bd8a6f474d7b85c7b919f5f",
+    "request-wire:D8"
+  ],
+  [
+    "[\"object tool arguments with a thinking key\",\"opencode1\",\"local\",\"wire.toolArguments\"]",
+    "e2d442b7e8532dc0d106ad13d48d20923beb253487d1d405e6d6530630522999",
+    "request-wire:D9"
+  ],
+  [
+    "[\"object tool arguments with a thinking key\",\"opencode2\",\"local\",\"wire.body\"]",
+    "f777d160269578ed0cef5d59acbd387e53eec6232a05b1df7c93a28158333f7d",
+    "request-wire:D9"
+  ],
+  [
+    "[\"object tool arguments with a thinking key\",\"opencode2\",\"local\",\"wire.toolArguments\"]",
+    "e2d442b7e8532dc0d106ad13d48d20923beb253487d1d405e6d6530630522999",
+    "request-wire:D9"
+  ],
+  [
+    "[\"object tool arguments with a thinking key\",\"pi\",\"local\",\"wire.body\"]",
+    "bd7038689c06e0e265888bc9fff8184704c7ee74d00b5b8b5e23a03248a41500",
+    "request-wire:D9"
+  ],
+  [
+    "[\"object tool arguments with a thinking key\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "bd7038689c06e0e265888bc9fff8184704c7ee74d00b5b8b5e23a03248a41500",
+    "request-wire:D9"
+  ],
+  [
+    "[\"custom thinking budgets and temperature\",\"opencode2\",\"local\",\"wire.body\"]",
+    "fbf08278e68b7eb3cdee4136b093dfd5592c93bddd3307d310e865faf2954f48",
+    "request-wire:D5"
+  ],
+  [
+    "[\"custom thinking budgets and temperature\",\"pi\",\"local\",\"wire.body\"]",
+    "363eb66d1e39d7ea5f90554dc0b899f0244db838cc0f7112a4421ed426fa9bc6",
+    "request-wire:D5"
+  ],
+  [
+    "[\"custom thinking budgets and temperature\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "363eb66d1e39d7ea5f90554dc0b899f0244db838cc0f7112a4421ed426fa9bc6",
+    "request-wire:D5"
+  ],
+  [
+    "[\"neon low\",\"pi\",\"local\",\"wire.body\"]",
+    "0d609c87eca1bcd069c61a5bab08a46f5146e95f723921e23cbb6f3c189d11dd"
+  ],
+  [
+    "[\"neon low\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "0d609c87eca1bcd069c61a5bab08a46f5146e95f723921e23cbb6f3c189d11dd"
+  ],
+  [
+    "[\"neon medium\",\"pi\",\"local\",\"wire.body\"]",
+    "22debe5704880ab14677759647757efdc515732cdb48bf220336f4bae5b6b620"
+  ],
+  [
+    "[\"neon medium\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "22debe5704880ab14677759647757efdc515732cdb48bf220336f4bae5b6b620"
+  ],
+  [
+    "[\"neon high\",\"pi\",\"local\",\"wire.body\"]",
+    "551839cc3671ee0da4c75a1948e80c075217a0a5ae98dab33fdf695b1e133874"
+  ],
+  [
+    "[\"neon high\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "551839cc3671ee0da4c75a1948e80c075217a0a5ae98dab33fdf695b1e133874"
+  ],
+  [
+    "[\"neon xhigh\",\"pi\",\"local\",\"wire.body\"]",
+    "e3cf66918fbdceff727eea3d4d277cb402c1f1405da545be78e20d1f2e57fabc",
+    "accounts-features:D1"
+  ],
+  [
+    "[\"neon xhigh\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "e3cf66918fbdceff727eea3d4d277cb402c1f1405da545be78e20d1f2e57fabc",
+    "accounts-features:D1"
+  ],
+  [
+    "[\"hydrogen low\",\"pi\",\"local\",\"wire.body\"]",
+    "580ff1aecc3e7ab95c21ca3e5a7be860cdabcb25d4100996db31be395d3a376c"
+  ],
+  [
+    "[\"hydrogen low\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "580ff1aecc3e7ab95c21ca3e5a7be860cdabcb25d4100996db31be395d3a376c"
+  ],
+  [
+    "[\"hydrogen medium\",\"pi\",\"local\",\"wire.body\"]",
+    "3569d28e4d30691cf95f11f9c3e0c82365c965e120b0813035b99ab86f31e0c3"
+  ],
+  [
+    "[\"hydrogen medium\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "3569d28e4d30691cf95f11f9c3e0c82365c965e120b0813035b99ab86f31e0c3"
+  ],
+  [
+    "[\"hydrogen high\",\"pi\",\"local\",\"wire.body\"]",
+    "3d95d64c02ba5711e8703687fcea079ed0fa3b2ebd21b30a387c168d987a2ea8"
+  ],
+  [
+    "[\"hydrogen high\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "3d95d64c02ba5711e8703687fcea079ed0fa3b2ebd21b30a387c168d987a2ea8"
+  ],
+  [
+    "[\"hydrogen xhigh\",\"pi\",\"local\",\"wire.body\"]",
+    "0b6807a56c7ed2a45ecebeab511584b91c2733a1ca01027692ea0d7806b75755",
+    "accounts-features:D1"
+  ],
+  [
+    "[\"hydrogen xhigh\",\"pi-transcript\",\"local\",\"wire.body\"]",
+    "0b6807a56c7ed2a45ecebeab511584b91c2733a1ca01027692ea0d7806b75755",
+    "accounts-features:D1"
+  ],
+  [
+    "[\"unexplained 429\",\"opencode1\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"opencode2\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"local\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"local\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"local\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"local\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"opencode1\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"opencode2\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"vault\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"vault\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"opencode1\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"opencode2\",\"host\",\"reports\"]",
+    "0b51f2af0a02d65beef7d272368ab18be000ca5ee2099f6f81986bd9b9cd4e49",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"opencode2\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"host\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"host\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"host\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"host\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D2"
+  ],
+  [
+    "[\"unexplained 429\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode1\",\"local\",\"terminal\"]",
+    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"local\",\"terminal\"]",
+    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"local\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"local\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"local\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode1\",\"vault\",\"terminal\"]",
+    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"vault\",\"reports\"]",
+    "67dd7a5ebab7f6225c1e69c94a40b6a5d052452d450721f7e82d678a48c094b0",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"vault\",\"terminal\"]",
+    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"vault\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"vault\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"vault\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode1\",\"host\",\"terminal\"]",
+    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"host\",\"reports\"]",
+    "67dd7a5ebab7f6225c1e69c94a40b6a5d052452d450721f7e82d678a48c094b0",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"host\",\"terminal\"]",
+    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"opencode2\",\"host\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"host\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"host\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"structured QUOTA_EXHAUSTED\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D2"
+  ],
+  [
+    "[\"503 then success\",\"opencode2\",\"local\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"local\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"local\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"local\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"local\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"local\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"local\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"local\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"local\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"opencode2\",\"vault\",\"reports\"]",
+    "6971b12ab5b2df1f70ae5871526afa67f31814a00f24a80fb092c86ac7b2afa0",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"opencode2\",\"vault\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"vault\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"vault\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"vault\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"vault\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"vault\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"vault\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"vault\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"opencode2\",\"host\",\"reports\"]",
+    "6971b12ab5b2df1f70ae5871526afa67f31814a00f24a80fb092c86ac7b2afa0",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"opencode2\",\"host\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"host\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"host\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"host\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"host\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"host\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"host\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"host\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"host\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"503 then success\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"local\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"local\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"local\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"local\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"opencode2\",\"vault\",\"reports\"]",
+    "460c151f5e43597002b4ec81a77a0a82aec2595acd17bd3c26dae55afe8b79ce",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"vault\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"vault\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"opencode2\",\"host\",\"reports\"]",
+    "460c151f5e43597002b4ec81a77a0a82aec2595acd17bd3c26dae55afe8b79ce",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"host\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"host\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "request-wire:D7"
+  ],
+  [
+    "[\"daily failure then prod success\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "request-wire:D7"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode1\",\"local\",\"terminal\"]",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"local\",\"delays\"]",
+    "7cd0293cbae2e0b1605df002902aa71db533aed523261212b4a6d8536c5cea2f",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"local\",\"terminal\"]",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"local\",\"physicalSends\"]",
+    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"local\",\"text\"]",
+    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"local\",\"terminal\"]",
+    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"local\",\"physicalSends\"]",
+    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"local\",\"text\"]",
+    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode1\",\"vault\",\"terminal\"]",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"vault\",\"delays\"]",
+    "a438ae1ef1f989bdb6d5ed179a6a3a73016c3efe2988472c1579d8cd753f6d44",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"vault\",\"reports\"]",
+    "a94997b7c3ba868d9db6b750ffa859d20374f4c3d7af2af65f7dc5cecf2f4011",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"vault\",\"terminal\"]",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"physicalSends\"]",
+    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"text\"]",
+    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"terminal\"]",
+    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
+    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"text\"]",
+    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode1\",\"host\",\"terminal\"]",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"host\",\"delays\"]",
+    "a438ae1ef1f989bdb6d5ed179a6a3a73016c3efe2988472c1579d8cd753f6d44",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"host\",\"reports\"]",
+    "a94997b7c3ba868d9db6b750ffa859d20374f4c3d7af2af65f7dc5cecf2f4011",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"host\",\"terminal\"]",
+    "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"physicalSends\"]",
+    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"text\"]",
+    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"terminal\"]",
+    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"physicalSends\"]",
+    "3baeada089fec12570a6ae425fb3d876fbf7c1dae0d0c2bc9c42339ac9c09f8b",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"text\"]",
+    "01ee824311b922239daff4bbcf844bc8f79bcf7b5962c823bb44684cff5da7fe",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "d7df09c5c8d0cd21cf568de15e5db9c62185ce860af70fef57d3c53f0b43b65d",
+    "response-errors:D3"
+  ],
+  [
+    "[\"NOT_FOUND then a second request and control model\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode1\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode2\",\"local\",\"terminal\"]",
+    "05f2ace5fb8dc56bc899b9f5d6d6249fa398eedf07ee04e1e2948caf1df0635e",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode2\",\"local\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"local\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"local\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode1\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode2\",\"vault\",\"reports\"]",
+    "fe723fe604eafbc2cb2a9e0b7577824f78802e06a80e0ef1dcd3a9fe6017023f",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode2\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode2\",\"vault\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"vault\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"vault\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode1\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode2\",\"host\",\"reports\"]",
+    "fe723fe604eafbc2cb2a9e0b7577824f78802e06a80e0ef1dcd3a9fe6017023f",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode2\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"opencode2\",\"host\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"host\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"host\",\"notices\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"lasting 403\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D3"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"local\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"local\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"local\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"local\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"local\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"local\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"local\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"local\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"local\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"local\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"local\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"vault\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"vault\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"vault\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"vault\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"vault\",\"reports\"]",
+    "0188f84f9600cbb8edceebef186c5011f9c2cfcfa4394e61e80a681e1ac9a166",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"vault\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"vault\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"host\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"host\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"host\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"host\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"host\",\"reports\"]",
+    "0188f84f9600cbb8edceebef186c5011f9c2cfcfa4394e61e80a681e1ac9a166",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"host\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"host\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature 400 then recovery\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"opencode1\",\"local\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"opencode2\",\"local\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi\",\"local\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"local\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"opencode1\",\"vault\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"opencode2\",\"vault\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"opencode2\",\"vault\",\"reports\"]",
+    "0188f84f9600cbb8edceebef186c5011f9c2cfcfa4394e61e80a681e1ac9a166",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi\",\"vault\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"opencode1\",\"host\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"opencode2\",\"host\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"opencode2\",\"host\",\"reports\"]",
+    "0188f84f9600cbb8edceebef186c5011f9c2cfcfa4394e61e80a681e1ac9a166",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi\",\"host\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"host\",\"physicalSends\"]",
+    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"thinking-signature terminal refusal\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D11"
+  ],
+  [
+    "[\"prompt too long\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"opencode2\",\"vault\",\"reports\"]",
+    "d0bd063df5c4ae6efe54c068f84de2d3461575f47d83bb75347600b62e3b3ebd",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"opencode2\",\"host\",\"reports\"]",
+    "d0bd063df5c4ae6efe54c068f84de2d3461575f47d83bb75347600b62e3b3ebd",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"prompt too long\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"tool call then STOP\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"safety stop\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"RECITATION stop\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode1\",\"local\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode2\",\"local\",\"terminal\"]",
+    "c205bb08cd72f7312e3a6f1d2528ec8234d9487cd94dcb8d30be8fa7c73bfb40",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode1\",\"vault\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode2\",\"vault\",\"terminal\"]",
+    "c205bb08cd72f7312e3a6f1d2528ec8234d9487cd94dcb8d30be8fa7c73bfb40",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode1\",\"host\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode2\",\"host\",\"terminal\"]",
+    "c205bb08cd72f7312e3a6f1d2528ec8234d9487cd94dcb8d30be8fa7c73bfb40",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"length stop\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"opencode1\",\"local\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"opencode2\",\"local\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi\",\"local\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"opencode1\",\"vault\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"opencode2\",\"vault\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi\",\"vault\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"opencode1\",\"host\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"opencode2\",\"host\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi\",\"host\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"finish on candidate 1 only\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode1\",\"local\",\"terminal\"]",
+    "d54a0af8b9fb78ab2f8d5c6a991b75ca9d7ee394800ccfe2ef3dd0bdc3df33f1",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode2\",\"local\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode2\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode1\",\"vault\",\"terminal\"]",
+    "d54a0af8b9fb78ab2f8d5c6a991b75ca9d7ee394800ccfe2ef3dd0bdc3df33f1",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode2\",\"vault\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode2\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode1\",\"host\",\"terminal\"]",
+    "d54a0af8b9fb78ab2f8d5c6a991b75ca9d7ee394800ccfe2ef3dd0bdc3df33f1",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode2\",\"host\",\"text\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"opencode2\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"malformed frame\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"opencode1\",\"local\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"opencode1\",\"vault\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"opencode2\",\"vault\",\"reports\"]",
+    "59d174761b7bb6289cd724ce6e43f95dfbc7632cf5e48ae40f640d03ed45d5f0",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"opencode1\",\"host\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"opencode2\",\"host\",\"reports\"]",
+    "59d174761b7bb6289cd724ce6e43f95dfbc7632cf5e48ae40f640d03ed45d5f0",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error before content\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"opencode1\",\"local\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"opencode1\",\"vault\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"opencode2\",\"vault\",\"reports\"]",
+    "59d174761b7bb6289cd724ce6e43f95dfbc7632cf5e48ae40f640d03ed45d5f0",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"opencode1\",\"host\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"opencode2\",\"host\",\"reports\"]",
+    "59d174761b7bb6289cd724ce6e43f95dfbc7632cf5e48ae40f640d03ed45d5f0",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"embedded error after content\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"opencode1\",\"local\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"opencode2\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"opencode1\",\"vault\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"opencode2\",\"vault\",\"reports\"]",
+    "e73fd9df4e19bd39e57968395f4151263c0bc2a4201df10a0580fc5e591a1969",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"opencode2\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"opencode1\",\"host\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"opencode2\",\"host\",\"reports\"]",
+    "e73fd9df4e19bd39e57968395f4151263c0bc2a4201df10a0580fc5e591a1969",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"opencode2\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"[DONE] without finish\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"opencode1\",\"local\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"opencode2\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"local\",\"aborts\"]",
+    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"local\",\"aborts\"]",
+    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"opencode1\",\"vault\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"opencode2\",\"vault\",\"reports\"]",
+    "e73fd9df4e19bd39e57968395f4151263c0bc2a4201df10a0580fc5e591a1969",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"opencode2\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"vault\",\"aborts\"]",
+    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"vault\",\"aborts\"]",
+    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"opencode1\",\"host\",\"terminal\"]",
+    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"opencode2\",\"host\",\"reports\"]",
+    "e73fd9df4e19bd39e57968395f4151263c0bc2a4201df10a0580fc5e591a1969",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"opencode2\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"host\",\"aborts\"]",
+    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"host\",\"aborts\"]",
+    "d0bca111f8628137adc4c16f123496dcdd1d590d06cb5d9acd68b39fe656fb97",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"empty response\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode1\",\"local\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode2\",\"local\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode2\",\"local\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"local\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"local\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"local\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode1\",\"vault\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode1\",\"vault\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode2\",\"vault\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode2\",\"vault\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"vault\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"vault\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode1\",\"host\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode1\",\"host\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode2\",\"host\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"opencode2\",\"host\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"host\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"host\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "908d0f1d4a07e4af0ee24ad53ebddb33ad858163d1345fb3a79a15cf271a34da",
+    "response-errors:D5"
+  ],
+  [
+    "[\"thinking-only then STOP\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"split usage\",\"opencode1\",\"local\",\"usage\"]",
+    "0924b0db2be770a357da4cfab92232db30ab78d54c3462587a3ab78f6d00268a",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"opencode2\",\"local\",\"usage\"]",
+    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi\",\"local\",\"usage\"]",
+    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi-transcript\",\"local\",\"usage\"]",
+    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"opencode1\",\"vault\",\"usage\"]",
+    "0924b0db2be770a357da4cfab92232db30ab78d54c3462587a3ab78f6d00268a",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"opencode2\",\"vault\",\"reports\"]",
+    "9145fb6b6c05817fcd79c12b0537f408182b8a4a312c4ea95a6974cb5476f33c",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"opencode2\",\"vault\",\"usage\"]",
+    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi\",\"vault\",\"usage\"]",
+    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi-transcript\",\"vault\",\"usage\"]",
+    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"opencode1\",\"host\",\"usage\"]",
+    "0924b0db2be770a357da4cfab92232db30ab78d54c3462587a3ab78f6d00268a",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"opencode2\",\"host\",\"reports\"]",
+    "9145fb6b6c05817fcd79c12b0537f408182b8a4a312c4ea95a6974cb5476f33c",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"opencode2\",\"host\",\"usage\"]",
+    "d903f41d5eb3a2fcf5d9728650c592c54f031609dcd33981f98cf52160e21296",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi\",\"host\",\"usage\"]",
+    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi-transcript\",\"host\",\"usage\"]",
+    "118c9133062a3c6d6c5d859d8fbbc3f2e2aa086fe084bf85097e7f6e0389c156",
+    "response-errors:D4"
+  ],
+  [
+    "[\"split usage\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"opencode1\",\"local\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"opencode2\",\"local\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi\",\"local\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi-transcript\",\"local\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"opencode1\",\"vault\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"opencode2\",\"vault\",\"reports\"]",
+    "9145fb6b6c05817fcd79c12b0537f408182b8a4a312c4ea95a6974cb5476f33c",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"opencode2\",\"vault\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi\",\"vault\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi-transcript\",\"vault\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"opencode1\",\"host\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"opencode2\",\"host\",\"reports\"]",
+    "9145fb6b6c05817fcd79c12b0537f408182b8a4a312c4ea95a6974cb5476f33c",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"opencode2\",\"host\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi\",\"host\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi-transcript\",\"host\",\"usage\"]",
+    "5d343cb821519dbefbd03c7e2bfb5530d1023dd93d9156b58dbd057e7488a4b7",
+    "response-errors:D4"
+  ],
+  [
+    "[\"usage after STOP\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D4"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"second finish during the usage drain\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D5"
+  ],
+  [
+    "[\"duplicate thinking\",\"opencode1\",\"local\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"opencode2\",\"local\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"local\",\"thinking\"]",
+    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"local\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"local\",\"thinking\"]",
+    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"local\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"opencode1\",\"vault\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"opencode2\",\"vault\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"opencode2\",\"vault\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"vault\",\"thinking\"]",
+    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"vault\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"vault\",\"thinking\"]",
+    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"vault\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"opencode1\",\"host\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"opencode2\",\"host\",\"reports\"]",
+    "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"opencode2\",\"host\",\"thinking\"]",
+    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"host\",\"thinking\"]",
+    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"host\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"host\",\"thinking\"]",
+    "d9a112e43b4a1c3571fc0171e57b0db53ede9f97d746fedc47e3d168d5a89ba5",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"host\",\"signatures\"]",
+    "21759b3aef5d8bf118027ea10f32c89647b6a96d15c08747045420ed3f963c52",
+    "response-errors:D6"
+  ],
+  [
+    "[\"duplicate thinking\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"opencode1\",\"local\",\"thinking\"]",
+    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"opencode2\",\"local\",\"thinking\"]",
+    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi\",\"local\",\"signatures\"]",
+    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi-transcript\",\"local\",\"signatures\"]",
+    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"opencode1\",\"vault\",\"thinking\"]",
+    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"opencode2\",\"vault\",\"reports\"]",
+    "9a070f6f1d46885bc5b045f63f48fe35be72590932a255569bf6677f55547889",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"opencode2\",\"vault\",\"thinking\"]",
+    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi\",\"vault\",\"signatures\"]",
+    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi-transcript\",\"vault\",\"signatures\"]",
+    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"opencode1\",\"host\",\"thinking\"]",
+    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"opencode2\",\"host\",\"reports\"]",
+    "9a070f6f1d46885bc5b045f63f48fe35be72590932a255569bf6677f55547889",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"opencode2\",\"host\",\"thinking\"]",
+    "439083f38956ba51ece90631552c6ea23c5c29570d3d5710e408e77e01ba7375",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi\",\"host\",\"signatures\"]",
+    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi-transcript\",\"host\",\"signatures\"]",
+    "f053e9ce40efb6df12ef3fa3baf94d2facabe920410f8c44199cc301bf98b5b0",
+    "response-errors:D6"
+  ],
+  [
+    "[\"identical thinking in two sessions\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D6"
+  ],
+  [
+    "[\"idle stall\",\"opencode1\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode2\",\"local\",\"cancellations\"]",
+    "910517934a58d5bebc54a8a4a8f92002a0a4ce46fac2ed8568be0b715f782164",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode2\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi-transcript\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode1\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode2\",\"vault\",\"cancellations\"]",
+    "910517934a58d5bebc54a8a4a8f92002a0a4ce46fac2ed8568be0b715f782164",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode2\",\"vault\",\"reports\"]",
+    "59d174761b7bb6289cd724ce6e43f95dfbc7632cf5e48ae40f640d03ed45d5f0",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode2\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi-transcript\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode1\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode2\",\"host\",\"cancellations\"]",
+    "910517934a58d5bebc54a8a4a8f92002a0a4ce46fac2ed8568be0b715f782164",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode2\",\"host\",\"reports\"]",
+    "59d174761b7bb6289cd724ce6e43f95dfbc7632cf5e48ae40f640d03ed45d5f0",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"opencode2\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi-transcript\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D7"
+  ],
+  [
+    "[\"idle stall\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D7"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode1\",\"local\",\"physicalSends\"]",
+    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode1\",\"local\",\"delays\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode2\",\"local\",\"physicalSends\"]",
+    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode2\",\"local\",\"delays\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"local\",\"aborts\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"local\",\"cancellations\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"aborts\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"cancellations\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode1\",\"vault\",\"physicalSends\"]",
+    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode1\",\"vault\",\"delays\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode2\",\"vault\",\"physicalSends\"]",
+    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode2\",\"vault\",\"delays\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode2\",\"vault\",\"reports\"]",
+    "7f06c2844947820e35450a78ad2c92f9f0a27c0b29471b3cca417b0178af3652",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"vault\",\"aborts\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"vault\",\"cancellations\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"aborts\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"cancellations\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode1\",\"host\",\"physicalSends\"]",
+    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode1\",\"host\",\"delays\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode2\",\"host\",\"physicalSends\"]",
+    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode2\",\"host\",\"delays\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"opencode2\",\"host\",\"reports\"]",
+    "7f06c2844947820e35450a78ad2c92f9f0a27c0b29471b3cca417b0178af3652",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"host\",\"aborts\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"host\",\"cancellations\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"aborts\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"cancellations\"]",
+    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"reports\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ]
+]

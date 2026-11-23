@@ -1,0 +1,19 @@
+# Host request and response parity
+
+The root test suite runs this directory with its normal preload and isolated tests. The corpus sends nothing to Google: it accepts only the adapter's localhost bridge fetch and substitutes an in-memory TLS peer for the raw AGY connection. The peer records the target, the ordered header pairs actually written, and the body bytes including HTTP chunk framing. `fixtures.ts` lists the masked fields; it is empty. `bodyOf` is for semantic checks and is not used to compare bytes.
+
+`cases.ts` specifies conversations and native generation options once. The two OpenCode drivers use the published Google provider and native decoder (`@ai-sdk/google` 3.0.73 with `ai` 6.0.168, and `@opencode/ai` 2.0.22). The GA hook receives the selected variant on its model reference, and its adapted bridge response returns to the same native decoder. Pi uses the public stream with a flat or transcript Context. `scenarios.ts` supplies repeatable upstream responses, errors, and stalls. Each custody setup has one input account. The fixture exercises the native overflow classification that triggers compaction, not the hosts' downstream compaction jobs.
+
+## Baselines, revisions and known failures
+
+- `request-oracles.json` is the immutable OpenCode 1 and 2 capture set from `b845e1a9bdf76a94f9c8869eaa43376032ba8e21`. It includes source commit and package/version on every entry. OpenCode 2 supplies the numeric `100` authority for XHigh.
+- To change an emitted capture intentionally, add an entry to `request-revisions.json` keyed by `[case, host, custody]` as a JSON string. Supply `ledger` with that case's applicable defect row and `wire` with the new ordered capture. The runner rejects missing, inapplicable, unchanged, and unexercised revisions. Do not overwrite the original capture.
+- `response-oracles.json` holds a literal record per scenario and custody. The OpenCode 1 trace supplies defaults; explicitly ruled terminal, retry, usage and visibility behavior is in `scenarios.ts`. Only Pi expects the payload and response hook calls.
+- `exceptions.ts` lists host limits with their package, version and source path. They apply only to the listed cases and field.
+- The shared `known-failures.json` and optional files by the same name in `pi/`, `opencode2/`, `engine/`, `removals/` and `settings/` list exact recorded differences. Each entry is `[key, observed SHA-256, optional ledger row]`; the key is the JSON encoding of `[case, host, custody, field]`. A change to a different wrong value fails too. When a field starts passing, the failure names the exact tuple to delete. The parent removes those shared entries when merging the fixing slice; owners remove entries from their own subfolders. Do not recapture all current differences as part of a fix.
+
+## Recording
+
+Use the worker guide's Bun 1.4.2 Linux environment. Build core first. Set `HOST_PARITY_RECORD` to an absolute output file and run the parity test with `--isolate -t 'record the stock host transport observations'`. To record the original oracle, use a detached checkout at `b845e1a9` and set `HOST_PARITY_BASELINE=1`. Copy the test directory into that checkout, resolve the pinned SDKs and compiler dependencies from the recording workspace, and build the detached checkout's core. The recorder refuses any other baseline HEAD. No tracked baseline sources need changes: the recorder invokes the interceptor and bridge as shipped and replaces only their network peer and fixture inputs. Check `git diff --exit-code` in the detached checkout.
+
+The original fixture files were packed from those baseline and current observations by `bun packages/e2e-tests/src/host-parity/materialize.ts BASELINE.json OBSERVED.json`. The script checks presence, provenance and exact same-host baseline request bytes before writing the packed files. Treat that command as provenance tooling, not as a shortcut for replacing a failed gate.

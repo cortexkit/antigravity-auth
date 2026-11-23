@@ -26,6 +26,9 @@ export function replaySignatures(turns: Observation['turns']) {
 }
 
 export type Fields = Record<string, unknown>
+export type OutcomeOracle = { record: Fields; piHooks: unknown }
+export const outcomeKey = (id: string, custody: Custody) =>
+  JSON.stringify([id, custody])
 export type KnownFailure = readonly [
   field: string,
   observedSha: string,
@@ -145,7 +148,10 @@ export function outcomeFields(result: Observation): Fields {
     thinking: result.turns.map(({ thinking }) => thinking),
     signatures: result.turns.map(({ signatures }) => signatures),
     calls: result.turns.map(({ calls }) => calls),
-    usage: result.turns.map(({ usage }) => usage),
+    usage: result.turns.map(
+      ({ usage }) =>
+        usage ?? { input: 0, output: 0, cacheRead: 0, reasoning: 0, total: 0 },
+    ),
     terminal: result.turns.map(({ terminal }) => terminal),
     notices: result.notices,
     compaction: result.turns.some(({ compaction }) => compaction),
@@ -162,11 +168,13 @@ export function outcomeFields(result: Observation): Fields {
           !JSON.stringify(hook.payload).includes(credential.accessToken) &&
           !JSON.stringify(hook.payload).includes(credential.projectId) &&
           !('project' in hook.payload || 'requestId' in hook.payload)
-        return { payload: clean ? 'inner request' : hook.payload }
+        return {
+          payload: clean ? digest(hook.payload) : 'invalid inner request',
+        }
       }
       return {
         response: hook.response?.status,
-        contentType: hook.response?.headers?.['content-type'],
+        headers: hook.response?.headers,
       }
     }),
   }
@@ -214,14 +222,27 @@ export function expectedOutcome(
           const reply =
             scenario.replies[Math.min(i, scenario.replies.length - 1)]
           return [
-            { payload: 'inner request' },
+            {
+              payload: baseline.wire[i]
+                ? digest(bodyOf(baseline.wire[i]).request)
+                : 'inner retry request',
+            },
             ...(reply?.transportError || reply?.stall === 'before-headers'
               ? []
               : [
                   {
                     response: reply?.status ?? 200,
-                    contentType:
-                      reply?.headers?.['content-type'] ?? 'text/event-stream',
+                    headers: {
+                      'content-type': 'text/event-stream',
+                      ...reply?.headers,
+                      ...(reply?.stall
+                        ? {}
+                        : {
+                            'content-length': String(
+                              Buffer.byteLength(reply?.body ?? ''),
+                            ),
+                          }),
+                    },
                   },
                 ]),
           ]

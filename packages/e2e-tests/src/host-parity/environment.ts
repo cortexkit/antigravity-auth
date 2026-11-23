@@ -51,8 +51,8 @@ mock.module('node:tls', () => ({
     active ? active.connect(options) : originalConnect(options),
 }))
 
-// Both crypto APIs are used by the public adapters. Keep their sequences
-// separate so an OpenCode bridge job does not consume an ingress fallback ID.
+// Use separate sequences for node and Web Crypto: a loopback bridge job ID
+// must not consume the UUID used when a request arrives without a session ID.
 mock.module('node:crypto', () => ({
   ...crypto,
   randomUUID: (...args: Parameters<typeof crypto.randomUUID>) =>

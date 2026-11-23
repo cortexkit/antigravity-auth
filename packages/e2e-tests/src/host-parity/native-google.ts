@@ -1,5 +1,5 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { type ContentPart, Media, Message } from '@opencode/ai'
+import { AIError, type ContentPart, Media, Message } from '@opencode/ai'
 import { make } from '@opencode/ai/promise'
 import { configure } from '@opencode/ai/providers/google'
 import { RequestExecutor } from '@opencode/ai/route/executor'
@@ -8,6 +8,7 @@ import { Effect } from 'effect'
 import { HttpClientRequest, HttpClientResponse } from 'effect/unstable/http'
 import type { Conversation, Part } from './cases.ts'
 import { placeholder } from './fixtures.ts'
+import { openCode1ContextOverflow } from './opencode1-overflow.ts'
 
 export type Surface = {
   text: string
@@ -93,7 +94,6 @@ export function recordFailure(output: Surface, error: unknown) {
                           : /cancel|abort/i.test(message)
                             ? 'cancelled'
                             : 'upstream_http'
-  output.compaction ||= kind === 'context_overflow'
   if (!output.terminal.some((value) => value.startsWith('failure:')))
     output.terminal.push(`failure:${kind}`)
 }
@@ -111,7 +111,7 @@ export function terminal(output: Surface, reason: string) {
         ? 'length'
         : reason === 'content-filter'
           ? 'failure:stopped_by_google'
-          : `failure:${reason}`,
+          : 'failure:upstream_http',
   )
 }
 
@@ -228,6 +228,7 @@ export async function google1(
           })
           break
         case 'error':
+          output.compaction ||= openCode1ContextOverflow(event.error)
           recordFailure(output, event.error)
           break
         case 'abort':
@@ -255,6 +256,7 @@ export async function google1(
       }
     }
   } catch (error) {
+    output.compaction ||= openCode1ContextOverflow(error)
     recordFailure(output, error)
   }
   return output
@@ -396,6 +398,10 @@ export async function google2(
       }
     }
   } catch (error) {
+    output.compaction ||=
+      error instanceof AIError &&
+      error.reason._tag === 'InvalidRequest' &&
+      error.reason.classification === 'context-overflow'
     recordFailure(output, error)
   } finally {
     await ai.dispose()

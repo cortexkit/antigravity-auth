@@ -1,8 +1,9 @@
-import type {
-  Api,
-  Context,
-  Model,
-  SimpleStreamOptions,
+import {
+  type Api,
+  type Context,
+  isContextOverflow,
+  type Model,
+  type SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
 import { rememberPackedRefresh } from '../../../pi/src/credential-cache.ts'
 import type * as PiStream from '../../../pi/src/stream.ts'
@@ -191,9 +192,13 @@ export async function piAdapter(
                 if (block.type === 'thinking')
                   recordSignature(output, 'thinking', block.thinkingSignature)
               }
-              if (event.type === 'error')
+              if (event.type === 'error') {
+                output.compaction ||= isContextOverflow(
+                  message,
+                  model.contextWindow,
+                )
                 recordFailure(output, message.errorMessage ?? event.reason)
-              else
+              } else
                 terminal(
                   output,
                   event.reason === 'toolUse' ? 'stop' : event.reason,
