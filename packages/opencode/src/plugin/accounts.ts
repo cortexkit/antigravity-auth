@@ -5,15 +5,18 @@ import {
   AccountManager as CoreAccountManager,
   type ManagedAccount as CoreManagedAccount,
   type OAuthAuthDetails as CoreOAuthAuthDetails,
+  HealthScoreTracker,
   type ProjectContextResult,
   type RowRef,
   sameRowRef,
+  TokenBucketTracker,
 } from '@cortexkit/antigravity-auth-core'
 import {
   type CapturedLocalGrant,
   LocalGrantSupersededError,
   StaleLocalGrantError,
 } from '@cortexkit/antigravity-auth-core/engine'
+import type { AntigravityConfig } from './config'
 import { debugLogToFile } from './debug'
 import { ensureProjectContext } from './project'
 import {
@@ -94,6 +97,34 @@ export class AccountStoreNotReadyError extends Error {
   }
 }
 
+export function createConfiguredAccountTrackers(
+  { health_score: health, token_bucket: token }: AntigravityConfig,
+  now?: () => number,
+) {
+  return {
+    healthTracker: new HealthScoreTracker(
+      health && {
+        initial: health.initial,
+        successReward: health.success_reward,
+        rateLimitPenalty: health.rate_limit_penalty,
+        failurePenalty: health.failure_penalty,
+        recoveryRatePerHour: health.recovery_rate_per_hour,
+        minUsable: health.min_usable,
+        maxScore: health.max_score,
+      },
+      now,
+    ),
+    tokenTracker: new TokenBucketTracker(
+      token && {
+        maxTokens: token.max_tokens,
+        regenerationRatePerMinute: token.regeneration_rate_per_minute,
+        initialTokens: token.initial_tokens,
+      },
+      now,
+    ),
+  }
+}
+
 /**
  * Builds a manager over the account repository from one read. Every account
  * the manager holds carries the `RowRef` of the row it was read from: the
@@ -120,6 +151,8 @@ export async function loadAccountManagerFromRepository(
     pid: options.pid ?? process.pid,
     onDiagnostic: options.onDiagnostic ?? defaultDiagnostic,
     onWriteError: options.onWriteError,
+    healthTracker: options.healthTracker,
+    tokenTracker: options.tokenTracker,
   })
 }
 

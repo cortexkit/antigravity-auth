@@ -2061,9 +2061,25 @@ const KILLSWITCH_APPLIED: import('./tui/host-api').MenuApplyResult = {
         id: 'limits',
         slot: 'limits',
         title: 'Limits',
-        lines: [],
+        lines: [
+          'Quota killswitch: on',
+          'Stop using an account below: 10% remaining',
+        ],
         items: [],
-        actions: [{ id: 'set', label: 'Change limits', knobs: [] }],
+        actions: [
+          {
+            id: 'set',
+            label: 'Change limits',
+            knobs: [
+              {
+                id: 'enabled',
+                label: 'Quota killswitch',
+                kind: 'toggle',
+                value: true,
+              },
+            ],
+          },
+        ],
       },
       {
         id: 'diagnostics',
@@ -2294,58 +2310,16 @@ describe('GA location client', () => {
   })
 })
 
-describe('GA menu over native state', () => {
-  it('[hosted] parses the server status and shows Thalamus without local account actions', async () => {
-    const { buildGaMenu, parseGaStateAnswer } = await import('./ga/tui/host-ga')
+describe('GA server-issued menu', () => {
+  it('[hosted] parses the Thalamus status for the sidebar', async () => {
+    const { parseGaStateAnswer } = await import('./ga/tui/host-ga')
     const parsed = parseGaStateAnswer(
       gaSnapshot({ vaultHostStatus: 'Served by Thalamus' }),
     )
     expect(parsed.ok).toBe(true)
     if (!parsed.ok || parsed.value.kind !== 'snapshot')
       throw new Error('Expected hosted snapshot')
-    const menu = buildGaMenu(parsed.value, 0)
-    const vault = menu.sections.find((section) => section.id === 'vault')
-    expect(vault?.lines).toEqual(['Served by Thalamus'])
-    expect(vault?.actions).toEqual([])
-    const accounts = menu.sections.find((section) => section.id === 'accounts')
-    expect(accounts?.actions).toEqual([])
-    expect(
-      accounts?.items
-        .flatMap((item) => item.actions)
-        .map((action) => action.id),
-    ).not.toContain('remove')
-    expect(menu.sections.some((section) => section.id === 'diagnostics')).toBe(
-      true,
-    )
-  })
-  it('builds every section from the snapshot, settings included', async () => {
-    const { buildGaMenu } = await import('./ga/tui/host-ga')
-    const snapshot = gaSnapshot({
-      settings: gaSettings({
-        killswitch: { enabled: true, minimumRemainingPercent: 25 },
-        logLevel: 'debug',
-      }),
-    }).output
-    const menu = buildGaMenu(snapshot as never, 0)
-    expect(menu.command).toBe('antigravity')
-    expect(menu.sections.map((section) => section.slot)).toEqual([
-      'accounts',
-      'quota',
-      'routing',
-      'limits',
-      'diagnostics',
-    ])
-    const limits = menu.sections.find((section) => section.id === 'limits')
-    expect(limits?.lines).toEqual([
-      'Killswitch: on',
-      'Minimum remaining quota: 25%',
-    ])
-    expect(limits?.actions[0]?.id).toBe('killswitch-off')
-    const accounts = menu.sections[0]
-    expect(accounts?.items.map((item) => [item.id, item.label])).toEqual([
-      [`account:${SEL_A}`, 'Account 1'],
-    ])
-    expect(JSON.stringify(menu)).not.toContain('acct-0')
+    expect(parsed.value.vaultHostStatus).toBe('Served by Thalamus')
   })
 
   it('binds presentation choices to server-issued item ids and explicit values', async () => {
@@ -2381,13 +2355,13 @@ describe('GA menu over native state', () => {
         },
       ],
     }
-    const shown = presentGaMenu(gaSnapshot().output as never, 0, source)
+    const shown = presentGaMenu(source)
     const request = shown.request({
       command: 'antigravity',
       sectionId: 'accounts',
       itemId: 'opaque-menu-item',
-      actionId: 'select-claude',
-      values: {},
+      actionId: 'select',
+      values: { target: 'claude' },
     })
     expect(request).toEqual({
       command: 'antigravity',
@@ -2406,7 +2380,7 @@ describe('GA menu over native state', () => {
     const { presentGaMenu, GaMenuChoiceError } = await import(
       './ga/tui/host-ga'
     )
-    const shown = presentGaMenu(gaSnapshot().output as never, 0, {
+    const shown = presentGaMenu({
       command: 'antigravity',
       title: 'Antigravity',
       sections: [],
@@ -2554,13 +2528,14 @@ describe('GA TUI setup', () => {
     expect(fake.selects[0]?.title).toBe('Antigravity')
     expect(fake.selects[1]?.title).toBe('Limits')
     expect(fake.selects[1]?.options.map((option) => option.title)).toEqual([
-      'Turn killswitch on',
-      'Set minimum remaining quota',
+      'Change limits',
       'Back',
     ])
-    expect(fake.selects[1]?.options[0]?.category).toContain('Killswitch: off')
     expect(fake.selects[1]?.options[0]?.category).toContain(
-      'Minimum remaining quota: 10%',
+      'Quota killswitch: on',
+    )
+    expect(fake.selects[1]?.options[0]?.category).toContain(
+      'Stop using an account below: 10% remaining',
     )
 
     const view = await testRender(() => renderClaim(fake.claim(), 'ses_a'), {
@@ -2631,7 +2606,7 @@ describe('GA TUI setup', () => {
     }
   })
 
-  it('applies a choice, then redraws from a fresh state read rather than the apply answer', async () => {
+  it('applies a choice, refreshes sidebar state, and redraws the issued menu', async () => {
     const { setupGaTui } = await import('./ga/tui/host-ga')
     const fresh = gaSnapshot({
       cursor: 1,
@@ -2641,7 +2616,7 @@ describe('GA TUI setup', () => {
     })
     const fake = fakeContext(
       [NOTIFIED, gaApplied(KILLSWITCH_APPLIED), fresh],
-      ['Limits', 'Turn killswitch on'],
+      ['Limits', 'Change limits', 'On'],
     )
     const cleanup = setupGaTui(fake.context as never, {
       schedule: () => () => undefined,
@@ -2668,11 +2643,9 @@ describe('GA TUI setup', () => {
     ])
     const last = fake.selects.at(-1)
     expect(last?.title).toBe('Limits')
-    expect(last?.options[0]?.category).toContain('Killswitch: on')
-    expect(last?.options[0]?.title).toBe('Turn killswitch off')
+    expect(last?.options[0]?.category).toContain('Quota killswitch: on')
     expect(last?.options.map((option) => option.title)).toEqual([
-      'Turn killswitch off',
-      'Set minimum remaining quota',
+      'Change limits',
       'Back',
     ])
     await cleanup()

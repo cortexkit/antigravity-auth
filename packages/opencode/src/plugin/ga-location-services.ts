@@ -68,6 +68,7 @@ import {
   type AntigravityRequestExecutor,
   createLocalQuotaRefresh,
   createRequestCancellation,
+  createRequestWireLocation,
   type LocalRequestCredentials,
   type RequestRoutingEntry,
   retiredModelResponse,
@@ -109,6 +110,7 @@ import {
   extractAccountAccessErrorDetails,
 } from './account-access.ts'
 import {
+  createConfiguredAccountTrackers,
   createLocalAccountCredentials,
   loadAccountManagerFromRepository,
 } from './accounts.ts'
@@ -132,13 +134,7 @@ import {
   createStoreQuotaService,
   fetchVaultAccountQuota,
 } from './quota.ts'
-import {
-  buildThinkingWarmupBody,
-  getImageModelLocalTitle,
-  getLastCacheStats,
-  prepareAntigravityRequest,
-  transformAntigravityResponse,
-} from './request.ts'
+import { createRequestWire } from './request.ts'
 import { type OAuthListener, startOAuthListener } from './server.ts'
 import { AgySessionRegistry } from './session-context.ts'
 import { createAdvisoryRepositoryOwner } from './shared/advisory-repository.ts'
@@ -1638,13 +1634,13 @@ function gaEngineCollaborators(input: {
       }
       return fetchWithAgyCliTransport(url, init, transportOptions)
     },
-    wire: {
-      prepare: prepareAntigravityRequest,
-      transformResponse: transformAntigravityResponse,
-      buildThinkingWarmupBody,
-      getImageModelLocalTitle,
-      getLastCacheStats,
-    },
+    wire: createRequestWire(
+      createRequestWireLocation({
+        signatures: runtime.signatures,
+        debug: runtime.debug,
+        logger: input.logger,
+      }),
+    ),
     debug: runtime.debug,
     dump: runtime.dump,
     logger: input.logger,
@@ -1670,6 +1666,7 @@ export async function createGaLocalRequestPipeline(
   const logger = runtime.logger.createLogger('request')
   const advisory = createAdvisoryRepositoryOwner(input.repository, logger)
   const manager = await loadAccountManagerFromRepository(advisory.repository, {
+    ...createConfiguredAccountTrackers(runtime.config.config),
     onWriteError: advisory.owns,
   })
   input.accounts.current = manager
@@ -2007,6 +2004,7 @@ async function createGaVaultLocationServices(input: {
       const vaultLogger = location.logger.createLogger('vault-state')
       const pool = createOpenCodeVaultAccountPool({
         source,
+        ...createConfiguredAccountTrackers(location.config.config),
         durable: {
           source,
           readState: () => custody.readState(),

@@ -470,6 +470,7 @@ async function buildLocationRuntime(
   const signatureOptions = {
     keepThinking: config.keepThinking,
     signatureCache: config.config.signature_cache,
+    sessionScope: options.directory,
   }
   const signatures = options.signatureState
     ? options.signatureState.acquireLocation(signatureOptions)

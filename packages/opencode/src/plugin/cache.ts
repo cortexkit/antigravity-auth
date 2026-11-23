@@ -1,8 +1,8 @@
 // ============================================================================
 // Thinking Signature Cache (for Claude multi-turn conversations)
 //
-// Two layers, both process-wide and keyed by host session id and a hash of
-// the thinking text (a host session id names one conversation):
+// Two process-wide layers, keyed by host session id and a hash of the
+// thinking text. OpenCode 2 also scopes its session ids to the location.
 //
 // - The hot map holds recently written or looked-up signatures for at most
 //   one hour (fixed), timed from when the hot entry was written.
@@ -80,6 +80,8 @@ export interface LocationSignatureOptions {
   signatureCache: SignatureCacheConfig | undefined
   /** Disk cache file; defaults to `getSignatureCacheFilePath()`. */
   cacheFilePath?: string
+  /** Separate locations can issue the same host session id. */
+  sessionScope?: string
 }
 
 /**
@@ -392,6 +394,10 @@ export function createSignatureProcessState(
         if (current?.owners.size) return current.cache
       }
       const signatureStore = createSignatureStore()
+      const scope = locationOptions.sessionScope
+      const prefix = scope
+        ? `location:${createHash('sha256').update(scope).digest('hex')}:`
+        : ''
       let disposed = false
 
       return {
@@ -403,10 +409,11 @@ export function createSignatureProcessState(
           if (disposed) return
           if (!sessionId || !text || !signature) return
 
+          const sessionKey = `${prefix}${sessionId}`
           const textHash = hashText(text)
-          writeHot(sessionId, textHash, signature)
+          writeHot(sessionKey, textHash, signature)
           if (shared) {
-            shared.cache.store(makeDiskKey(sessionId, textHash), signature)
+            shared.cache.store(makeDiskKey(sessionKey, textHash), signature)
           }
         },
 
@@ -414,19 +421,20 @@ export function createSignatureProcessState(
           if (disposed) return undefined
           if (!sessionId || !text) return undefined
 
+          const sessionKey = `${prefix}${sessionId}`
           const textHash = hashText(text)
-          const hotValue = readHot(sessionId, textHash)
+          const hotValue = readHot(sessionKey, textHash)
           if (hotValue) return hotValue
 
           const diskCache = consumer ? readableCache() : undefined
           if (diskCache && consumer) {
             const diskValue = diskCache.retrieve(
-              makeDiskKey(sessionId, textHash),
+              makeDiskKey(sessionKey, textHash),
               consumer.memoryTtlMs,
             )
             if (diskValue) {
               // Promote to the hot map for faster subsequent access
-              promoteHot(sessionId, textHash, diskValue)
+              promoteHot(sessionKey, textHash, diskValue)
               return diskValue
             }
           }
