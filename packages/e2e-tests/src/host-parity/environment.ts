@@ -271,6 +271,7 @@ export class Environment {
       for (let turns = 0; !finished && turns < 160; turns++) {
         await new Promise<void>((resolve) => realSetTimeout(resolve, 3))
         if (finished) break
+        if (this.wires.length === 0) continue
         const next = Array.from(this.timers).sort(
           (a, b) => a[1].at - b[1].at,
         )[0]

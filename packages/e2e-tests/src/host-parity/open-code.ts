@@ -244,7 +244,7 @@ function repository(): AccountRepository {
     writeQuota: async () => ({ ref: row.ref }),
     recordFingerprint: async () => ({ ref: row.ref }),
     settled: async () => {},
-    flush: async () => {},
+    flush: async () => ({ failures: [] }),
     dispose: async () => {},
   } as unknown as AccountRepository
 }
