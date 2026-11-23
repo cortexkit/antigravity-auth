@@ -1728,7 +1728,9 @@ describe('GA composed transport', () => {
         expect(vault.lists()).toBe(listsBefore401)
         expect(vault.reports).toHaveLength(0)
         const refused = await clock.drive(execute())
-        expect(responseRefusal(refused)?.id).toBe('vault_unreachable')
+        expect<string | undefined>(responseRefusal(refused)?.id).toBe(
+          'vault_unreachable',
+        )
         const entry = Reflect.get(ENGINE_REFUSALS, 'vault_unreachable') as
           | { text: string }
           | undefined

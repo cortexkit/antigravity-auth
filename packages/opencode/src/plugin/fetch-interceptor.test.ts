@@ -153,7 +153,7 @@ async function expectVaultRefusal(
   response: Response,
   id: 'vault_unreachable' | 'vault_grant_denied',
 ) {
-  expect(responseRefusal(response)?.id).toBe(id)
+  expect<string | undefined>(responseRefusal(response)?.id).toBe(id)
   const entry = Reflect.get(ENGINE_REFUSALS, id) as { text: string } | undefined
   if (!entry) throw new Error(`Missing refusal: ${id}`)
   const text = await expectNativeFailure(response, 412, 'FAILED_PRECONDITION')
