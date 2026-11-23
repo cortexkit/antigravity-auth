@@ -141,6 +141,15 @@ function expectTransportRefusal(response: Response) {
   )
 }
 
+function expectVaultUnreachableRefusal(response: Response) {
+  return expectFixedRefusal(
+    response,
+    412,
+    'FAILED_PRECONDITION',
+    'Claustrum vault could not be reached',
+  )
+}
+
 const EMBEDDED_REFUSAL_TEXT = 'Antigravity returned an embedded error.'
 const INCOMPLETE_REFUSAL_TEXT = 'Antigravity returned an incomplete response.'
 
@@ -4638,7 +4647,7 @@ describe('createRequestExecutor retry contract', () => {
         ...h.deps,
         wire: createRequestWire(
           createRequestWireLocation({
-            debug: h.deps.debug,
+            debug: createLocationDebug(h.deps.config),
             logger,
             signatures: {
               keepThinking: false,
@@ -6998,6 +7007,7 @@ describe('createRequestExecutor eligible-pool wait calculation', () => {
         quiet_mode: false,
         max_rate_limit_wait_seconds: 10,
         soft_quota_threshold_percent: 80,
+        toast_scope: 'all',
       },
       notify: async (msg) => {
         toasts.push(msg)
@@ -7010,7 +7020,7 @@ describe('createRequestExecutor eligible-pool wait calculation', () => {
       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
       expect(response.status).toBe(200)
       expect(delays).toEqual([8_000])
-      expect(toasts.some((t) => t.includes('Waiting 8s...'))).toBe(true)
+      expect(toasts).toContain('All 2 account(s) over 80% quota. Waiting 8s...')
       expect(h.calls).toHaveLength(1)
     } finally {
       save.mockRestore()
@@ -11555,16 +11565,36 @@ describe('bounded vault receipt wait through the real engine', () => {
     }
   })
 
-  it('an unrecovered OpenCode 1 request returns a fixed refusal after the vault wait bound', async () => {
+  it('an unrecovered OpenCode 1 request reports an unreachable vault without a physical send', async () => {
     const f = await boundedVaultEngine()
     f.vault.unreachable()
     try {
-      await expectTransportRefusal(
-        await f.clock.drive(f.executor.execute(NON_STREAM_URL, CHAT_INIT())),
+      const response = await f.clock.drive(
+        f.executor.execute(NON_STREAM_URL, CHAT_INIT()),
       )
       expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
       expect(f.clock.elapsed()).toBeLessThan(11_000)
       expect(f.h.calls).toHaveLength(0)
+      await expectVaultUnreachableRefusal(response)
+    } finally {
+      await f.dispose()
+    }
+  })
+
+  it('reports a denied vault grant without a physical send', async () => {
+    const f = await boundedVaultEngine()
+    f.vault.deny()
+    try {
+      const response = await f.clock.drive(
+        f.executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(f.h.calls).toHaveLength(0)
+      await expectFixedRefusal(
+        response,
+        412,
+        'FAILED_PRECONDITION',
+        'The vault refused access to the selected account. Check the plugin log for details.',
+      )
     } finally {
       await f.dispose()
     }
@@ -11594,9 +11624,11 @@ describe('bounded vault receipt wait through the real engine', () => {
         { HTTP_PROXY: undefined, HTTPS_PROXY: undefined, ALL_PROXY: undefined },
       )
       const response = await f.clock.drive(fetch(request))
-      await expectTransportRefusal(response)
+      expect(response.headers.get('x-should-retry')).toBe('false')
+      await expectVaultUnreachableRefusal(response)
       expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
       expect(f.clock.elapsed()).toBeLessThan(11_000)
+      expect(f.h.calls).toHaveLength(0)
     } finally {
       await bridge.dispose()
       await f.dispose()
@@ -11625,7 +11657,7 @@ describe('bounded vault receipt wait through the real engine', () => {
     const f = await boundedVaultEngine(3)
     f.vault.unreachable()
     try {
-      await expectTransportRefusal(
+      await expectVaultUnreachableRefusal(
         await f.clock.drive(f.executor.execute(NON_STREAM_URL, CHAT_INIT())),
       )
       expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
