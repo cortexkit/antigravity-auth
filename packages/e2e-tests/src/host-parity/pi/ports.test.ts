@@ -150,25 +150,18 @@ test('a replaced native credential does not inherit NOT_FOUND for the same model
   }
 })
 
-test('Pi consumes the same signed Claude history with and without keep_thinking', async () => {
-  const thought = {
-    text: 'A cached signed thought.',
-    thought: true,
-    thoughtSignature: 'fixture-signature-'.repeat(8),
-  }
+test('keep_thinking enables Claude warmup bytes without calling the Pi hooks for the warmup', async () => {
   const captures = []
   for (const keepThinking of [false, true]) {
-    const env = new Environment(() => ({
-      body: sse(candidate([thought, { text: 'Four.' }], 'STOP')),
-    }))
+    const env = new Environment()
     const pi = await piAdapter(env, 'local', false, {
       keep_thinking: keepThinking,
+      thinking_warmup: true,
     })
     try {
       const first = conversation('Pi thinking setting', {
         model: models.claude,
       })
-      await pi.run(first, 'thinking')
       await pi.run(
         {
           ...first,
@@ -178,9 +171,10 @@ test('Pi consumes the same signed Claude history with and without keep_thinking'
               role: 'assistant',
               parts: [
                 {
-                  type: 'thinking',
-                  text: thought.text,
-                  signature: thought.thoughtSignature,
+                  type: 'call',
+                  id: 'lookup-1',
+                  name: 'lookup',
+                  args: { key: 'value' },
                 },
                 { type: 'text', text: 'Four.' },
               ],
@@ -190,15 +184,16 @@ test('Pi consumes the same signed Claude history with and without keep_thinking'
         },
         'thinking',
       )
-      captures.push(bodyOf(env.wires[1]!).request)
+      captures.push(env.wires.map(bodyOf))
+      expect(env.hooks).toHaveLength(2)
     } finally {
       await pi.dispose()
       await env.dispose()
     }
   }
-  expect(JSON.stringify(captures[0])).not.toContain(thought.text)
-  expect(JSON.stringify(captures[0])).not.toContain('"text":"."')
-  expect(JSON.stringify(captures[1])).toContain('"text":"."')
+  expect(captures[0]).toHaveLength(1)
+  expect(captures[1]).toHaveLength(2)
+  expect(captures[1]?.[0]?.request).not.toEqual(captures[1]?.[1]?.request)
 })
 
 test('Pi observes each main payload and response without replacing the body', async () => {
@@ -258,7 +253,9 @@ test('Pi refuses a failed native refresh without writing the login slot', async 
     const provider = await pi.activate()
     const bytes = await Bun.file(pi.nativeAuthPath).text()
     const auth = JSON.parse(bytes).google
-    await expect(provider.oauth!.refreshToken(auth)).rejects.toMatchObject({
+    await expect(
+      provider.oauth!.refreshToken(auth, new AbortController().signal),
+    ).rejects.toMatchObject({
       code: 'account_reauthorize',
     })
     expect(await Bun.file(pi.nativeAuthPath).text()).toBe(bytes)

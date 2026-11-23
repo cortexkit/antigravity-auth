@@ -76,9 +76,31 @@ mock.module('@cortexkit/antigravity-auth-core', () => ({
 
 const {
   resolvePiAntigravityModel,
-  streamCortexKitAntigravity,
+  streamCortexKitAntigravity: startLocalStream,
   createCortexKitAntigravityVaultStream,
 } = await import('./stream.ts')
+const { createPiRequestEngine } = await import('./request-engine.ts')
+
+// Keep failures in one test from marking a later test's synthetic login as refused.
+let testEngine: ReturnType<typeof createPiRequestEngine>
+beforeEach(() => {
+  testEngine = createPiRequestEngine()
+})
+afterEach(() => testEngine.dispose())
+
+function streamCortexKitAntigravity(
+  ...args: Parameters<typeof startLocalStream>
+) {
+  const [model, context, options, admit, clock] = args
+  return startLocalStream(
+    model,
+    context,
+    options,
+    admit,
+    clock,
+    clock ? undefined : testEngine,
+  )
+}
 
 function fakeModel(id = 'antigravity-gemini-3.8-flash'): Model<Api> {
   return {

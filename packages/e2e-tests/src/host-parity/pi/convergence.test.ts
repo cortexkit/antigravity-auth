@@ -50,7 +50,7 @@ function compareRequest(
   expect(actualFields['wire.headers']).toEqual(frozenFields['wire.headers'])
   if (input.replayText) {
     const signed = requestOracles[caseKey(input.id, 'opencode2', 'local')]!
-    expect(replaySignatures(actual.turns)).toEqual(signed.replaySignatures)
+    expect(replaySignatures(actual.turns)).toEqual(signed.replaySignatures!)
     const signatureInReplay = (wire: Wire) =>
       contents(wire).flatMap((turn) => {
         const { parts } = turn as {
