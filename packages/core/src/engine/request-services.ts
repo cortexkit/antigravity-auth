@@ -54,6 +54,7 @@ import {
   type VaultConditionOutcome,
 } from '../index.ts'
 import type { ModelAccessPolicy } from '../model-access.ts'
+import { googleForbiddenRefusal } from './account-access.ts'
 import {
   createAfterHandoff,
   type RegisterResponseHandoff,
@@ -814,6 +815,24 @@ function formatWaitTime(ms: number): string {
   return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
 }
 
+function vaultAdmissionRefusal(error: unknown) {
+  // The hosts can supply different copies of common-auth. Match its error
+  // names and machine-readable kinds, never the supplied diagnostic text.
+  if (!(error instanceof Error)) return
+  if (
+    error.name === 'ClaustrumUnreachableError' &&
+    'kind' in error &&
+    error.kind === 'unavailable'
+  )
+    return 'vault_unreachable' as const
+  if (
+    error.name === 'ClaustrumCredentialError' &&
+    'code' in error &&
+    error.code === 'grant_denied'
+  )
+    return 'vault_grant_denied' as const
+}
+
 /**
  * Sleep for `ms` milliseconds, rejecting with the abort reason when the
  * supplied signal fires before the timer elapses.
@@ -1506,6 +1525,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           [...selectedProjectIds],
         ),
       })
+      if (credentials.domain === 'vault' && physicalSendCount === 0) {
+        const refusal = vaultAdmissionRefusal(lastError)
+        if (refusal) return engineRefusalResponse(refusal)
+      }
       return engineRefusalResponse(
         failure?.kind === 'transport' &&
           failure.error instanceof AgyResponseHeaderTimeoutError
@@ -2897,7 +2920,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   ))
               } catch (error) {
                 checkAborted()
-                if (routedPlacement) return failedRoutedPick()
+                if (routedPlacement) {
+                  const refusal =
+                    physicalSendCount === 0 && vaultAdmissionRefusal(error)
+                  return refusal
+                    ? engineRefusalResponse(refusal)
+                    : failedRoutedPick()
+                }
                 throw error
               }
               if (
@@ -3741,8 +3770,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                       .text()
                       .catch(() => ''),
                   )
+              const forbidden = googleForbiddenRefusal(errorBodyText)
               const extracted =
-                errorBodyText === undefined
+                errorBodyText === undefined || forbidden === 'account_suspended'
                   ? undefined
                   : classifyAccessError(errorBodyText)
               const served = sendAdmission
@@ -3808,7 +3838,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 reportCondition('provider_ineligible')
                 if (invalidOutputResend)
                   return engineRefusalResponse('account_reauthorize')
-                if (deps.reauthorize) throw deps.reauthorize()
+                if (forbidden === 'account_reauthorize' && deps.reauthorize)
+                  throw deps.reauthorize()
                 break
               }
 
@@ -3853,19 +3884,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 reportCondition('provider_verification_required')
                 if (invalidOutputResend)
                   return engineRefusalResponse('account_reauthorize')
-                if (deps.reauthorize) throw deps.reauthorize()
+                if (forbidden === 'account_reauthorize' && deps.reauthorize)
+                  throw deps.reauthorize()
                 break
-              }
-              if (deps.reauthorize) {
-                accountManager.markAccountVerificationRequired(
-                  account.index,
-                  'Antigravity did not authorize the account.',
-                )
-                await showToast(
-                  `Run '${authCommand}' to reauthorize Antigravity.`,
-                  'warning',
-                )
-                throw deps.reauthorize()
               }
             }
 
@@ -4161,15 +4182,20 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             // reading must restore the original expiry first; once it has
             // passed, this throws the deadline error instead of resending.
             deadline.resume()
+            // A stale pool-file grant cannot start a send. Keep an earlier
+            // physical failure if there is one, otherwise report the pool refusal.
             if (
               credentials.domain === 'local' &&
-              localGrant?.captured.source === 'store' &&
+              (localGrant?.captured.source === 'store' ||
+                (localGrant?.captured.source === 'pool-file' &&
+                  !retainedMainAttemptFailure)) &&
               isLocalGrantError(error)
             ) {
               // The one-recapture limit covers main requests, warmups and probes. A
               // superseded unsent preparation is rebuilt on the same selection
               // and request scope, without failure penalties or endpoint retry.
               if (
+                localGrant.captured.source === 'store' &&
                 error instanceof LocalGrantSupersededError &&
                 !localRecaptureUsed &&
                 !invalidOutputResend

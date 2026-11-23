@@ -64,6 +64,11 @@ export const ENGINE_REFUSALS = {
     401,
     { rpcStatus: 'UNAUTHENTICATED' },
   ),
+  account_suspended: refusal(
+    'account_suspended',
+    'Google has suspended Antigravity access for this account. See the antigravity-auth README for details.',
+    412,
+  ),
   signature_recovery_failed: refusal(
     'signature_recovery_failed',
     "Antigravity could not repair the conversation's thinking blocks. Start a new session.",
@@ -115,6 +120,16 @@ export const ENGINE_REFUSALS = {
     'The Antigravity account store is busy. Try again in a moment.',
     412,
     { openCode1Status: 503 },
+  ),
+  vault_unreachable: refusal(
+    'vault_unreachable',
+    'The Claustrum vault could not be reached. No request was sent.',
+    412,
+  ),
+  vault_grant_denied: refusal(
+    'vault_grant_denied',
+    'The Claustrum vault has not granted this account to Antigravity. No request was sent.',
+    412,
   ),
   authority_changed: refusal(
     'authority_changed',

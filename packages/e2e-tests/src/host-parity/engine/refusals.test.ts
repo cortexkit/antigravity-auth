@@ -18,6 +18,7 @@ const entries = [
   ['capacity_exhausted', 412, 412],
   ['model_not_found', 412, 412],
   ['account_reauthorize', 401, 401],
+  ['account_suspended', 412, 412],
   ['signature_recovery_failed', 400, 400],
   ['stopped_by_google', 400, 400],
   ['incomplete', 400, 400],
@@ -30,6 +31,8 @@ const entries = [
   ['retired_model', 412, 412],
   ['model_not_allowed', 412, 412],
   ['busy_store', 503, 412],
+  ['vault_unreachable', 412, 412],
+  ['vault_grant_denied', 412, 412],
   ['authority_changed', 412, 412],
   ['context_overflow', 413, 413],
 ] as const

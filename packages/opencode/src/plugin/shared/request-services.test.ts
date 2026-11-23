@@ -27,6 +27,7 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 import {
   createRequestWireLocation,
+  EngineRefusalError,
   type LocalRequestCredentials,
   prepareAgyWireRequest,
   publishResponse,
@@ -34,6 +35,7 @@ import {
   type RequestWire,
   retiredModelResponse,
   routeTitleModel,
+  StaleLocalGrantError,
   TITLE_FALLBACK_MODEL,
 } from '@cortexkit/antigravity-auth-core/engine'
 import { runCommandBytes } from '../../../../../test/support/run-command.ts'
@@ -41,6 +43,9 @@ import { vaultWaitClock } from '../../../../../test/support/vault-wait-clock.tes
 import identityProjection from '../../../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
 import realHarnessPrompts from '../../../../../test-fixtures/harness-identities.json'
 import { outageVault } from '../../../../core/src/__fixtures__/vault-outage.ts'
+import { openCode1WouldRetry } from '../../../../e2e-tests/src/host-parity/engine/vendor/opencode1-retry.ts'
+import { isRetryableAssistantError as pi152WouldRetry } from '../../../../e2e-tests/src/host-parity/engine/vendor/pi-1.5.2-retry.ts'
+import { isRetryableAssistantError as pi160WouldRetry } from '../../../../e2e-tests/src/host-parity/engine/vendor/pi-1.6.0-retry.ts'
 import {
   createGaRawSender,
   GA_RAW_IDLE_TIMEOUT_MS,
@@ -96,6 +101,78 @@ import {
   wireBearers,
 } from './request-services-harness.test'
 import { createVaultAccountPool } from './vault-request-credentials.ts'
+
+async function expectFixedRefusal(
+  response: Response,
+  code: number,
+  status: string,
+  message: string,
+) {
+  expect(response.status).toBe(code)
+  const text = await response.text()
+  expect(JSON.parse(text)).toEqual({ error: { code, status, message } })
+  return text
+}
+
+function expectUpstreamHttpRefusal(response: Response) {
+  return expectFixedRefusal(
+    response,
+    400,
+    'INVALID_ARGUMENT',
+    'Google refused the Antigravity request. Check the plugin log for details.',
+  )
+}
+
+function expectReauthorizationRefusal(response: Response) {
+  return expectFixedRefusal(
+    response,
+    401,
+    'UNAUTHENTICATED',
+    'Antigravity did not authorize the account. Reauthorize Antigravity before sending another request.',
+  )
+}
+
+function expectTransportRefusal(response: Response) {
+  return expectFixedRefusal(
+    response,
+    412,
+    'FAILED_PRECONDITION',
+    'Antigravity could not communicate with Google. Check the plugin log for details.',
+  )
+}
+
+function expectVaultUnreachableRefusal(response: Response) {
+  return expectFixedRefusal(
+    response,
+    412,
+    'FAILED_PRECONDITION',
+    'The Claustrum vault could not be reached. No request was sent.',
+  )
+}
+
+const EMBEDDED_REFUSAL_TEXT = 'Antigravity returned an embedded error.'
+const INCOMPLETE_REFUSAL_TEXT = 'Antigravity returned an incomplete response.'
+
+async function expectStaleGrantRefusal(response: Response) {
+  expect(response.status).toBe(412)
+  expect(response.headers.get('retry-after')).toBeNull()
+  const text = await response.text()
+  const message =
+    'Antigravity account pool has no account available within the configured wait limit. Add accounts with `opencode auth login` or wait for quota reset.'
+  expect(JSON.parse(text)).toEqual({
+    error: { code: 412, status: 'FAILED_PRECONDITION', message },
+  })
+  expect(
+    openCode1WouldRetry({
+      message,
+      api: { status: response.status, isRetryable: false, responseBody: text },
+    }),
+  ).toBe(false)
+  expect(openCode1WouldRetry({ message })).toBe(false)
+  const pi = { stopReason: 'error', errorMessage: message }
+  expect(pi152WouldRetry(pi)).toBe(false)
+  expect(pi160WouldRetry(pi)).toBe(false)
+}
 
 // =============================================================================
 // Wire envelope parity
@@ -532,7 +609,6 @@ it('terminal thinking recovery excludes upstream retry hints from its failure bo
       })
     },
   })
-  const debug = spyOn(h.deps.logger, 'debug')
   const executor = createRequestExecutor(h.deps)
   try {
     const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
@@ -541,15 +617,12 @@ it('terminal thinking recovery excludes upstream retry hints from its failure bo
     const text = await response.text()
     expectNoOpenCodeRetryHints(text)
     expect(JSON.parse(text)).toEqual({
-      type: 'error',
       error: {
-        type: 'unrecoverable_error',
+        code: 400,
+        status: 'INVALID_ARGUMENT',
         message:
           "Antigravity could not repair the conversation's thinking blocks. Start a new session.",
       },
-    })
-    expect(debug).toHaveBeenCalledWith('thinking-recovery-failed', {
-      error: originalError,
     })
   } finally {
     await executor.dispose()
@@ -2060,7 +2133,10 @@ describe('createRequestExecutor pre-response deadline', () => {
     Object.assign(h.deps, { assertAdmission: admission })
     const request = new Request(STREAM_URL, CHAT_INIT(requestCaller.signal))
     const executor = createRequestExecutor(h.deps)
-    await expect(executor.execute(request)).rejects.toThrow('Request cancelled')
+    await expect(executor.execute(request)).rejects.toHaveProperty(
+      'message',
+      'Antigravity request cancelled.',
+    )
     expect(admission).not.toHaveBeenCalled()
     const response = await executor.execute(request, {
       signal: new AbortController().signal,
@@ -3974,7 +4050,12 @@ describe('createRequestExecutor empty-response budget', () => {
       expect(responseB.status).toBe(200)
       releaseA.resolve()
       const responseA = await pendingA
-      expect(responseA.status).toBe(502)
+      await expectFixedRefusal(
+        responseA,
+        400,
+        'INVALID_ARGUMENT',
+        'Antigravity returned an empty response.',
+      )
       expect(order).toEqual(['A', 'A', 'B'])
     } finally {
       releaseA.resolve()
@@ -4015,16 +4096,13 @@ describe('createRequestExecutor retry contract', () => {
     return Response.json(capacityBody(attempt), { status: 503 })
   }
 
-  async function expectUpstreamCapacityError(
-    response: Response,
-    attempt: number,
-  ) {
-    const { error } = capacityBody(attempt)
-    expect(response.status).toBe(503)
-    // The response transformer adds diagnostics to the upstream message.
-    expect(await response.json()).toEqual({
-      error: { ...error, message: expect.stringContaining(error.message) },
-    })
+  function expectCapacityRefusal(response: Response) {
+    return expectFixedRefusal(
+      response,
+      412,
+      'FAILED_PRECONDITION',
+      'Antigravity could not obtain capacity for this request.',
+    )
   }
 
   function capacityHarness(
@@ -4092,7 +4170,7 @@ describe('createRequestExecutor retry contract', () => {
         ...Array(4).fill('Bearer access-refresh-0'),
         ...Array(4).fill('Bearer access-refresh-1'),
       ])
-      await expectUpstreamCapacityError(response, 8)
+      await expectCapacityRefusal(response)
     } finally {
       await executor.dispose()
     }
@@ -4119,7 +4197,7 @@ describe('createRequestExecutor retry contract', () => {
     }
   })
 
-  it('returns the fourth upstream capacity error with only one account', async () => {
+  it('returns the capacity refusal after four failed sends with only one account', async () => {
     const h = capacityHarness(1, async (_call, index) =>
       capacityError(index + 1),
     )
@@ -4127,14 +4205,14 @@ describe('createRequestExecutor retry contract', () => {
     try {
       const response = await executeWithFastCapacityBackoff(executor)
       expect(h.calls).toHaveLength(4)
-      await expectUpstreamCapacityError(response, 4)
+      await expectCapacityRefusal(response)
     } finally {
       await executor.dispose()
     }
   })
 
   // With another account in the pool a failed refresh is retried through
-  // selection; the only account's failed refresh is a native 401 instead
+  // selection; the only account's failed refresh is a reauthorization refusal
   // (see the test below).
   it('retries selection after a failed refresh and sends with the next grant', async () => {
     const h = harness({
@@ -4159,8 +4237,7 @@ describe('createRequestExecutor retry contract', () => {
     }
   })
 
-  it('never sends a local grant whose captured check reports it stale', async () => {
-    const stale = new Error('row now holds a newer credential')
+  it('refuses a stale pool-file grant as unavailable without a physical send', async () => {
     const checked: string[] = []
     const h = harness({
       refresh: async (auth) => ({
@@ -4178,18 +4255,16 @@ describe('createRequestExecutor retry contract', () => {
           source: 'pool-file',
           check() {
             checked.push(accessToken)
-            throw stale
+            throw new StaleLocalGrantError()
           },
         }),
       },
     })
     try {
-      await expect(executor.execute(NON_STREAM_URL, CHAT_INIT())).rejects.toBe(
-        stale,
+      await expectStaleGrantRefusal(
+        await executor.execute(NON_STREAM_URL, CHAT_INIT()),
       )
-      expect(checked).toEqual(
-        ANTIGRAVITY_ENDPOINT_FALLBACKS.map(() => 'access-stale'),
-      )
+      expect(checked).toEqual(['access-stale'])
       expect(h.calls).toHaveLength(0)
     } finally {
       await executor.dispose()
@@ -4218,10 +4293,10 @@ describe('createRequestExecutor retry contract', () => {
     })
     const executor = createRequestExecutor(h.deps)
     try {
-      // The second endpoint attempt is refused before transport; the host
-      // gets the last upstream answer (the 404) and nothing else is sent.
+      // The stale grant blocks the fallback send. The prior unclassified
+      // upstream failure is still the last physical result.
       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
-      expect(response.status).toBe(404)
+      await expectUpstreamHttpRefusal(response)
       expect(h.calls).toHaveLength(1)
       expect(h.checkedGrants.map((entry) => entry.accessToken)).toEqual([
         'access-kept',
@@ -4312,7 +4387,7 @@ describe('createRequestExecutor retry contract', () => {
       const account = pool.getAccounts()[0] as ManagedAccount
       account.parts = { ...account.parts, refreshToken: 'replaced-row' }
       release()
-      await expect(pending).rejects.toThrow('stale grant')
+      await expectStaleGrantRefusal(await pending)
       expect(h.calls).toHaveLength(0)
     } finally {
       release()
@@ -4320,7 +4395,7 @@ describe('createRequestExecutor retry contract', () => {
     }
   })
 
-  it("returns the native 401 when the only account's refresh yields no credential", async () => {
+  it("asks for reauthorization when the only account's refresh yields no credential", async () => {
     const h = harness({
       refresh: async () => undefined,
       respond: async () => okJson(),
@@ -4329,12 +4404,7 @@ describe('createRequestExecutor retry contract', () => {
     const executor = createRequestExecutor(h.deps)
     try {
       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
-      expect(response.status).toBe(401)
-      const body = (await response.json()) as {
-        error: { status: string; message: string }
-      }
-      expect(body.error.status).toBe('UNAUTHENTICATED')
-      expect(body.error.message).toContain('Missing access token')
+      await expectReauthorizationRefusal(response)
       expect(h.refreshed).toHaveLength(1)
       expect(h.calls).toHaveLength(0)
     } finally {
@@ -4386,7 +4456,7 @@ describe('createRequestExecutor retry contract', () => {
     }
   })
 
-  it('rejects with the original transport error object after every endpoint fails', async () => {
+  it('returns the fixed transport refusal after every endpoint fails', async () => {
     const resetError = Object.assign(new Error('read ECONNRESET'), {
       code: 'ECONNRESET',
     })
@@ -4397,8 +4467,8 @@ describe('createRequestExecutor retry contract', () => {
     })
     const executor = createRequestExecutor(h.deps)
     try {
-      await expect(executor.execute(STREAM_URL, CHAT_INIT())).rejects.toBe(
-        resetError,
+      await expectTransportRefusal(
+        await executor.execute(STREAM_URL, CHAT_INIT()),
       )
       expect(h.calls).toHaveLength(ANTIGRAVITY_ENDPOINT_FALLBACKS.length)
     } finally {
@@ -4520,10 +4590,29 @@ describe('createRequestExecutor retry contract', () => {
     }
   })
 
+  function expectNoCredentialDiagnostic(text: string) {
+    for (const value of [
+      'access-fresh',
+      'project-0',
+      'another-token',
+      'eyJ',
+      '****',
+      '[credential]',
+    ]) {
+      expect(text).not.toContain(value)
+    }
+  }
+
+  async function expectEmbeddedRefusal(response: Response) {
+    expect(response.status).toBe(200)
+    const result = await response.text().catch((error: unknown) => error)
+    expect(result).toHaveProperty('message', EMBEDDED_REFUSAL_TEXT)
+    if (result instanceof Error) expectNoCredentialDiagnostic(result.message)
+  }
+
   for (const source of ['transport', 'http', 'sse'] as const) {
     it(`redacts selected credential in composed OpenCode ${source} errors`, async () => {
-      const detail =
-        'echo access-fresh project-0 Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature'
+      const detail = `echo ${source === 'transport' ? '' : 'Bearer '}access-fresh project: project-0 Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature`
       const failure = Object.assign(new Error(detail), {
         code: 'ECONNRESET',
         detail,
@@ -4552,41 +4641,39 @@ describe('createRequestExecutor retry contract', () => {
           )
         },
       })
-      const executor = createRequestExecutor(h.deps)
+      const logger = h.deps.logger
+      const debug = spyOn(logger, 'debug')
+      const executor = createRequestExecutor({
+        ...h.deps,
+        wire: createRequestWire(
+          createRequestWireLocation({
+            debug: createLocationDebug(h.deps.config),
+            logger,
+            signatures: {
+              keepThinking: false,
+              signatureStore: createSignatureStore(),
+              cacheSignature: () => {},
+              getCachedSignature: () => undefined,
+            },
+          }),
+        ),
+      })
       try {
-        if (source === 'transport') {
-          const error = await executor
-            .execute(STREAM_URL, CHAT_INIT())
-            .catch((error: unknown) => error)
-          expect(error).toBe(failure)
-          expect(failure.code).toBe('ECONNRESET')
-          expect(failure.cause).toBeUndefined()
-          for (const text of [
-            failure.message,
-            failure.stack!,
-            failure.detail,
-          ]) {
-            expect(text).not.toContain('access-fresh')
-            expect(text).not.toContain('project-0')
-            expect(text).toContain('proj****ct-0')
-            expect(text).not.toContain('another-token')
-            expect(text).not.toContain('eyJ')
-          }
-        } else {
-          const response = await executor.execute(
-            source === 'http' ? NON_STREAM_URL : STREAM_URL,
-            CHAT_INIT(),
+        const response = await executor.execute(
+          source === 'http' ? NON_STREAM_URL : STREAM_URL,
+          CHAT_INIT(),
+        )
+        if (source === 'sse') await expectEmbeddedRefusal(response)
+        else
+          expectNoCredentialDiagnostic(
+            await (source === 'transport'
+              ? expectTransportRefusal(response)
+              : expectUpstreamHttpRefusal(response)),
           )
-          expect(response.status).toBe(source === 'http' ? 400 : 200)
-          const text = await response.text()
-          expect(text).not.toContain('access-fresh')
-          expect(text).not.toContain('project-0')
-          expect(text).toContain('proj****ct-0')
-          expect(text).not.toContain('another-token')
-          expect(text).not.toContain('eyJ')
-          expect(text).toContain('[credential]')
-          expect(text).toContain('400')
-        }
+        const diagnostic = `echo [credential] project: proj****ct-0 [credential] [credential]`
+        const logged = JSON.stringify(debug.mock.calls)
+        expect(logged).toContain(diagnostic)
+        expect(logged).not.toContain(detail)
       } finally {
         await executor.dispose()
       }
@@ -4607,15 +4694,11 @@ describe('createRequestExecutor retry contract', () => {
     })
     const executor = createRequestExecutor(h.deps)
     try {
-      const error = await executor
-        .execute(STREAM_URL, CHAT_INIT())
-        .catch((error: unknown) => error)
-      expect(error).not.toBe(failure)
-      expect(error).toMatchObject({
-        message: 'echo [credential]',
-        code: 'ECONNRESET',
-        status: 503,
-      })
+      expectNoCredentialDiagnostic(
+        await expectTransportRefusal(
+          await executor.execute(STREAM_URL, CHAT_INIT()),
+        ),
+      )
       expect(h.calls).toHaveLength(ANTIGRAVITY_ENDPOINT_FALLBACKS.length)
     } finally {
       await executor.dispose()
@@ -4744,14 +4827,17 @@ describe('createRequestExecutor retry contract', () => {
           },
         )
         const response = await fetch(rewritten)
-        expect(response.status).toBe(
-          source === 'transport' ? 502 : source === 'http' ? 400 : 200,
-        )
-        const text = await response.text()
-        expect(text).not.toContain('access-fresh')
-        expect(text).not.toContain('another-token')
-        expect(text).not.toContain('eyJ')
-        expect(text).toContain('[credential]')
+        if (source === 'sse') {
+          const adapted = bridge.adaptResponse(rewritten, response)
+          if (!adapted) throw new Error('The bridge did not adapt the response')
+          await expectEmbeddedRefusal(adapted)
+        } else {
+          expectNoCredentialDiagnostic(
+            await (source === 'transport'
+              ? expectTransportRefusal(response)
+              : expectUpstreamHttpRefusal(response)),
+          )
+        }
       } finally {
         await bridge.dispose()
         await executor.dispose()
@@ -4759,7 +4845,7 @@ describe('createRequestExecutor retry contract', () => {
     })
   }
 
-  it('returns the last upstream response when the only account is ineligible', async () => {
+  it('asks for reauthorization when the only account is ineligible', async () => {
     const pool = makePool(1)
     const h = harness({
       pool,
@@ -4779,7 +4865,7 @@ describe('createRequestExecutor retry contract', () => {
     const executor = createRequestExecutor(h.deps)
     try {
       const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
-      expect(response.status).toBe(403)
+      await expectReauthorizationRefusal(response)
       expect(h.calls).toHaveLength(1)
       expect(pool.getAccounts()[0]?.enabled).toBe(false)
     } finally {
@@ -4871,8 +4957,7 @@ describe('vault login condition bookkeeping', () => {
             onResponseHandoff,
           }),
         )
-        expect(reply.status).toBe(403)
-        expect(await reply.text()).toContain(reason)
+        await expectReauthorizationRefusal(reply)
         await afterBookkeeping()
         expect(h.h.calls).toHaveLength(1)
         expect(wireBearers(h.h)).toEqual(['Bearer vault-token-0'])
@@ -4901,8 +4986,7 @@ describe('vault login condition bookkeeping', () => {
       const reply = await publishResponse((onResponseHandoff) =>
         h.executor.execute(NON_STREAM_URL, CHAT_INIT(), { onResponseHandoff }),
       )
-      expect(reply.status).toBe(403)
-      await reply.text()
+      await expectReauthorizationRefusal(reply)
       await afterBookkeeping()
       expect(h.h.calls).toHaveLength(1)
       expect(h.admit).not.toHaveBeenCalled()
@@ -5002,7 +5086,7 @@ describe('createRequestExecutor model unavailable (404 NOT_FOUND)', () => {
       code: 412,
       status: 'FAILED_PRECONDITION',
       message:
-        'The requested Antigravity model is not available to the configured accounts. Choose another model.',
+        'The requested Antigravity model was not found for the configured accounts. Choose another model.',
     },
   }
 
@@ -5447,7 +5531,7 @@ describe('createRequestExecutor model unavailable (404 NOT_FOUND)', () => {
         ),
     ],
   ] as const) {
-    it(`keeps the prod fallback for a 404 with ${label}, and returns a second 404 without rotating`, async () => {
+    it(`keeps the prod fallback for a 404 with ${label}, then returns the generic refusal without rotating`, async () => {
       const h = harness({
         pool: makePool(2),
         refresh: perAccountRefresh,
@@ -5458,7 +5542,7 @@ describe('createRequestExecutor model unavailable (404 NOT_FOUND)', () => {
       const executor = createRequestExecutor(h.deps)
       try {
         const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
-        expect(response.status).toBe(404)
+        await expectUpstreamHttpRefusal(response)
         expect(sends(h)).toEqual([
           [DAILY, 'Bearer access-refresh-0'],
           [PROD, 'Bearer access-refresh-0'],
@@ -5521,35 +5605,73 @@ describe('createRequestExecutor model unavailable (404 NOT_FOUND)', () => {
     }
   })
 
-  it('returns an unclassified daily 403 without a prod send', async () => {
-    const h = harness({
-      pool: makePool(2),
-      refresh: perAccountRefresh,
-      respond: async () =>
-        new Response(
-          JSON.stringify({
-            error: {
-              code: 403,
-              status: 'PERMISSION_DENIED',
-              message: 'The caller does not have permission',
+  for (const { shape, message, details, suspended } of [
+    {
+      shape: 'an unclassified permission denial',
+      message: 'The caller does not have permission',
+    },
+    {
+      shape: 'an untyped suspension reason',
+      message: 'TOS_VIOLATION',
+      details: [{ reason: 'TOS_VIOLATION' }],
+    },
+    {
+      shape: 'a structured account suspension',
+      // The structured reason must win over a verification hint in the prose.
+      message:
+        'Account suspended; account verification will not restore access',
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+          reason: 'TOS_VIOLATION',
+        },
+      ],
+      suspended: true,
+    },
+  ]) {
+    it(`handles a daily 403 with ${shape} without reauthorization or a prod send`, async () => {
+      const h = harness({
+        pool: makePool(2),
+        refresh: perAccountRefresh,
+        respond: async () =>
+          Response.json(
+            {
+              error: {
+                code: 403,
+                status: 'PERMISSION_DENIED',
+                message,
+                details,
+              },
             },
-          }),
-          { status: 403, headers: { 'content-type': 'application/json' } },
-        ),
+            { status: 403 },
+          ),
+      })
+      const before = accountState(h.pool)
+      const spies = penaltySpies(h)
+      const reauthorize = mock(
+        () => new EngineRefusalError('account_reauthorize'),
+      )
+      const executor = createRequestExecutor({ ...h.deps, reauthorize })
+      try {
+        const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
+        if (suspended) {
+          expect(response.headers.get('retry-after')).toBeNull()
+          await expectFixedRefusal(
+            response,
+            412,
+            'FAILED_PRECONDITION',
+            'Google has suspended Antigravity access for this account. See the antigravity-auth README for details.',
+          )
+        } else await expectUpstreamHttpRefusal(response)
+        expect(reauthorize).not.toHaveBeenCalled()
+        expect(sends(h)).toEqual([[DAILY, 'Bearer access-refresh-0']])
+        expectNoPenalty(spies)
+        expect(accountState(h.pool)).toEqual(before)
+      } finally {
+        await executor.dispose()
+      }
     })
-    const before = accountState(h.pool)
-    const spies = penaltySpies(h)
-    const executor = createRequestExecutor(h.deps)
-    try {
-      const response = await executor.execute(CLAUDE_URL, CHAT_INIT())
-      expect(response.status).toBe(403)
-      expect(sends(h)).toEqual([[DAILY, 'Bearer access-refresh-0']])
-      expectNoPenalty(spies)
-      expect(accountState(h.pool)).toEqual(before)
-    } finally {
-      await executor.dispose()
-    }
-  })
+  }
 
   it('still falls back to prod after a daily 500', async () => {
     const h = harness({
@@ -6137,7 +6259,12 @@ describe('createRequestWire location state', () => {
     const openCode1Before = getLastCacheStats()
     const sse = `data: ${JSON.stringify({
       response: {
-        candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] } }],
+        candidates: [
+          {
+            content: { role: 'model', parts: [{ text: 'hi' }] },
+            finishReason: 'STOP',
+          },
+        ],
         usageMetadata: {
           promptTokenCount: 100,
           cachedContentTokenCount: 40,
@@ -6918,6 +7045,7 @@ describe('createRequestExecutor eligible-pool wait calculation', () => {
         quiet_mode: false,
         max_rate_limit_wait_seconds: 10,
         soft_quota_threshold_percent: 80,
+        toast_scope: 'all',
       },
       notify: async (msg) => {
         toasts.push(msg)
@@ -6930,7 +7058,7 @@ describe('createRequestExecutor eligible-pool wait calculation', () => {
       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
       expect(response.status).toBe(200)
       expect(delays).toEqual([8_000])
-      expect(toasts.some((t) => t.includes('Waiting 8s...'))).toBe(true)
+      expect(toasts).toContain('All 2 account(s) over 80% quota. Waiting 8s...')
       expect(h.calls).toHaveLength(1)
     } finally {
       save.mockRestore()
@@ -7334,7 +7462,7 @@ describe('createRequestExecutor cancellation and overflow', () => {
     }
   })
 
-  it('an authority transition preserves admitted physical work and refuses the next local request', async () => {
+  it('an authority transition does not abort the physical send but refuses its result and the next local request', async () => {
     const controller = new AbortController()
     let authority: 'local' | 'vault' = 'local'
     let start: () => void = () => {}
@@ -7356,7 +7484,7 @@ describe('createRequestExecutor cancellation and overflow', () => {
       ...h.deps,
       assertAdmission: async () => {
         if (authority !== 'local')
-          throw new Error('Local execution refused under vault custody')
+          throw new EngineRefusalError('authority_changed')
       },
     })
     const pending = executor.execute(
@@ -7372,12 +7500,18 @@ describe('createRequestExecutor cancellation and overflow', () => {
       authority = 'vault'
       expect(h.calls[0]?.options?.signal?.aborted).toBe(false)
       release()
-      const response = await pending
-      expect(response.status).toBe(200)
-      await response.text()
+      await expect(pending).rejects.toMatchObject({
+        id: 'authority_changed',
+        message:
+          'Antigravity credential authority changed. No further local account operations were performed.',
+      })
       await expect(
         executor.execute(NON_STREAM_URL, CHAT_INIT(controller.signal)),
-      ).rejects.toThrow('Local execution refused under vault custody')
+      ).rejects.toMatchObject({
+        id: 'authority_changed',
+        message:
+          'Antigravity credential authority changed. No further local account operations were performed.',
+      })
       expect(h.calls).toHaveLength(1)
       expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0)
     } finally {
@@ -7423,7 +7557,7 @@ describe('createRequestExecutor cancellation and overflow', () => {
     }
   })
 
-  it('returns the original context-overflow response unread, without rotating', async () => {
+  it('returns a fixed context-overflow refusal without rotating', async () => {
     const pool = makePool(2)
     const payload =
       '{"error":{"code":400,"status":"INVALID_ARGUMENT","message":"Prompt is too long"}}'
@@ -7444,12 +7578,16 @@ describe('createRequestExecutor cancellation and overflow', () => {
     const executor = createRequestExecutor(h.deps)
     try {
       const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
-      expect(response).toBe(original)
-      expect(response.bodyUsed).toBe(false)
-      expect(await response.text()).toBe(payload)
+      expect(response.headers.get('x-overflow')).toBeNull()
+      await expectFixedRefusal(
+        response,
+        413,
+        'INVALID_ARGUMENT',
+        'Prompt is too long: context length exceeded.',
+      )
       expect(h.calls).toHaveLength(1)
       expect(notices).toEqual([
-        'Using account-0@example.test (1/2)',
+        'Using account 1 of 2.',
         'Context too long - use /compact to reduce size',
       ])
       expect(pool.getAccounts().map((account) => account.enabled)).toEqual([
@@ -7515,10 +7653,12 @@ type ReadOutcome =
 
 const sseDecoder = new TextDecoder()
 
-function sseEvent(text: string): string {
+function sseEvent(text: string, finishReason?: 'STOP'): string {
   return `data: ${JSON.stringify({
     response: {
-      candidates: [{ content: { role: 'model', parts: [{ text }] } }],
+      candidates: [
+        { content: { role: 'model', parts: [{ text }] }, finishReason },
+      ],
     },
   })}\n\n`
 }
@@ -7546,7 +7686,7 @@ function heldSse(firstText: string, lastText: string) {
       // A body the executor already cancelled refuses further events; the
       // test then reports what the reader observed instead.
       try {
-        output?.enqueue(new TextEncoder().encode(sseEvent(lastText)))
+        output?.enqueue(new TextEncoder().encode(sseEvent(lastText, 'STOP')))
         output?.close()
       } catch {}
     },
@@ -7554,7 +7694,7 @@ function heldSse(firstText: string, lastText: string) {
 }
 
 function completeSse(text: string): Response {
-  return new Response(sseEvent(text), {
+  return new Response(sseEvent(text, 'STOP'), {
     headers: { 'content-type': 'text/event-stream' },
   })
 }
@@ -8217,7 +8357,7 @@ describe('OpenCode 1 runtime replacement with admitted streams', () => {
     }
   })
 
-  it('a replaced manager stays open until its refresh queue has finished an admitted proactive refresh', async () => {
+  it('a replaced manager drains an admitted proactive refresh without saving after its queue stops', async () => {
     const lifecycle = createPluginLifecycle({
       sessionRegistry: { clear() {} },
       shutdownDiskSignatureCache: async () => {},
@@ -8326,7 +8466,7 @@ describe('OpenCode 1 runtime replacement with admitted streams', () => {
       await first.disposed
       expect({ beforeRelease, events }).toEqual({
         beforeRelease: [],
-        events: ['manager 1 saved refresh-0-proactive', 'manager 1 disposed'],
+        events: ['manager 1 disposed'],
       })
     } finally {
       releaseRefresh()
@@ -9380,13 +9520,13 @@ describe('createRequestExecutor optional vault routing', () => {
           vaultDeps(h, async (row) => admission(row)),
         )
         try {
-          await expect(
-            executor.execute(
+          await expectTransportRefusal(
+            await executor.execute(
               NON_STREAM_URL,
               CHAT_INIT(),
               session('bare-transport-status'),
             ),
-          ).rejects.toThrow('injected sender exception')
+          )
           expect(state.asks).toHaveLength(1)
           expect(state.reports).toEqual([])
         } finally {
@@ -9432,8 +9572,11 @@ describe('createRequestExecutor optional vault routing', () => {
               { ...CHAT_INIT(), signal: AbortSignal.timeout(250) },
               session(`stalled-${status}`),
             )
-            expect(response.status).toBe(status === 403 ? 403 : 200)
-            await response.text()
+            if (status === 403) await expectUpstreamHttpRefusal(response)
+            else {
+              expect(response.status).toBe(200)
+              await response.text()
+            }
             expect(wireBearers(h)).toEqual(
               Array(status === 403 ? 1 : 2).fill('Bearer vault-token-0'),
             )
@@ -10044,13 +10187,20 @@ describe('createRequestExecutor optional vault routing', () => {
           vaultDeps(h, async (account) => admission(account)),
         )
         try {
-          await (
-            await executor.execute(
-              failure === 'json-error' ? NON_STREAM_URL : STREAM_URL,
-              CHAT_INIT(),
-              session(failure),
+          const reply = await executor.execute(
+            failure === 'json-error' ? NON_STREAM_URL : STREAM_URL,
+            CHAT_INIT(),
+            session(failure),
+          )
+          if (failure === 'wrapped-error') {
+            expect(reply.status).toBe(200)
+            await expect(reply.text()).rejects.toHaveProperty(
+              'message',
+              EMBEDDED_REFUSAL_TEXT,
             )
-          ).text()
+          } else {
+            await reply.text()
+          }
           expect(state.reports).toEqual([])
         } finally {
           await executor.dispose()
@@ -10814,7 +10964,7 @@ describe('createRequestExecutor vault routing served report for streamed replies
     account_id: 'identity-0',
     credential_id: 'credential-0',
     outcome: 'served',
-    headers: { 'x-ratelimit-remaining': '9' },
+    headers: {},
   }
 
   /** An upstream SSE body that hands out one chunk per read, then ends as `end` says. */
@@ -10998,6 +11148,12 @@ describe('createRequestExecutor vault routing served report for streamed replies
           frame({ response: { candidates: [] }, error: { message: 'x' } }),
           terminal,
         ]),
+      async (response) => {
+        await expect(response.text()).rejects.toHaveProperty(
+          'message',
+          EMBEDDED_REFUSAL_TEXT,
+        )
+      },
     ],
     [
       'the terminal frame itself carries an error',
@@ -11016,6 +11172,12 @@ describe('createRequestExecutor vault routing served report for streamed replies
             error: { message: 'x' },
           }),
         ]),
+      async (response) => {
+        await expect(response.text()).rejects.toHaveProperty(
+          'message',
+          EMBEDDED_REFUSAL_TEXT,
+        )
+      },
     ],
     [
       'the upstream read fails before the terminal frame',
@@ -11040,6 +11202,12 @@ describe('createRequestExecutor vault routing served report for streamed replies
     [
       'the stream ends with no terminal frame',
       () => upstream([content, content]),
+      async (response) => {
+        await expect(response.text()).rejects.toHaveProperty(
+          'message',
+          INCOMPLETE_REFUSAL_TEXT,
+        )
+      },
     ],
   ]
   for (const [shape, respond, consume] of neverServed) {
@@ -11436,25 +11604,42 @@ describe('bounded vault receipt wait through the real engine', () => {
     }
   })
 
-  it('an unrecovered OpenCode 1 request retains the original unavailable error after the bound', async () => {
+  it('an unrecovered OpenCode 1 request reports an unreachable vault without a physical send', async () => {
     const f = await boundedVaultEngine()
     f.vault.unreachable()
     try {
-      await expect(
-        f.clock.drive(f.executor.execute(NON_STREAM_URL, CHAT_INIT())),
-      ).rejects.toMatchObject({
-        kind: 'unavailable',
-        message: 'Claustrum vault could not be reached',
-      })
+      const response = await f.clock.drive(
+        f.executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
       expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
       expect(f.clock.elapsed()).toBeLessThan(11_000)
       expect(f.h.calls).toHaveLength(0)
+      await expectVaultUnreachableRefusal(response)
     } finally {
       await f.dispose()
     }
   })
 
-  it('an unrecovered OpenCode 2 request retains its unavailable status and error after the bound', async () => {
+  it('reports a denied vault grant without a physical send', async () => {
+    const f = await boundedVaultEngine()
+    f.vault.deny()
+    try {
+      const response = await f.clock.drive(
+        f.executor.execute(NON_STREAM_URL, CHAT_INIT()),
+      )
+      expect(f.h.calls).toHaveLength(0)
+      await expectFixedRefusal(
+        response,
+        412,
+        'FAILED_PRECONDITION',
+        'The Claustrum vault has not granted this account to Antigravity. No request was sent.',
+      )
+    } finally {
+      await f.dispose()
+    }
+  })
+
+  it('an unrecovered OpenCode 2 request returns a fixed refusal after the vault wait bound', async () => {
     const f = await boundedVaultEngine()
     f.vault.unreachable()
     const bridge = await startGaLoopbackBridge({
@@ -11478,16 +11663,11 @@ describe('bounded vault receipt wait through the real engine', () => {
         { HTTP_PROXY: undefined, HTTPS_PROXY: undefined, ALL_PROXY: undefined },
       )
       const response = await f.clock.drive(fetch(request))
-      expect(response.status).toBe(502)
-      expect(await response.json()).toEqual({
-        error: {
-          code: 502,
-          status: 'UNAVAILABLE',
-          message: 'Claustrum vault could not be reached',
-        },
-      })
+      expect(response.headers.get('x-should-retry')).toBe('false')
+      await expectVaultUnreachableRefusal(response)
       expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
       expect(f.clock.elapsed()).toBeLessThan(11_000)
+      expect(f.h.calls).toHaveLength(0)
     } finally {
       await bridge.dispose()
       await f.dispose()
@@ -11512,16 +11692,13 @@ describe('bounded vault receipt wait through the real engine', () => {
     }
   })
 
-  it('three vault accounts in one young outage share one wait bound and retain the final error', async () => {
+  it('three vault accounts in one young outage share one wait bound and return a fixed refusal', async () => {
     const f = await boundedVaultEngine(3)
     f.vault.unreachable()
     try {
-      await expect(
-        f.clock.drive(f.executor.execute(NON_STREAM_URL, CHAT_INIT())),
-      ).rejects.toMatchObject({
-        kind: 'unavailable',
-        message: 'Claustrum vault could not be reached',
-      })
+      await expectVaultUnreachableRefusal(
+        await f.clock.drive(f.executor.execute(NON_STREAM_URL, CHAT_INIT())),
+      )
       expect(f.clock.elapsed()).toBeGreaterThanOrEqual(10_000)
       expect(f.clock.elapsed()).toBeLessThan(15_000)
       expect(new Set(f.vault.gets.map((get) => get.credentialId)).size).toBe(3)
@@ -11618,26 +11795,21 @@ describe('retained main-attempt failure precedence', () => {
     }
   }
 
-  function quotaFailure(responseId: string): Response {
+  function quotaFailure(responseId: string, retryAfter = '17'): Response {
     return new Response(
       JSON.stringify({
         error: {
           code: 429,
           status: 'RESOURCE_EXHAUSTED',
           message: `a3 synthetic quota ${responseId}`,
-          details: [
-            {
-              '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
-              reason: 'QUOTA_EXHAUSTED',
-            },
-          ],
+          details: [QUOTA_ERROR_INFO],
         },
       }),
       {
         status: 429,
         headers: {
           'content-type': 'application/json',
-          'retry-after': '17',
+          'retry-after': retryAfter,
           'x-a3-response-id': responseId,
         },
       },
@@ -11661,21 +11833,24 @@ describe('retained main-attempt failure precedence', () => {
     return h.refreshed.map((refresh) => refresh.split('|')[0] ?? '')
   }
 
-  async function expectQuotaResponse(
-    outcome: Outcome,
-    responseId: string,
-  ): Promise<void> {
+  async function expectQuotaResponse(outcome: Outcome): Promise<void> {
     expect(outcome.kind).toBe('response')
     if (outcome.kind !== 'response') return
-    expect(outcome.response.status).toBe(429)
-    expect(outcome.response.headers.get('x-a3-response-id')).toBe(responseId)
+    expect(outcome.response.headers.get('x-a3-response-id')).toBeNull()
     expect(outcome.response.headers.get('retry-after')).toBe('17')
     expect(outcome.response.headers.get('retry-after-ms')).toBe('17000')
-    const body = (await outcome.response.json()) as {
-      error: { status: string; message: string }
-    }
-    expect(body.error.status).toBe('RESOURCE_EXHAUSTED')
-    expect(body.error.message).toContain(`a3 synthetic quota ${responseId}`)
+    await expectFixedRefusal(
+      outcome.response,
+      429,
+      'RESOURCE_EXHAUSTED',
+      'Antigravity quota has been used up. Quota resets in 17s.',
+    )
+  }
+
+  async function expectTransportOutcome(outcome: Outcome) {
+    expect(outcome.kind).toBe('response')
+    if (outcome.kind === 'response')
+      await expectTransportRefusal(outcome.response)
   }
 
   it('transport then later HTTP 429 returns the newest physical response at the account-switch cap', async () => {
@@ -11703,16 +11878,20 @@ describe('retained main-attempt failure precedence', () => {
         })),
         { account: 1, origin: firstEndpoint },
       ])
-      await expectQuotaResponse(outcome, 'http-second')
+      await expectQuotaResponse(outcome)
     } finally {
       await executor.dispose()
     }
   })
 
   it('HTTP-only control preserves status, retry headers and RESOURCE_EXHAUSTED classification', async () => {
-    const h = makeA3Harness(async (call) =>
-      quotaFailure(`http-account-${accountFromCall(call)}`),
-    )
+    const h = makeA3Harness(async (call) => {
+      const account = accountFromCall(call)
+      return quotaFailure(
+        `http-account-${account}`,
+        account === 0 ? '11' : '17',
+      )
+    })
     const executor = createRequestExecutor(h.deps)
     try {
       const outcome = await settle(
@@ -11724,19 +11903,20 @@ describe('retained main-attempt failure precedence', () => {
         { account: 0, origin: firstEndpoint },
         { account: 1, origin: firstEndpoint },
       ])
-      await expectQuotaResponse(outcome, 'http-account-1')
+      await expectQuotaResponse(outcome)
     } finally {
       await executor.dispose()
     }
   })
 
-  it('transport-only control rejects with the final physical Error identity', async () => {
+  it('transport-only control reports the fixed refusal and logs the final physical error', async () => {
     const transportErrors: Error[] = []
     const h = makeA3Harness(async () => {
       const error = transportFailure(transportErrors.length)
       transportErrors.push(error)
       throw error
     })
+    const debug = spyOn(h.deps.logger, 'debug')
     const executor = createRequestExecutor(h.deps)
     try {
       const outcome = await settle(
@@ -11759,8 +11939,11 @@ describe('retained main-attempt failure precedence', () => {
           origin,
         })),
       ])
-      expect(outcome.kind).toBe('error')
-      if (outcome.kind === 'error') expect(outcome.error).toBe(newest)
+      await expectTransportOutcome(outcome)
+      expect(debug).toHaveBeenCalledWith(
+        'Exceeded max account switches (1). All accounts rate-limited.',
+        { error: String(newest) },
+      )
     } finally {
       await executor.dispose()
     }
@@ -11769,6 +11952,7 @@ describe('retained main-attempt failure precedence', () => {
   it('synchronous main sender throws are retained at the physical boundary', async () => {
     const synchronousErrors: Error[] = []
     const h = makeA3Harness(async () => okJson())
+    const debug = spyOn(h.deps.logger, 'debug')
     const executor = createRequestExecutor({
       ...h.deps,
       transport: (url, init, options) => {
@@ -11799,14 +11983,17 @@ describe('retained main-attempt failure precedence', () => {
           origin,
         })),
       ])
-      expect(outcome.kind).toBe('error')
-      if (outcome.kind === 'error') expect(outcome.error).toBe(newest)
+      await expectTransportOutcome(outcome)
+      expect(debug).toHaveBeenCalledWith(
+        'Exceeded max account switches (1). All accounts rate-limited.',
+        { error: String(newest) },
+      )
     } finally {
       await executor.dispose()
     }
   })
 
-  it('HTTP then later transport failure returns the newest physical error at the account-switch cap', async () => {
+  it('later transport refusal supersedes an earlier quota refusal at the account-switch cap', async () => {
     const transportErrors: Error[] = []
     const h = makeA3Harness(async (call) => {
       if (accountFromCall(call) === 0) return quotaFailure('http-first')
@@ -11819,9 +12006,6 @@ describe('retained main-attempt failure precedence', () => {
       const outcome = await settle(
         executor.execute(NON_STREAM_URL, CHAT_INIT()),
       )
-      const newest = transportErrors.at(-1)
-      if (!newest)
-        throw new Error('no later synthetic transport attempts were sent')
       expect(h.deps.config.max_account_switches).toBe(1)
       expect(refreshedIndexes(h)).toEqual(['refresh-0', 'refresh-1'])
       expect(transportErrors).toHaveLength(
@@ -11834,19 +12018,13 @@ describe('retained main-attempt failure precedence', () => {
           origin,
         })),
       ])
-      // If the code without this fix returns the earlier 429, check that response's
-      // identity and classification first, so the only failing assertion is the
-      // intended one: the newest failure is the transport error.
-      if (outcome.kind === 'response')
-        await expectQuotaResponse(outcome, 'http-first')
-      expect(outcome.kind).toBe('error')
-      if (outcome.kind === 'error') expect(outcome.error).toBe(newest)
+      await expectTransportOutcome(outcome)
     } finally {
       await executor.dispose()
     }
   })
 
-  it('single-account unstructured daily 404 followed by production transport rejection returns the transport error', async () => {
+  it('production transport refusal supersedes an unstructured daily 404 with one account', async () => {
     const transportError = Object.assign(
       new Error('a3 synthetic production endpoint reset'),
       { code: 'ECONNRESET' },
@@ -11883,8 +12061,7 @@ describe('retained main-attempt failure precedence', () => {
           origin,
         })),
       )
-      expect(outcome.kind).toBe('error')
-      if (outcome.kind === 'error') expect(outcome.error).toBe(transportError)
+      await expectTransportOutcome(outcome)
     } finally {
       await executor.dispose()
     }
@@ -11950,7 +12127,7 @@ describe('retained main-attempt failure precedence', () => {
       expect(transformFailures).toHaveLength(
         ANTIGRAVITY_ENDPOINT_FALLBACKS.length,
       )
-      await expectQuotaResponse(outcome, 'http-before-transform')
+      await expectQuotaResponse(outcome)
     } finally {
       await executor.dispose()
     }
@@ -12016,7 +12193,7 @@ describe('retained main-attempt failure precedence', () => {
       expect(transformFailures).toHaveLength(
         ANTIGRAVITY_ENDPOINT_FALLBACKS.length,
       )
-      await expectQuotaResponse(outcome, 'http-before-auxiliary')
+      await expectQuotaResponse(outcome)
     } finally {
       await executor.dispose()
     }
@@ -12107,16 +12284,8 @@ describe('retained main-attempt failure precedence', () => {
       ])
       expect(outcome.kind).toBe('response')
       if (outcome.kind === 'response') {
-        expect(outcome.response.status).toBe(401)
-        expect(outcome.response.headers.get('x-a3-response-id')).toBe(
-          'vault-401',
-        )
-        const body = (await outcome.response.json()) as {
-          error: { code: number; status: string; message: string }
-        }
-        expect(body.error.code).toBe(401)
-        expect(body.error.status).toBe('UNAUTHENTICATED')
-        expect(body.error.message).toContain('a3 synthetic vault 401')
+        expect(outcome.response.headers.get('x-a3-response-id')).toBeNull()
+        await expectReauthorizationRefusal(outcome.response)
       }
     } finally {
       await executor.dispose()
@@ -12124,9 +12293,7 @@ describe('retained main-attempt failure precedence', () => {
   })
 
   it('later admission refusal supersedes retained HTTP and transport failures before another send', async () => {
-    const admissionError = new Error(
-      'a3 synthetic local admission refusal after transport',
-    )
+    const admissionError = new EngineRefusalError('authority_changed')
     const admissionObservations: Array<ReturnType<typeof physicalAttempts>> = []
     const events: string[] = []
     const h = makeA3Harness(async (call) => {
@@ -12166,7 +12333,12 @@ describe('retained main-attempt failure precedence', () => {
         expect(observed).toEqual(expectedAttempts)
       expect(physicalAttempts(h)).toEqual(expectedAttempts)
       expect(outcome.kind).toBe('error')
-      if (outcome.kind === 'error') expect(outcome.error).toBe(admissionError)
+      if (outcome.kind === 'error')
+        expect(outcome.error).toMatchObject({
+          id: 'authority_changed',
+          message:
+            'Antigravity credential authority changed. No further local account operations were performed.',
+        })
     } finally {
       await executor.dispose()
     }
@@ -12190,6 +12362,7 @@ describe('retained main-attempt failure precedence', () => {
     const finalEndpoint = ANTIGRAVITY_ENDPOINT_FALLBACKS.at(-1)
     if (!finalEndpoint)
       throw new Error('A3 assessment requires a final endpoint')
+    const debug = spyOn(h.deps.logger, 'debug')
     const prepare = h.deps.wire.prepare
     const executor = createRequestExecutor({
       ...h.deps,
@@ -12217,8 +12390,10 @@ describe('retained main-attempt failure precedence', () => {
         precedingEndpoints.map((origin) => ({ account: 0, origin })),
       )
       expect(preparationEndpoints).toEqual([finalEndpoint])
-      expect(outcome.kind).toBe('error')
-      if (outcome.kind === 'error') expect(outcome.error).toBe(preparationError)
+      await expectTransportOutcome(outcome)
+      expect(debug).toHaveBeenCalledWith('All Antigravity endpoints failed', {
+        error: String(preparationError),
+      })
     } finally {
       await executor.dispose()
     }
