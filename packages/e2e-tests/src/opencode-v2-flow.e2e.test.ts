@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { dirname } from 'node:path'
 
 import {
   createOpenCodeV2Harness,
@@ -196,39 +196,25 @@ describe('OpenCode 2 host flow', () => {
     ).toBe('VALIDATED')
   }, 30_000)
 
-  it('stores generated images with private filesystem permissions', async () => {
-    harness = await createOpenCodeV2Harness('image')
-
+  it('serves an owned text-generation request without calling the native provider', async () => {
+    harness = await createOpenCodeV2Harness()
     const result = await harness.run(
-      'google/gemini-3.1-flash-image',
-      'Generate the image fixture.',
+      'google/gemini-3.8-flash#low',
+      'Reply with the exact text E2E_OK.',
     )
 
-    expect({ result, requests: harness.requests }).toMatchObject({
-      result: { timedOut: false, code: 0 },
-    })
-    expect(result.stdout).toContain('Antigravity image saved:')
-    const primaryEnvelope = asRecord(
-      harness.requests.find(
-        (request) =>
-          request.path === '/agy/primary' &&
-          asRecord(request.body).model === 'gemini-3.1-flash-image',
-      )?.body,
-    )
-    const primaryRequest = asRecord(primaryEnvelope.request)
-    expect(primaryRequest.tools).toBeUndefined()
-    expect(primaryRequest.toolConfig).toBeUndefined()
+    expect(result).toMatchObject({ timedOut: false, code: 0 })
+    expect(result.stdout).toContain('E2E_OK')
     expect(
-      asRecord(primaryRequest.generationConfig).thinkingConfig,
-    ).toBeUndefined()
-    const files = readdirSync(harness.imageDirectory)
-    expect(files).toHaveLength(1)
-    const imageFile = join(harness.imageDirectory, files[0]!)
-    expect(readFileSync(imageFile, 'utf8')).toBe('opencode-v2-image-e2e')
-    if (process.platform !== 'win32') {
-      expect(statSync(harness.imageDirectory).mode & 0o777).toBe(0o700)
-      expect(statSync(imageFile).mode & 0o777).toBe(0o600)
-    }
+      harness.requests.filter(({ kind }) => kind === 'direct-provider'),
+    ).toEqual([])
+    expect(
+      harness.requests.find(
+        ({ path, body }) =>
+          path === '/agy/primary' &&
+          asRecord(body).model === 'gemini-3.8-flash-low',
+      ),
+    ).toBeDefined()
   }, 30_000)
 
   it('disables an ineligible account on disk and rotates to the next account', async () => {

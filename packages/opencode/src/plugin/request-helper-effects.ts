@@ -8,7 +8,6 @@ import {
   transformThinkingParts as transformThinking,
 } from '@cortexkit/antigravity-auth-core/engine'
 import { getKeepThinking } from './config'
-import { processImageData } from './image-saver'
 import { createLogger } from './logger'
 
 export const AUTH_COMMAND = 'opencode auth login'
@@ -44,7 +43,7 @@ export const filterMessagesThinkingBlocks = bindThinkingFilter(filterMessages)
 export const deepFilterThinkingBlocks = bindThinkingFilter(filterThinkingDeep)
 
 export function transformThinkingParts(response: unknown): unknown {
-  return transformThinking(response, processImageData, requestHelperLog)
+  return transformThinking(response, requestHelperLog)
 }
 
 export function fixToolResponseGrouping(contents: any[]): any[] {

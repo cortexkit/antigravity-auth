@@ -394,23 +394,6 @@ describe('prepareAgyWireRequest envelope parity', () => {
     )
   })
 
-  it('removes unsupported tools and thinking from image requests', () => {
-    const envelope = prepareEnvelope('gemini-3.1-flash-image', {
-      contents: [{ role: 'user', parts: [{ text: 'Draw a lighthouse' }] }],
-      tools: [{ functionDeclarations: [{ name: 'read' }] }],
-      toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
-      generationConfig: { thinkingConfig: { thinkingBudget: 1024 } },
-    })
-
-    expect(envelope.request.tools).toBeUndefined()
-    expect(envelope.request.toolConfig).toBeUndefined()
-    expect(envelope.request.generationConfig).toMatchObject({
-      imageConfig: { aspectRatio: '1:1' },
-      candidateCount: 1,
-    })
-    expect(envelope.request.generationConfig?.thinkingConfig).toBeUndefined()
-  })
-
   it('omits toolConfig on tool requests and removes host provider options', () => {
     // Host tool configuration is absent from the agy 1.5.8 identity.
     const envelope = prepareEnvelope('gemini-3.7-flash-medium', {
@@ -6128,15 +6111,13 @@ describe('createRequestExecutor local refresh attribution', () => {
 })
 
 describe('createRequestExecutor request kinds', () => {
-  it('routes unregistered and image title models to the live Gemini 3.8 Flash low route', async () => {
+  it('routes unknown title models to the live Gemini 3.8 Flash low route', async () => {
     expect(TITLE_FALLBACK_MODEL).toBe('gemini-3.8-flash-low')
     expect(getAgyNativeModel(TITLE_FALLBACK_MODEL)).toBeDefined()
     expect(isRetiredAgyModel(TITLE_FALLBACK_MODEL)).toBe(false)
-    for (const model of ['some-host-model', 'gemini-3.1-flash-image']) {
-      expect(routeTitleModel(modelUrl(model))).toBe(
-        modelUrl('gemini-3.8-flash-low'),
-      )
-    }
+    expect(routeTitleModel(modelUrl('some-host-model'))).toBe(
+      modelUrl('gemini-3.8-flash-low'),
+    )
     const h = harness({ respond: async () => okJson() })
     const executor = createRequestExecutor(h.deps)
     try {
@@ -6150,16 +6131,6 @@ describe('createRequestExecutor request kinds', () => {
     } finally {
       await executor.dispose()
     }
-  })
-
-  const TITLE_PROMPT_BODY = JSON.stringify({
-    contents: [
-      {
-        role: 'user',
-        parts: [{ text: 'Generate a title for this conversation:\n' }],
-      },
-      { role: 'user', parts: [{ text: 'Generate a red triangle' }] },
-    ],
   })
 
   it('sends a title on an unregistered model to the title fallback model', async () => {
@@ -6191,9 +6162,6 @@ describe('createRequestExecutor request kinds', () => {
   it('keeps a registered text model for a title request', () => {
     const url = modelUrl('gemini-3.8-flash-low', 'generateContent')
     expect(routeTitleModel(url)).toBe(url)
-    expect(routeTitleModel(modelUrl('gemini-3.1-flash-image'))).toBe(
-      modelUrl(TITLE_FALLBACK_MODEL),
-    )
   })
 
   it('keeps Carbon text selectors for titles without changing the fallback model', () => {
@@ -6206,33 +6174,6 @@ describe('createRequestExecutor request kinds', () => {
     ]) {
       const url = modelUrl(model, 'generateContent')
       expect(routeTitleModel(url)).toBe(url)
-    }
-  })
-
-  it('answers an image-model title locally only for the title kind', async () => {
-    const h = harness({ respond: async () => okJson() })
-    const executor = createRequestExecutor(h.deps)
-    const url = modelUrl('antigravity-gemini-3.1-flash-image')
-    try {
-      const title = await executor.execute(
-        url,
-        { method: 'POST', body: TITLE_PROMPT_BODY },
-        { kind: 'title' },
-      )
-      expect(title.headers.get('x-antigravity-response-type')).toBe(
-        'local_title',
-      )
-      expect(h.calls).toHaveLength(0)
-
-      const primary = await executor.execute(
-        url,
-        { method: 'POST', body: TITLE_PROMPT_BODY },
-        { kind: 'primary' },
-      )
-      expect(primary.headers.get('x-antigravity-response-type')).toBeNull()
-      expect(h.calls).toHaveLength(1)
-    } finally {
-      await executor.dispose()
     }
   })
 
@@ -7632,42 +7573,6 @@ describe('createRequestExecutor cancellation and overflow', () => {
         true,
         true,
       ])
-    } finally {
-      await executor.dispose()
-    }
-  })
-
-  it('serves local image-model titles without selecting an account', async () => {
-    const h = harness()
-    const executor = createRequestExecutor(h.deps)
-    try {
-      const response = await executor.execute(
-        modelUrl('antigravity-gemini-3.1-flash-image', 'streamGenerateContent'),
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            contents: [
-              {
-                role: 'user',
-                parts: [{ text: 'Generate a title for this conversation:\n' }],
-              },
-              { role: 'user', parts: [{ text: 'Generate a red triangle' }] },
-            ],
-          }),
-        },
-      )
-      expect(response.status).toBe(200)
-      expect(response.headers.get('x-antigravity-response-type')).toBe(
-        'local_title',
-      )
-      const text = await response.text()
-      expect(JSON.parse(text.slice('data: '.length).trim())).toMatchObject({
-        candidates: [
-          { content: { parts: [{ text: 'Generate a red triangle' }] } },
-        ],
-      })
-      expect(h.calls).toHaveLength(0)
-      expect(h.refreshed).toHaveLength(0)
     } finally {
       await executor.dispose()
     }

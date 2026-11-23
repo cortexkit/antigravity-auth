@@ -73,12 +73,6 @@ const MODELS: ModelTest[] = [
     model: 'google/antigravity-gpt-oss-120b-medium',
     category: 'antigravity-gemini',
   },
-
-  // Antigravity Image
-  {
-    model: 'google/antigravity-gemini-3.1-flash-image',
-    category: 'antigravity-gemini',
-  },
 ]
 const TEST_PROMPT = 'Reply with exactly one word: WORKING'
 const DEFAULT_TIMEOUT_MS = 120_000

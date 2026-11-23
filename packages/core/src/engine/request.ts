@@ -35,16 +35,13 @@ import { sanitizeCrossModelPayloadInPlace } from '../transform/cross-model-sanit
 import {
   appendClaudeThinkingHint,
   applyGeminiTransforms,
-  buildImageGenerationConfig,
   computeClaudeMaxOutputTokens,
   isClaudeModel,
   isClaudeThinkingModel,
   isGemini3Model,
-  isImageGenerationModel,
   resolveAntigravityModel,
   type ThinkingTier,
 } from '../transform/index.ts'
-import type { GoogleSearchConfig } from '../transform/types.ts'
 import { googleForbiddenRefusal } from './account-access.ts'
 import { isCanonicalGoogleOrigin } from './google-origin.ts'
 import type {
@@ -53,7 +50,6 @@ import type {
   RequestDebug,
   RequestLogger,
   ResponseDump,
-  SaveResponseImage,
 } from './ports.ts'
 import { detectErrorType } from './recovery-error.ts'
 import { EngineRefusalError, engineRefusalResponse } from './refusals.ts'
@@ -114,53 +110,6 @@ const ANTIGRAVITY_ENVELOPE_FIELD_ORDER = [
   'userAgent',
   'requestType',
 ] as const
-
-function formatLocalImageTitle(sourceText: string): string {
-  const normalized = sourceText
-    .trim()
-    .replace(/^(["“])(.*)(["”])$/s, '$2')
-    .replace(/\s+/g, ' ')
-  const characters = Array.from(normalized)
-  if (characters.length <= 50) {
-    return normalized || 'Image generation'
-  }
-  return `${characters.slice(0, 47).join('').trimEnd()}...`
-}
-
-function getImageModelLocalTitle(
-  titleSourceText: RequestWireEffects['titleSourceText'],
-  input: RequestInfo,
-  init?: RequestInit,
-): string | undefined {
-  const url = fetchInputToUrl(input)
-  if (
-    !/\/models\/[^/:]*(?:image|imagen)[^/:]*:streamGenerateContent/i.test(url)
-  ) {
-    return undefined
-  }
-
-  const body = init?.body
-  const bodyText =
-    typeof body === 'string'
-      ? body
-      : body instanceof Uint8Array
-        ? new TextDecoder().decode(body)
-        : ''
-  if (!bodyText) {
-    return undefined
-  }
-
-  try {
-    const sourceText = titleSourceText?.(
-      JSON.parse(bodyText) as Record<string, unknown>,
-    )
-    return sourceText === undefined
-      ? undefined
-      : formatLocalImageTitle(sourceText)
-  } catch {
-    return undefined
-  }
-}
 
 function getAgyMaxOutputTokens(model: string): number | undefined {
   const native = getAgyNativeModel(model)
@@ -662,6 +611,20 @@ function stripUnsupportedAntigravityFields(
     ) {
       stripCacheControlFromParts((instruction as Record<string, unknown>).parts)
     }
+  }
+}
+
+function logIgnoredSearchOption(
+  providerOptions: Record<string, unknown> | undefined,
+  logger: RequestLogger,
+): void {
+  const google = providerOptions?.google
+  if (
+    google &&
+    typeof google === 'object' &&
+    Object.hasOwn(google, 'googleSearch')
+  ) {
+    logger.warn('Ignored removed googleSearch model option')
   }
 }
 
@@ -1396,9 +1359,6 @@ export function isGenerativeLanguageRequest(input: RequestInfo | URL): boolean {
 export interface PrepareRequestOptions {
   /** Enable Claude tool hardening (parameter signatures + system instruction). Default: true */
   claudeToolHardening?: boolean
-  /** Enable top-level Claude prompt auto-caching (`cache_control`). Default: false */
-  /** Google Search configuration (global default) */
-  googleSearch?: GoogleSearchConfig
   /** Per-account fingerprint for rate limit mitigation. Falls back to session fingerprint if not provided. */
   fingerprint?: Fingerprint
   /** Stable AGY wire identity scoped to the exact host session. */
@@ -1626,6 +1586,10 @@ function prepareAntigravityRequestIn(
             )
           }
           sanitizeRequestPayloadForAntigravity(req)
+          logIgnoredSearchOption(
+            req.providerOptions as Record<string, unknown> | undefined,
+            wire.logger,
+          )
           stripUnsupportedAntigravityFields(req)
           configureAntigravityToolCalling(req)
           normalizeNativeFunctionResponseRoles(req, effectiveModel)
@@ -1709,17 +1673,6 @@ function prepareAntigravityRequestIn(
         }
       } else {
         const requestPayload: Record<string, unknown> = { ...parsedBody }
-        if (
-          isImageGenerationModel(effectiveModel) &&
-          effects.titleSourceText?.(requestPayload) !== undefined
-        ) {
-          // OpenCode runs title generation through the active model. Route that
-          // text-only helper call away from image generation to avoid consuming
-          // image quota and writing unrelated image files.
-          effectiveModel = 'gemini-3.8-flash-low'
-          tierThinkingBudget = 1000
-          tierThinkingLevel = undefined
-        }
         const rawGenerationConfig = requestPayload.generationConfig as
           | Record<string, unknown>
           | undefined
@@ -1727,14 +1680,13 @@ function prepareAntigravityRequestIn(
           | Record<string, unknown>
           | undefined
 
+        const providerOptions = requestPayload.providerOptions as
+          | Record<string, unknown>
+          | undefined
+        logIgnoredSearchOption(providerOptions, wire.logger)
         const variantConfig =
           options?.variant ??
-          extractVariantThinkingConfig(
-            requestPayload.providerOptions as
-              | Record<string, unknown>
-              | undefined,
-            rawGenerationConfig,
-          )
+          extractVariantThinkingConfig(providerOptions, rawGenerationConfig)
         const callerThinking = (rawGenerationConfig?.thinkingConfig ??
           extraBody?.thinkingConfig ??
           requestPayload.thinkingConfig) as
@@ -1809,166 +1761,101 @@ function prepareAntigravityRequestIn(
         }
 
         // Resolve thinking configuration based on user settings and model capabilities
-        // Image generation models don't support thinking - skip thinking config entirely
-        const isImageModel = isImageGenerationModel(effectiveModel)
         // A catalog selection owns thinking; body settings may be host defaults
         // for a different effort and must not disable the selected effort.
-        const userThinkingConfig =
-          isImageModel || options?.variant
-            ? undefined
-            : extractThinkingConfig(
-                requestPayload,
-                rawGenerationConfig,
-                extraBody,
-              )
+        const userThinkingConfig = options?.variant
+          ? undefined
+          : extractThinkingConfig(
+              requestPayload,
+              rawGenerationConfig,
+              extraBody,
+            )
         const hasAssistantHistory =
           Array.isArray(requestPayload.contents) &&
           requestPayload.contents.some(
             (c: any) => c?.role === 'model' || c?.role === 'assistant',
           )
 
-        const effectiveUserThinkingConfig = isImageModel
-          ? undefined
-          : userThinkingConfig
+        const finalThinkingConfig = resolveThinkingConfig(
+          userThinkingConfig,
+          resolved.isThinkingModel ?? isThinkingCapableModel(effectiveModel),
+          isClaude,
+          hasAssistantHistory,
+        )
 
-        // For image models, add imageConfig instead of thinkingConfig
-        if (isImageModel) {
-          const imageConfig = buildImageGenerationConfig()
-          const generationConfig = (rawGenerationConfig ?? {}) as Record<
-            string,
-            unknown
-          >
-          generationConfig.imageConfig = imageConfig
-          // Remove any thinkingConfig that might have been set
-          delete generationConfig.thinkingConfig
-          // Set reasonable defaults for image generation
-          if (!generationConfig.candidateCount) {
-            generationConfig.candidateCount = 1
-          }
-          requestPayload.generationConfig = generationConfig
+        const normalizedThinking = normalizeThinkingConfig(finalThinkingConfig)
+        if (normalizedThinking) {
+          // Use tier-based thinking budget if specified via model suffix, otherwise fall back to user config
+          const thinkingBudget =
+            tierThinkingBudget ?? normalizedThinking.thinkingBudget
 
-          // Add safety settings for image generation (permissive to allow creative content)
-          if (!requestPayload.safetySettings) {
-            requestPayload.safetySettings = [
-              {
-                category: 'HARM_CATEGORY_HARASSMENT',
-                threshold: 'BLOCK_ONLY_HIGH',
-              },
-              {
-                category: 'HARM_CATEGORY_HATE_SPEECH',
-                threshold: 'BLOCK_ONLY_HIGH',
-              },
-              {
-                category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
-                threshold: 'BLOCK_ONLY_HIGH',
-              },
-              {
-                category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
-                threshold: 'BLOCK_ONLY_HIGH',
-              },
-              {
-                category: 'HARM_CATEGORY_CIVIC_INTEGRITY',
-                threshold: 'BLOCK_ONLY_HIGH',
-              },
-            ]
+          // Build thinking config based on model type
+          let thinkingConfig: Record<string, unknown>
+
+          if (tierThinkingLevel) {
+            // Gemini 3 uses thinkingLevel string (low/medium/high)
+            thinkingConfig = {
+              includeThoughts: normalizedThinking.includeThoughts,
+              thinkingLevel: tierThinkingLevel,
+            }
+          } else {
+            // Gemini 2.5 and others use numeric budget
+            thinkingConfig = {
+              includeThoughts: normalizedThinking.includeThoughts,
+              ...(typeof thinkingBudget === 'number' &&
+              (thinkingBudget > 0 || thinkingBudget === -1)
+                ? { thinkingBudget }
+                : {}),
+            }
           }
 
-          // Image models don't support tools - remove them entirely
-          delete requestPayload.tools
-          delete requestPayload.toolConfig
+          if (rawGenerationConfig) {
+            rawGenerationConfig.thinkingConfig = thinkingConfig
+            applyAgyGenerationDefaults(effectiveModel, rawGenerationConfig)
 
-          // Replace system instruction with a simple image generation prompt
-          // Image models should not receive agentic coding assistant instructions
-          requestPayload.systemInstruction = {
-            parts: [
-              {
-                text: "You are an AI image generator. Generate images based on user descriptions. Focus on creating high-quality, visually appealing images that match the user's request.",
-              },
-            ],
-          }
-        } else {
-          const finalThinkingConfig = resolveThinkingConfig(
-            effectiveUserThinkingConfig,
-            resolved.isThinkingModel ?? isThinkingCapableModel(effectiveModel),
-            isClaude,
-            hasAssistantHistory,
-          )
-
-          const normalizedThinking =
-            normalizeThinkingConfig(finalThinkingConfig)
-          if (normalizedThinking) {
-            // Use tier-based thinking budget if specified via model suffix, otherwise fall back to user config
-            const thinkingBudget =
-              tierThinkingBudget ?? normalizedThinking.thinkingBudget
-
-            // Build thinking config based on model type
-            let thinkingConfig: Record<string, unknown>
-
-            if (tierThinkingLevel) {
-              // Gemini 3 uses thinkingLevel string (low/medium/high)
-              thinkingConfig = {
-                includeThoughts: normalizedThinking.includeThoughts,
-                thinkingLevel: tierThinkingLevel,
+            if (
+              isClaudeThinking &&
+              !getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking &&
+              typeof thinkingBudget === 'number' &&
+              thinkingBudget > 0
+            ) {
+              const currentMax = (rawGenerationConfig.maxOutputTokens ??
+                rawGenerationConfig.max_output_tokens) as number | undefined
+              if (!currentMax) {
+                rawGenerationConfig.maxOutputTokens = 64000
+              } else if (!currentMax || currentMax <= thinkingBudget) {
+                rawGenerationConfig.maxOutputTokens =
+                  computeClaudeMaxOutputTokens(thinkingBudget)
               }
-            } else {
-              // Gemini 2.5 and others use numeric budget
-              thinkingConfig = {
-                includeThoughts: normalizedThinking.includeThoughts,
-                ...(typeof thinkingBudget === 'number' &&
-                (thinkingBudget > 0 || thinkingBudget === -1)
-                  ? { thinkingBudget }
-                  : {}),
+              if (rawGenerationConfig.max_output_tokens !== undefined) {
+                delete rawGenerationConfig.max_output_tokens
               }
             }
-
-            if (rawGenerationConfig) {
-              rawGenerationConfig.thinkingConfig = thinkingConfig
-              applyAgyGenerationDefaults(effectiveModel, rawGenerationConfig)
-
-              if (
-                isClaudeThinking &&
-                !getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking &&
-                typeof thinkingBudget === 'number' &&
-                thinkingBudget > 0
-              ) {
-                const currentMax = (rawGenerationConfig.maxOutputTokens ??
-                  rawGenerationConfig.max_output_tokens) as number | undefined
-                if (!currentMax) {
-                  rawGenerationConfig.maxOutputTokens = 64000
-                } else if (!currentMax || currentMax <= thinkingBudget) {
-                  rawGenerationConfig.maxOutputTokens =
-                    computeClaudeMaxOutputTokens(thinkingBudget)
-                }
-                if (rawGenerationConfig.max_output_tokens !== undefined) {
-                  delete rawGenerationConfig.max_output_tokens
-                }
-              }
-              requestPayload.generationConfig = rawGenerationConfig
-            } else {
-              const generationConfig: Record<string, unknown> = {
-                thinkingConfig,
-              }
-
-              if (
-                isClaudeThinking &&
-                !getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking &&
-                typeof thinkingBudget === 'number' &&
-                thinkingBudget > 0
-              ) {
-                generationConfig.maxOutputTokens = 64000
-              }
-              applyAgyGenerationDefaults(effectiveModel, generationConfig)
-              requestPayload.generationConfig = generationConfig
+            requestPayload.generationConfig = rawGenerationConfig
+          } else {
+            const generationConfig: Record<string, unknown> = {
+              thinkingConfig,
             }
-          } else if (rawGenerationConfig?.thinkingConfig) {
-            delete rawGenerationConfig.thinkingConfig
-            applyAgyGenerationDefaults(effectiveModel, rawGenerationConfig)
-            requestPayload.generationConfig = rawGenerationConfig
-          } else if (rawGenerationConfig) {
-            applyAgyGenerationDefaults(effectiveModel, rawGenerationConfig)
-            requestPayload.generationConfig = rawGenerationConfig
+
+            if (
+              isClaudeThinking &&
+              !getAgyNativeModel(effectiveModel)?.supportsAdaptiveThinking &&
+              typeof thinkingBudget === 'number' &&
+              thinkingBudget > 0
+            ) {
+              generationConfig.maxOutputTokens = 64000
+            }
+            applyAgyGenerationDefaults(effectiveModel, generationConfig)
+            requestPayload.generationConfig = generationConfig
           }
-        } // End of else block for non-image models
+        } else if (rawGenerationConfig?.thinkingConfig) {
+          delete rawGenerationConfig.thinkingConfig
+          applyAgyGenerationDefaults(effectiveModel, rawGenerationConfig)
+          requestPayload.generationConfig = rawGenerationConfig
+        } else if (rawGenerationConfig) {
+          applyAgyGenerationDefaults(effectiveModel, rawGenerationConfig)
+          requestPayload.generationConfig = rawGenerationConfig
+        }
 
         // Clean up thinking fields from extra_body
         if (extraBody) {
@@ -2142,7 +2029,7 @@ function prepareAntigravityRequestIn(
             }
             requestPayload.tools = finalTools.concat(passthroughTools)
           } else {
-            // Gemini-specific tool normalization and feature injection
+            // Gemini-specific tool normalization
             const geminiResult = applyGeminiTransforms(requestPayload, {
               model: effectiveModel,
               normalizedThinking: undefined, // Thinking config already applied above (lines 816-880)
@@ -2701,13 +2588,8 @@ async function transformAntigravityResponseIn(
           wire.logger.warn('Skipping malformed Antigravity stream frame'),
         onCacheSignature: wire.signatures.cacheSignature,
         onInjectDebug: injectDebugThinking,
-        processImageData: effects.processImageData,
         transformThinkingParts: (response) =>
-          transformThinkingParts(
-            response,
-            effects.processImageData,
-            effects.helperLog,
-          ),
+          transformThinkingParts(response, effects.helperLog),
       },
       {
         signatureSessionKey: sessionId,
@@ -2945,7 +2827,6 @@ async function transformAntigravityResponseIn(
       }
       const transformed = transformThinkingParts(
         responseBody,
-        effects.processImageData,
         effects.helperLog,
       )
       return new Response(JSON.stringify(transformed), init)
@@ -2980,13 +2861,8 @@ export interface RequestWireEffects {
   readonly debugMessagePrefix: string
   readonly helperLog: RequestHelperLog
   readonly dump: ResponseDump
-  readonly processImageData?: SaveResponseImage
   /** Host session and request-purpose headers must stay off the upstream wire. */
   readonly stripAdapterHeaders?: (headers: Headers) => void
-  /** Only adapters that send a legacy title prompt need this recognizer. */
-  readonly titleSourceText?: (
-    payload: Record<string, unknown>,
-  ) => string | undefined
 }
 
 type WithoutBinding<T extends unknown[]> = T extends [
@@ -3008,10 +2884,6 @@ export interface RequestWire {
     bodyText: string | undefined,
     isClaudeThinking: boolean,
   ): string | null
-  getImageModelLocalTitle(
-    input: RequestInfo,
-    init?: RequestInit,
-  ): string | undefined
   getLastCacheStats(): RequestCacheStats | null
 }
 
@@ -3031,8 +2903,6 @@ export function createRequestWire(
         bodyText,
         isClaudeThinking,
       ),
-    getImageModelLocalTitle: (input, init) =>
-      getImageModelLocalTitle(effects.titleSourceText, input, init),
     getLastCacheStats: () => location.cacheStats.last,
   }
 }

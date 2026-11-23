@@ -103,8 +103,6 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Migration-pending store refusal and private-mode native credential fixtures.',
   'packages/opencode/src/plugin/account-ineligibility.persistence.test.ts':
     'Persisted account-file mode assertions.',
-  'packages/opencode/src/plugin/image-saver.test.ts':
-    'Private directory and image-file mode assertions.',
   'packages/opencode/src/setup.test.ts':
     'Preserves existing configuration permissions and native credential file modes.',
   'packages/opencode/src/setup-native-path.test.ts':

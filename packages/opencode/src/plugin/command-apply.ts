@@ -15,6 +15,7 @@ import {
   AntigravityMenuRefusal,
   type AntigravityMenuSettingsSource,
   type CommonAuthCommandsModule,
+  isRetiredAgyModel,
   sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
 
@@ -289,7 +290,13 @@ export function accountModelList(
     lists && accountKey !== undefined && Object.hasOwn(lists, accountKey)
       ? lists[accountKey]
       : undefined
-  return list ? [...new Set(list.map(canonicalModelId))] : null
+  return list
+    ? [
+        ...new Set(
+          list.filter((id) => !isRetiredAgyModel(id)).map(canonicalModelId),
+        ),
+      ]
+    : null
 }
 
 /**

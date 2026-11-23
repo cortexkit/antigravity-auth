@@ -31,12 +31,10 @@ export type OpenCodeV2Scenario =
   | 'capacity-fallback'
   | 'transport-reset'
   | 'tool-roundtrip'
-  | 'image'
 
 export interface OpenCodeV2Harness {
   readonly accountsFile: string
   readonly databaseFile: string
-  readonly imageDirectory: string
   readonly logFile: string
   readonly requests: OpenCodeV2RecordedRequest[]
   run(model: string, prompt: string): Promise<OpenCodeV2RunResult>
@@ -149,41 +147,6 @@ function toolCallSse(): string {
           promptTokenCount: 7,
           candidatesTokenCount: 2,
           totalTokenCount: 9,
-        },
-      },
-    })}`,
-    '',
-    '',
-  ].join('\r\n')
-}
-
-function imageSse(): string {
-  return [
-    `data: ${JSON.stringify({
-      response: {
-        candidates: [
-          {
-            index: 0,
-            content: {
-              role: 'model',
-              parts: [
-                {
-                  inlineData: {
-                    mimeType: 'image/png',
-                    data: Buffer.from('opencode-v2-image-e2e').toString(
-                      'base64',
-                    ),
-                  },
-                },
-              ],
-            },
-            finishReason: 'STOP',
-          },
-        ],
-        usageMetadata: {
-          promptTokenCount: 10,
-          candidatesTokenCount: 1,
-          totalTokenCount: 11,
         },
       },
     })}`,
@@ -388,11 +351,7 @@ export async function createOpenCodeV2Harness(
       response.end(toolRoundtripCalls === 1 ? toolCallSse() : successSse())
       return
     }
-    response.end(
-      scenario === 'image' && envelope.model === 'gemini-3.1-flash-image'
-        ? imageSse()
-        : successSse(),
-    )
+    response.end(successSse())
   })
   const port = await listen(server)
   const mockBaseUrl = `http://127.0.0.1:${port}`
@@ -450,7 +409,6 @@ export async function createOpenCodeV2Harness(
     process.platform === 'win32' ? 'opencode2.exe' : 'opencode2',
   )
   const databaseFile = join(paths.data, 'opencode-v2-e2e.db')
-  const imageDirectory = join(paths.home, '.opencode', 'generated-images')
   const logFile = join(paths.state, 'opencode', 'antigravity-v2.log')
   const databaseRelative = relative(paths.data, databaseFile)
   if (databaseRelative.startsWith('..') || isAbsolute(databaseRelative)) {
@@ -482,7 +440,6 @@ export async function createOpenCodeV2Harness(
   return {
     accountsFile,
     databaseFile,
-    imageDirectory,
     logFile,
     requests,
     run(model, prompt) {

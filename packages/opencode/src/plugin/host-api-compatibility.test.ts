@@ -9,12 +9,7 @@ import {
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { loadCommonAuthClaustrum } from '@cortexkit/antigravity-auth-core'
-import type {
-  Hooks,
-  Plugin,
-  PluginInput,
-  ToolDefinition,
-} from '@opencode-ai/plugin'
+import type { Hooks, Plugin, PluginInput } from '@opencode-ai/plugin'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import {
   __resetProcessHeartbeatForTest,
@@ -119,21 +114,6 @@ describe('v1 host API compatibility', () => {
       expect(oauth).toHaveLength(1)
       for (const method of oauth)
         expect(typeof method.authorize).toBe('function')
-      const searchTool = hooks.tool?.google_search as ToolDefinition
-      expect(searchTool).toBeDefined()
-      await searchTool.execute(
-        { query: 'compatibility audit', urls: [], thinking: false },
-        {
-          sessionID: 'ses_test',
-          messageID: 'msg_test',
-          agent: 'test',
-          directory,
-          worktree: directory,
-          abort: new AbortController().signal,
-          metadata: mock(() => {}),
-          ask: mock(async () => {}),
-        },
-      )
     } finally {
       await hooks?.dispose?.()
       fetchSpy.mockRestore()

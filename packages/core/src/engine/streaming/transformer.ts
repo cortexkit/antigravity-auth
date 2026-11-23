@@ -64,7 +64,6 @@ export function deduplicateThinkingText(
   response: unknown,
   sentBuffer: ThoughtBuffer,
   displayedThinkingHashes?: Set<string>,
-  processImageData?: StreamingCallbacks['processImageData'],
 ): unknown {
   if (!response || typeof response !== 'object') return response
 
@@ -81,18 +80,6 @@ export function deduplicateThinkingText(
 
         const newParts = content.parts.flatMap((part: unknown) => {
           const p = part as Record<string, unknown>
-
-          // Handle image data - save to disk and return file path
-          if (p.inlineData) {
-            const inlineData = p.inlineData as Record<string, unknown>
-            const result = processImageData?.({
-              mimeType: inlineData.mimeType as string | undefined,
-              data: inlineData.data as string | undefined,
-            })
-            if (result) {
-              return { text: result }
-            }
-          }
 
           if (p.thought === true || p.type === 'thinking') {
             const fullText =
@@ -367,7 +354,6 @@ function transformSseLineWithMetadata(
         parsed.response,
         sentThinkingBuffer,
         options.displayedThinkingHashes,
-        callbacks.processImageData,
       )
 
       if (

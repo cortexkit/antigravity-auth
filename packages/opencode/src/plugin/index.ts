@@ -87,7 +87,6 @@ import {
   createVaultFetchInterceptor,
 } from './fetch-interceptor'
 import { isGeminiDumpEnabled, setGeminiDumpEnabled } from './gemini-dump'
-import { createGoogleSearchTool } from './google-search-tool'
 import { createPluginLifecycle, type PluginLifecycle } from './lifecycle'
 import {
   createAppLogSink,
@@ -820,12 +819,6 @@ const createAntigravityPluginRuntime =
         }
       },
     })
-    const googleSearchTool = createGoogleSearchTool({
-      mayStartLocalWork: async () => (await readAuthority()) === 'local',
-      getAuth: async () => (cachedGetAuth ? cachedGetAuth() : null),
-      client,
-      providerId,
-    })
     const { accountSource, loginTarget } = createAccountTargets({
       accountStore: () => authLoader.accountStore(),
       usesPoolFile: (opening) => authLoader.usesPoolFile(opening),
@@ -1113,7 +1106,6 @@ const createAntigravityPluginRuntime =
       'command.execute.before': commandExecuteBefore,
       'chat.headers': createVaultRoutingHeaders(providerId),
       event,
-      tool: { google_search: googleSearchTool },
       auth: {
         provider: providerId,
         loader: authLoader as PluginResult['auth']['loader'],

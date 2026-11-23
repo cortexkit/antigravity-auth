@@ -466,7 +466,7 @@ export const GA_CASE_IDS = [
   'gemini-tools',
   'claude-tools',
   'claude-thinking',
-  'image-permissions',
+  'owned-text',
   'validation-required',
   'account-ineligible',
   'refresh-401',
@@ -2147,22 +2147,6 @@ export async function startGaMock(
           )
           return
         }
-      }
-      if (caseId === 'image-permissions') {
-        response.end(
-          gaFrame(
-            [
-              {
-                inlineData: {
-                  mimeType: 'image/png',
-                  data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a/UcAAAAASUVORK5CYII=',
-                },
-              },
-            ],
-            true,
-          ),
-        )
-        return
       }
       response.end(gaFrame([{ text: `GA_OK_${nonce}` }], true))
     } catch (error) {
@@ -4285,16 +4269,12 @@ export interface GaAccountRpcJoin {
   assertNoPortOrSidebarFiles(harness: GaHarness): Promise<void>
 }
 
-function publicGaModel(
-  family: 'gemini' | 'claude' | 'image' = 'gemini',
-): string {
+function publicGaModel(family: 'gemini' | 'claude' = 'gemini'): string {
   const ids = Object.keys(getPublicModelDefinitions())
   const id = ids.find((candidate) =>
-    family === 'image'
-      ? candidate.includes('flash-image')
-      : family === 'claude'
-        ? candidate.includes('claude') && candidate.includes('sonnet')
-        : candidate.includes('gemini') && candidate.endsWith('-flash'),
+    family === 'claude'
+      ? candidate.includes('claude') && candidate.includes('sonnet')
+      : candidate.includes('gemini') && candidate.endsWith('-flash'),
   )
   requireCondition(id, `Public catalog has no ${family} test model`)
   return `google/${id}`
@@ -4439,11 +4419,7 @@ export async function runGaCoreScenario(
 ): Promise<void> {
   if (id === 'claude-thinking') return runGaClaudeThinking(harness)
   const model = publicGaModel(
-    id === 'claude-tools' || id === 'overflow-claude'
-      ? 'claude'
-      : id === 'image-permissions'
-        ? 'image'
-        : 'gemini',
+    id === 'claude-tools' || id === 'overflow-claude' ? 'claude' : 'gemini',
   )
   if (id === 'catalog-and-titles') {
     const definitions = getPublicModelDefinitions()
@@ -4455,7 +4431,6 @@ export async function runGaCoreScenario(
             'antigravity-gemini-4-carbon',
             'antigravity-gemini-4-hydrogen',
             'antigravity-gemini-4-neon',
-            'antigravity-gemini-3.1-flash-image',
             'antigravity-gemini-3.8-flash',
             'antigravity-claude-sonnet-5-5',
             'antigravity-claude-opus-5-5',
@@ -4609,36 +4584,14 @@ export async function runGaCoreScenario(
     }
     return
   }
-  if (id === 'image-permissions') {
-    requireCondition(
-      result.code === 0 && result.stdout.includes('Antigravity image saved:'),
-      'Native image completion/saved-image annotation missing',
-    )
-    const directory = join(harness.paths.home, '.opencode', 'generated-images')
-    ownedPath(harness.paths.root, directory)
-    const files = readdirSync(directory)
-    requireCondition(
-      files.length === 1 &&
-        (statSync(directory).mode & 0o777) === 0o700 &&
-        (statSync(join(directory, files[0]!)).mode & 0o777) === 0o600,
-      'Image persistence permissions or file count changed',
-    )
-    requireCondition(
-      readFileSync(join(directory, files[0]!))
-        .subarray(0, 8)
-        .equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])),
-      'Actual inline image bytes were not persisted',
-    )
-    const request = record(record(JSON.parse(primary[0]!.body)).request)
-    requireCondition(
-      request.tools === undefined &&
-        request.toolConfig === undefined &&
-        record(request.generationConfig).thinkingConfig === undefined,
-      'Image request retained incompatible tools/thinking',
-    )
-    return
-  }
   assertGaSuccess(result, harness.nonce)
+  if (id === 'owned-text') {
+    requireCondition(
+      primary.length === 1,
+      'Owned text request was missing or replayed',
+    )
+    assertGaWire(primary[0]!, model)
+  }
   if (id === 'gemini-tools' || id === 'claude-tools') {
     requireCondition(
       primary.length === 2,
@@ -7326,7 +7279,7 @@ export async function runGaFullDriver(
     'gemini-tools',
     'claude-tools',
     'claude-thinking',
-    'image-permissions',
+    'owned-text',
     'validation-required',
     'account-ineligible',
     'refresh-401',

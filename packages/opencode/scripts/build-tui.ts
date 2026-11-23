@@ -231,7 +231,7 @@ const externalLeaves = new Set([
 ])
 const ENGINE_EXTERNAL = '@cortexkit/antigravity-auth-core/engine'
 const ENGINE_SERVER_SOURCE =
-  /(?:\/core\/(?:src|dist)\/engine\/|\/plugin\/(?:request|request-helper-effects|image-saver)\.[jt]s$|\/plugin\/shared\/(?:request-executor|engine-routing)\.[jt]s$)/
+  /(?:\/core\/(?:src|dist)\/engine\/|\/plugin\/(?:request|request-helper-effects)\.[jt]s$|\/plugin\/shared\/(?:request-executor|engine-routing)\.[jt]s$)/
 function checkExternal(specifier: string, tui: boolean, types: boolean) {
   const name = specifier.startsWith('opentui:runtime-module:')
     ? decodeURIComponent(specifier.slice('opentui:runtime-module:'.length))

@@ -32,18 +32,15 @@ export {
 export type {
   GeminiTransformOptions,
   GeminiTransformResult,
-  ImageConfig,
 } from './gemini.ts'
 // Gemini transforms
 export {
   applyGeminiTransforms,
   buildGemini3ThinkingConfig,
   buildGemini25ThinkingConfig,
-  buildImageGenerationConfig,
   isGemini3Model,
   isGemini25Model,
   isGeminiModel,
-  isImageGenerationModel,
   normalizeGeminiTools,
   toGeminiSchema,
 } from './gemini.ts'
@@ -60,7 +57,6 @@ export {
 } from './model-resolver.ts'
 // Types
 export type {
-  GoogleSearchConfig,
   ModelFamily,
   RequestPayload,
   ResolvedModel,

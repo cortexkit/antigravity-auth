@@ -36,7 +36,6 @@ import { ensureProjectContext } from './project'
 import type { QuotaManager } from './quota'
 import {
   buildThinkingWarmupBody,
-  getImageModelLocalTitle,
   getLastCacheStats,
   prepareAntigravityRequest,
   transformAntigravityResponse,
@@ -259,7 +258,6 @@ function openCode1EngineCollaborators(
       prepare: prepareAntigravityRequest,
       transformResponse: transformAntigravityResponse,
       buildThinkingWarmupBody,
-      getImageModelLocalTitle,
       getLastCacheStats,
     },
     // OpenCode 1's module-level debug namespace provides the debug methods

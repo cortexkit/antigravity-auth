@@ -169,9 +169,3 @@ export interface ResponseDump extends Pick<RequestDump, 'noteResponse'> {
     context: GeminiDumpContext | null | undefined,
   ): TransformStream<Uint8Array, Uint8Array> | null
 }
-
-/** The adapter owns the output directory and whether images are saved at all. */
-export type SaveResponseImage = (inlineData: {
-  mimeType?: string
-  data?: string
-}) => string | null

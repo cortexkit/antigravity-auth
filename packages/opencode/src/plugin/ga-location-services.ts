@@ -1539,7 +1539,8 @@ export function createGaJobExecutor(
   overrides: Pick<GaPluginOverrides, 'send'> = {},
 ): GaJobExecutor {
   const send = overrides.send
-  return (job, context) =>
+  return async (job, context) =>
+    retiredModelResponse(job.url, job.modelID) ??
     executor.execute(
       job.url,
       {
@@ -2730,12 +2731,8 @@ export function createGaLocationServicesFactory(
             run(async () => {
               if (context.signal.aborted) throw context.signal.reason
               if (closing) throw new Error('The location services are disposed')
-              // The shared engine replaces retired title models before checking
-              // retirement; leave that routing ahead of this early rejection.
-              if (job.kind !== 'title') {
-                const retired = retiredModelResponse(job.url)
-                if (retired) return retired
-              }
+              const retired = retiredModelResponse(job.url, job.modelID)
+              if (retired) return retired
               return (await choose('execute')).execute(job, context)
             }),
           commands: {

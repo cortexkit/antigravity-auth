@@ -2135,26 +2135,18 @@ describe('GA composed request context', () => {
     })
   }
 
-  ownedIt('routes title work before primary model refusal', async (scope) => {
+  ownedIt('routes an off-catalog title to the text fallback', async (scope) => {
     const location = await transportLocation(scope, 'local', {})
     try {
-      for (const model of [
-        'host-off-catalog-title',
-        'antigravity-gemini-3.1-pro',
-        'antigravity-gemini-3.1-flash-image',
-      ]) {
-        const { response, text } = await execute(
-          location,
-          scope,
-          job('title', model, 'unavailable-on-original-model'),
-        )
-        expect(response.status).toBe(200)
-        expect(text).toContain('transport reached')
-        expect(physicalBody(networkCalls.length - 1).model).toBe(
-          'gemini-3.8-flash-low',
-        )
-      }
-      expect(networkCalls).toHaveLength(3)
+      const { response, text } = await execute(
+        location,
+        scope,
+        job('title', 'host-off-catalog-title', 'unavailable-on-original-model'),
+      )
+      expect(response.status).toBe(200)
+      expect(text).toContain('transport reached')
+      expect(physicalBody(0).model).toBe('gemini-3.8-flash-low')
+      expect(networkCalls).toHaveLength(1)
     } finally {
       await location.dispose()
     }

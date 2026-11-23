@@ -78,19 +78,6 @@ export interface ThinkingConfig {
 }
 
 /**
- * Google Search Grounding configuration.
- *
- * Note: The new googleSearch API for Gemini 2.0+ does not support threshold
- * configuration. The model automatically decides when to search.
- * The threshold field is kept for backward compatibility but is ignored.
- */
-export interface GoogleSearchConfig {
-  mode?: 'auto' | 'off'
-  /** @deprecated No longer used - kept for backward compatibility */
-  threshold?: number
-}
-
-/**
  * Model resolution result with tier information.
  */
 export interface ResolvedModel {
@@ -104,10 +91,6 @@ export interface ResolvedModel {
   tier?: ThinkingTier
   /** Whether this is a thinking-capable model */
   isThinkingModel?: boolean
-  /** Whether this is an image generation model */
-  isImageModel?: boolean
   /** Source of thinking config: "variant" (providerOptions) or "tier" (model suffix) */
   configSource?: 'variant' | 'tier'
-  /** Google Search configuration from variant or global config */
-  googleSearch?: GoogleSearchConfig
 }

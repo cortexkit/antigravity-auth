@@ -1,6 +1,7 @@
 import {
   getAntigravityOpencodeModelIds,
   getResolverAliasMap,
+  isRetiredAgyModel,
 } from './model-registry.ts'
 import { resolveModelWithTier } from './transform/model-resolver.ts'
 
@@ -13,6 +14,7 @@ export interface ModelAccessIssue {
     | 'invalid-list'
     | 'empty-list'
     | 'unknown-model'
+    | 'retired-model'
     | 'unknown-only'
   readonly accountKey?: string
   readonly modelId?: string
@@ -129,6 +131,10 @@ export function compileModelAccess(
   for (const [accountKey, models] of Object.entries(applied)) {
     const known = new Set<string>()
     for (const modelId of models) {
+      if (isRetiredAgyModel(modelId)) {
+        issues.push({ accountKey, modelId, reason: 'retired-model' })
+        continue
+      }
       const canonical = canonicalModelId(modelId)
       if (KNOWN_MODELS.has(canonical)) known.add(canonical)
       else issues.push({ accountKey, modelId, reason: 'unknown-model' })

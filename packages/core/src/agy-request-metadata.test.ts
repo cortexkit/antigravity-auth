@@ -264,6 +264,10 @@ describe('agy request metadata', () => {
         expectedKeys[index]!.sort(),
       )
       for (const [model, expected] of Object.entries(fixture.models)) {
+        if (model === 'gemini-3.1-flash-image') {
+          expect(getAgyModelEnum(model)).toBeUndefined()
+          continue
+        }
         expect(getAgyModelEnum(model), model).toBe(expected.modelEnum)
       }
     }

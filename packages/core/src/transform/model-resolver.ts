@@ -21,11 +21,7 @@ import {
   isGeminiNeonModel,
   supportsGeminiXHigh,
 } from '../model-registry.ts'
-import type {
-  GoogleSearchConfig,
-  ResolvedModel,
-  ThinkingTier,
-} from './types.ts'
+import type { ResolvedModel, ThinkingTier } from './types.ts'
 
 /**
  * Thinking tier budgets by model family.
@@ -64,12 +60,6 @@ const XHIGH_TIER_REGEX = /-(low|medium|high|xhigh)$/i
 const QUOTA_PREFIX_REGEX = /^antigravity-/i
 const GEMINI_3_PRO_REGEX = /^gemini-3(?:\.\d+)?-pro/i
 const GEMINI_3_FLASH_REGEX = /^gemini-3(?:\.\d+)?-flash/i
-
-/**
- * Image generation models - always route to Antigravity.
- * These models don't support thinking and require imageConfig.
- */
-const IMAGE_GENERATION_MODELS = /image|imagen/i
 
 /**
  * Models that support thinking tier suffixes.
@@ -195,7 +185,6 @@ export function resolveModelWithTier(requestedModel: string): ResolvedModel {
     ? modelWithoutQuota.replace(TIER_REGEX, '')
     : modelWithoutQuota
 
-  const isImageModel = IMAGE_GENERATION_MODELS.test(modelWithoutQuota)
   const isArgon = isGeminiArgonModel(modelWithoutQuota)
   const isCarbon = isGeminiCarbonModel(modelWithoutQuota)
 
@@ -225,7 +214,6 @@ export function resolveModelWithTier(requestedModel: string): ResolvedModel {
         ? 0
         : native.thinkingBudget,
       isThinkingModel: native.supportsThinking ?? false,
-      ...(isImageModel ? { isImageModel: true } : {}),
       tier,
     }
   }
@@ -308,7 +296,7 @@ export function resolveModelWithTier(requestedModel: string): ResolvedModel {
 
   let antigravityModel = modelWithoutQuota
   if (skipAlias) {
-    if ((isGemini3Pro || isGemini3Flash) && !tier && !isImageModel) {
+    if ((isGemini3Pro || isGemini3Flash) && !tier) {
       const defaultTier = isGemini3Pro ? 'low' : 'medium'
       antigravityModel = `${modelWithoutQuota}-${defaultTier}`
     }
@@ -322,15 +310,6 @@ export function resolveModelWithTier(requestedModel: string): ResolvedModel {
   const resolvedModel = actualModel
 
   const isThinking = isThinkingCapableModel(resolvedModel)
-
-  // Image generation models don't support thinking - return early without thinking config
-  if (isImageModel) {
-    return {
-      actualModel: resolvedModel,
-      isThinkingModel: false,
-      isImageModel: true,
-    }
-  }
 
   // Check if this is a Gemini 3 model (works for both aliased and skipAlias paths)
   const isEffectiveGemini3 = resolvedModel.toLowerCase().includes('gemini-3')
@@ -418,7 +397,6 @@ export function getModelFamily(
 export interface VariantConfig {
   thinkingBudget?: number
   thinkingLevel?: ThinkingTier
-  googleSearch?: GoogleSearchConfig
 }
 
 /**
@@ -444,18 +422,11 @@ export function resolveAntigravityModel(requestedModel: string): ResolvedModel {
   const isGemini3Pro = isGemini3ProModel(transformedModel)
   const isGemini3Flash = isGemini3FlashModel(transformedModel)
   const hasTierSuffix = /-(minimal|low|medium|high)$/i.test(transformedModel)
-  const isImageModel = IMAGE_GENERATION_MODELS.test(transformedModel)
   const isGemini35Flash = isGemini35FlashModel(
     transformedModel.replace(TIER_REGEX, ''),
   )
 
-  // Don't add tier suffix to image models - they don't support thinking
-  if (
-    (isGemini3Pro || isGemini3Flash) &&
-    !isGemini35Flash &&
-    !hasTierSuffix &&
-    !isImageModel
-  ) {
+  if ((isGemini3Pro || isGemini3Flash) && !isGemini35Flash && !hasTierSuffix) {
     const defaultTier = isGemini3Pro ? 'low' : 'medium'
     transformedModel = `${transformedModel}-${defaultTier}`
   }
@@ -490,15 +461,8 @@ export function resolveModelWithVariant(
     )
     return {
       ...resolveModelWithTier(`${family}-${variantConfig.thinkingLevel}`),
-      googleSearch: variantConfig.googleSearch,
       configSource: 'variant',
     }
-  }
-
-  // Apply Google Search config if present
-  if (variantConfig.googleSearch) {
-    base.googleSearch = variantConfig.googleSearch
-    base.configSource = 'variant'
   }
 
   if (!variantConfig.thinkingBudget) {

@@ -13,7 +13,6 @@ The table lists the public picker models from the canonical [model registry](../
 | `antigravity-gemini-4-carbon` | `low`, `medium` (default), `high` | Gemini pool until a Carbon quota bucket is observed |
 | `antigravity-gemini-4-argon` | `low`, `medium` (default), `high` | Per-model readings; whether usage shares a weekly quota allowance with other models, and which allowance, is unverified |
 | `antigravity-gemini-3.8-flash` | `low`, `medium`, `high` | `gemini-flash` |
-| `antigravity-gemini-3.1-flash-image` | — | `gemini-flash` |
 | `antigravity-claude-sonnet-5-5` | `low`, `medium`, `high` | `claude` |
 | `antigravity-claude-opus-5-5` | `low`, `medium`, `high` | `claude` |
 | `antigravity-gpt-oss-120b-medium` | — | `gpt-oss` |
@@ -117,7 +116,6 @@ The resolver also accepts native tier-suffixed names, including
 are the normal picker interface.
 
 The catalog uses the official CLI server model-list evidence linked above, with
-subsequent withdrawals removed. An ID omitted from the CLI picker is not
-necessarily retired: Gemini 3.1 Flash Image remains offered by the server.
+withdrawn routes omitted.
 Captured catalog data and low-effort Claude probes do not confirm the server
 route and token budget for every model and effort.

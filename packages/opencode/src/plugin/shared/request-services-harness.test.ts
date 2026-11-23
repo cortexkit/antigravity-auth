@@ -22,7 +22,6 @@ import { createGeminiDumpState } from '../gemini-dump'
 import { createLocationLogger } from '../logger'
 import {
   buildThinkingWarmupBody,
-  getImageModelLocalTitle,
   getLastCacheStats,
   prepareAntigravityRequest,
   transformAntigravityResponse,
@@ -34,7 +33,6 @@ export const WIRE: RequestWire = {
   prepare: prepareAntigravityRequest,
   transformResponse: transformAntigravityResponse,
   buildThinkingWarmupBody,
-  getImageModelLocalTitle,
   getLastCacheStats,
 }
 

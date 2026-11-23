@@ -103,10 +103,6 @@ The sidebar's preferences stay in `tui-preferences.jsonc`.
 }
 ```
 
-**With web search enabled:**
-
-The plugin provides a `google_search` tool that the model can call to search the web. No configuration is needed - the tool is always available.
-
 ---
 
 ## Model Behavior
@@ -119,8 +115,6 @@ Settings that affect how the model thinks and responds.
 | `session_recovery` | `true` | Auto-recover from tool_result_missing errors |
 | `auto_resume` | `true` | Auto-send resume prompt after recovery |
 | `resume_text` | `"continue"` | Text to send when auto-resuming |
-
-> **Note:** The `web_search` config options are deprecated. Google Search is now implemented as a dedicated `google_search` tool that the model can call explicitly.
 
 ### About `keep_thinking`
 

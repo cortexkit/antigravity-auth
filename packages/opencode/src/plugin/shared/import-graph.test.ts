@@ -174,7 +174,6 @@ describe('shared request engine import graph', () => {
         'getQuotaKey',
         'getResolverAliasMap',
         'isClaudeThinkingModel',
-        'isImageGenerationModel',
         'isRetiredAgyModel',
         'isUpstreamFailure',
         'markUpstreamFailure',
@@ -242,10 +241,7 @@ describe('shared request engine import graph', () => {
         'rememberResponseRefusal',
         'responseRefusal',
       ],
-      './request-helpers.ts': [
-        'createSyntheticTextResponse',
-        'isEmptyResponseBody',
-      ],
+      './request-helpers.ts': ['isEmptyResponseBody'],
       './retry-metadata.ts': [
         'createNativeGoogleErrorResponse as nativeErrorResponse',
         'extractAntigravityError',

@@ -27,6 +27,7 @@ import {
   ACCOUNT_MODELS_REFUSAL_TEXT,
   type AntigravityAccountModelList,
   AntigravityMenuRefusal,
+  isRetiredAgyModel,
 } from '@cortexkit/antigravity-auth-core'
 import type { SettingsHandle } from '@cortexkit/antigravity-auth-core/common-auth/settings'
 import { ENGINE_REFUSALS } from '@cortexkit/antigravity-auth-core/engine'
@@ -202,6 +203,12 @@ export function createPiModelAccess(
       protection.accountModels === 'deny-all'
         ? rules.compileModelAccess(undefined, { unusable: true })
         : rules.compileModelAccess(protection.accountModels)
+    for (const issue of policy.issues) {
+      if (issue.reason === 'retired-model')
+        log.warn(
+          `Ignored retired model in account_models: ${JSON.stringify(issue.modelId)}`,
+        )
+    }
   }
 
   const start = async (): Promise<OpenSettings> => {
@@ -240,7 +247,13 @@ export function createPiModelAccess(
       if (lists === 'deny-all') return 'deny-all'
       const list = Object.hasOwn(lists, routeId) ? lists[routeId] : undefined
       const canonical = current.rules.canonicalModelId
-      return list ? [...new Set(list.map(canonical))] : null
+      return list
+        ? [
+            ...new Set(
+              list.filter((id) => !isRetiredAgyModel(id)).map(canonical),
+            ),
+          ]
+        : null
     },
     catalog: () => current?.rules.knownModelIds() ?? [],
     notice() {

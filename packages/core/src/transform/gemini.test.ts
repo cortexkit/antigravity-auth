@@ -1,13 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { describe, expect, it } from 'bun:test'
 import {
   applyGeminiTransforms,
   buildGemini3ThinkingConfig,
   buildGemini25ThinkingConfig,
-  buildImageGenerationConfig,
   isGemini3Model,
   isGemini25Model,
   isGeminiModel,
-  isImageGenerationModel,
   normalizeGeminiTools,
   toGeminiSchema,
   wrapToolsAsFunctionDeclarations,
@@ -511,178 +509,6 @@ describe('transform/gemini', () => {
       const thinkingConfig = genConfig.thinkingConfig as Record<string, unknown>
       expect(thinkingConfig.includeThoughts).toBe(true)
       expect(thinkingConfig).not.toHaveProperty('thinkingBudget')
-    })
-
-    describe('Google Search (Grounding)', () => {
-      it("injects googleSearch tool when mode is 'auto'", () => {
-        const payload: RequestPayload = { contents: [], tools: [] }
-        applyGeminiTransforms(payload, {
-          model: 'gemini-3-pro',
-          googleSearch: { mode: 'auto' },
-        })
-        const tools = payload.tools as unknown[]
-        expect(tools).toHaveLength(1)
-        expect(tools[0]).toEqual({
-          googleSearch: {},
-        })
-      })
-
-      it('ignores threshold value (deprecated in new API)', () => {
-        const payload: RequestPayload = { contents: [] }
-        applyGeminiTransforms(payload, {
-          model: 'gemini-3-flash',
-          googleSearch: { mode: 'auto', threshold: 0.7 },
-        })
-        const tools = payload.tools as unknown[]
-        const searchTool = tools[0] as Record<string, unknown>
-        // New API uses simple googleSearch: {} without threshold
-        expect(searchTool).toEqual({ googleSearch: {} })
-      })
-
-      it("does not inject search tool when mode is 'off'", () => {
-        const payload: RequestPayload = { contents: [], tools: [] }
-        applyGeminiTransforms(payload, {
-          model: 'gemini-3-pro',
-          googleSearch: { mode: 'off' },
-        })
-        const tools = payload.tools as unknown[]
-        expect(tools).toHaveLength(0)
-      })
-
-      it('does not inject search tool when googleSearch is undefined', () => {
-        const payload: RequestPayload = { contents: [], tools: [] }
-        applyGeminiTransforms(payload, {
-          model: 'gemini-3-pro',
-        })
-        const tools = payload.tools as unknown[]
-        expect(tools).toHaveLength(0)
-      })
-
-      it('appends search tool to existing tools array', () => {
-        const payload: RequestPayload = {
-          contents: [],
-          tools: [
-            {
-              function: {
-                name: 'existing_tool',
-                input_schema: { type: 'object' },
-              },
-            },
-          ],
-        }
-        applyGeminiTransforms(payload, {
-          model: 'gemini-3-pro',
-          googleSearch: { mode: 'auto' },
-        })
-        const tools = payload.tools as unknown[]
-        expect(tools).toHaveLength(2)
-        const lastTool = tools[1] as Record<string, unknown>
-        expect(lastTool).toHaveProperty('googleSearch')
-      })
-
-      it('search tool is not normalized (skipped by normalizeGeminiTools)', () => {
-        const payload: RequestPayload = { contents: [] }
-        applyGeminiTransforms(payload, {
-          model: 'gemini-3-pro',
-          googleSearch: { mode: 'auto' },
-        })
-        const tools = payload.tools as unknown[]
-        const searchTool = tools[0] as Record<string, unknown>
-        expect(searchTool).toHaveProperty('googleSearch')
-        expect(searchTool).not.toHaveProperty('function')
-        expect(searchTool).not.toHaveProperty('custom')
-      })
-    })
-  })
-
-  describe('isImageGenerationModel', () => {
-    it('returns true for gemini-3-pro-image', () => {
-      expect(isImageGenerationModel('gemini-3-pro-image')).toBe(true)
-    })
-
-    it('returns true for gemini-3-pro-image-preview', () => {
-      expect(isImageGenerationModel('gemini-3-pro-image-preview')).toBe(true)
-    })
-
-    it('returns true for gemini-2.5-flash-image', () => {
-      expect(isImageGenerationModel('gemini-2.5-flash-image')).toBe(true)
-    })
-
-    it('returns true for imagen-3', () => {
-      expect(isImageGenerationModel('imagen-3')).toBe(true)
-    })
-
-    it('returns true for uppercase GEMINI-3-PRO-IMAGE', () => {
-      expect(isImageGenerationModel('GEMINI-3-PRO-IMAGE')).toBe(true)
-    })
-
-    it('returns false for gemini-3-pro', () => {
-      expect(isImageGenerationModel('gemini-3-pro')).toBe(false)
-    })
-
-    it('returns false for gemini-2.5-flash', () => {
-      expect(isImageGenerationModel('gemini-2.5-flash')).toBe(false)
-    })
-
-    it('returns false for claude-sonnet-4-6', () => {
-      expect(isImageGenerationModel('claude-sonnet-4-6')).toBe(false)
-    })
-  })
-
-  describe('buildImageGenerationConfig', () => {
-    const originalEnv = process.env
-
-    beforeEach(() => {
-      // Reset environment before each test
-      process.env = { ...originalEnv }
-    })
-
-    afterEach(() => {
-      process.env = originalEnv
-    })
-
-    it('returns default 1:1 aspect ratio when no env var set', () => {
-      delete process.env.OPENCODE_IMAGE_ASPECT_RATIO
-      const config = buildImageGenerationConfig()
-      expect(config).toEqual({ aspectRatio: '1:1' })
-    })
-
-    it('uses OPENCODE_IMAGE_ASPECT_RATIO env var when set to valid value', () => {
-      process.env.OPENCODE_IMAGE_ASPECT_RATIO = '16:9'
-      const config = buildImageGenerationConfig()
-      expect(config).toEqual({ aspectRatio: '16:9' })
-    })
-
-    it('accepts all valid aspect ratios', () => {
-      const validRatios = [
-        '1:1',
-        '2:3',
-        '3:2',
-        '3:4',
-        '4:3',
-        '4:5',
-        '5:4',
-        '9:16',
-        '16:9',
-        '21:9',
-      ]
-      for (const ratio of validRatios) {
-        process.env.OPENCODE_IMAGE_ASPECT_RATIO = ratio
-        const config = buildImageGenerationConfig()
-        expect(config.aspectRatio).toBe(ratio)
-      }
-    })
-
-    it('falls back to 1:1 for invalid aspect ratio', () => {
-      process.env.OPENCODE_IMAGE_ASPECT_RATIO = 'invalid'
-      const config = buildImageGenerationConfig()
-      expect(config).toEqual({ aspectRatio: '1:1' })
-    })
-
-    it('falls back to 1:1 for unsupported aspect ratio', () => {
-      process.env.OPENCODE_IMAGE_ASPECT_RATIO = '5:3'
-      const config = buildImageGenerationConfig()
-      expect(config).toEqual({ aspectRatio: '1:1' })
     })
   })
 
@@ -2147,23 +1973,6 @@ describe('transform/gemini', () => {
         description: 'minLength: 1',
       })
       expect(declarations[0]).not.toHaveProperty('parametersJsonSchema')
-    })
-
-    it('handles mixed tools and googleSearch', () => {
-      const payload: RequestPayload = {
-        contents: [],
-        tools: [{ name: 'my_tool', parameters: { type: 'object' } }],
-      }
-
-      applyGeminiTransforms(payload, {
-        model: 'gemini-3-pro',
-        googleSearch: { mode: 'auto' },
-      })
-
-      const tools = payload.tools as Array<Record<string, unknown>>
-      expect(tools).toHaveLength(2)
-      expect(tools[0]).toHaveProperty('functionDeclarations')
-      expect(tools[1]).toHaveProperty('googleSearch')
     })
   })
 })

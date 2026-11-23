@@ -45,6 +45,7 @@ import {
   ENGINE_REFUSALS,
   EngineRefusalError,
   engineRefusalResponse,
+  extractModelFromUrl,
   InvalidOutputResendFailure,
   isCanonicalGoogleOrigin,
   resolveRetryMetadata,
@@ -1741,11 +1742,17 @@ export async function rewriteGaHttpRequest(
   if (!isCanonicalGoogleOrigin(original.url)) {
     throw new HostRefusalError(GA_CUSTOM_GOOGLE_ORIGIN_MESSAGE)
   }
-  // Titles must reach the engine's title router even for retired or foreign IDs.
+  const originalModel = extractModelFromUrl(original.url)
+  const retired =
+    isRetiredAgyModel(event.model.id) ||
+    (originalModel !== null && isRetiredAgyModel(originalModel))
+
+  // Retired selectors use the bridge's native Google refusal. The catalog
+  // check is only for other requests; foreign titles have a text fallback.
   if (
+    !retired &&
     event.kind !== 'title' &&
-    !input.isRegisteredModel(event.model.id) &&
-    !isRetiredAgyModel(event.model.id)
+    !input.isRegisteredModel(event.model.id)
   ) {
     throw new HostRefusalError(
       offCatalogModelRefusal(event.model.id, input.isRegisteredModel),

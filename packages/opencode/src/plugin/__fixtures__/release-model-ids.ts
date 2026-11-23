@@ -2,7 +2,6 @@
 export const RELEASE_MODEL_IDS = [
   'antigravity-claude-opus-5-5',
   'antigravity-claude-sonnet-5-5',
-  'antigravity-gemini-3.1-flash-image',
   'antigravity-gemini-3.8-flash',
   'antigravity-gemini-4-argon',
   'antigravity-gemini-4-carbon',

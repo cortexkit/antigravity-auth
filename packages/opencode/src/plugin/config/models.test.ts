@@ -44,11 +44,7 @@ describe('OPENCODE_MODEL_DEFINITIONS', () => {
     })
   })
 
-  it('exposes image output and live GPT-OSS capabilities', () => {
-    expect(getModel('antigravity-gemini-3.1-flash-image')).toMatchObject({
-      reasoning: false,
-      modalities: { output: ['text', 'image'] },
-    })
+  it('exposes live GPT-OSS capabilities', () => {
     expect(getModel('antigravity-gpt-oss-120b-medium')).toMatchObject({
       reasoning: true,
       limit: { context: 131072, output: 32768 },

@@ -663,7 +663,7 @@ it(
       })
       expect(sends).toHaveLength(beforeRetired)
       expect(vaultAdmissions).toBe(1)
-      const title = await dispatch('title', 'antigravity-gemini-3.1-pro')
+      const title = await dispatch('title', 'host-off-catalog-title')
       expect(title.status).toBe(200)
       await fixture.step('response.title.body', () => title.text())
       expect(sends.at(-1)?.envelope.model).toBe('gemini-3.8-flash-low')
@@ -1312,7 +1312,7 @@ for (const scenario of [
 
 for (const source of ['cold local', 'unavailable vault'] as const) {
   it(
-    `rejects retired non-title requests before ${source} construction through loopback`,
+    `rejects retired requests before ${source} construction through loopback`,
     ownedTest(`retired-${source}`, 5_000, async (fixture) => {
       // The vault rejects enrollment-token paths with writable shared ancestors.
       // A test runner may put TMPDIR under such a node_modules directory.
@@ -1496,7 +1496,12 @@ for (const source of ['cold local', 'unavailable vault'] as const) {
         // measuring request-driven source access, without disabling the observer.
         if (source === 'unavailable vault') await initialConnection.promise
         const before = { connects, storeLoads, sourceLoads, refreshFailures }
-        for (const kind of ['primary', 'compaction', 'generate'] as const) {
+        for (const kind of [
+          'primary',
+          'compaction',
+          'generate',
+          'title',
+        ] as const) {
           for (const modelID of [
             'antigravity-gemini-3.5-flash',
             'gemini-3-flash-agent',
@@ -1523,10 +1528,10 @@ for (const source of ['cold local', 'unavailable vault'] as const) {
         expect(sends).toBe(0)
         expect(localPipelines).toBe(0)
         expect(existsSync(accountFile)).toBe(false)
-        // Title replacements and live models still initialize local storage or
-        // refresh vault credentials, unlike retired non-title selections.
+        // Foreign titles and live models still initialize local storage or
+        // refresh vault credentials, unlike retired selections.
         for (const [kind, modelID] of [
-          ['title', 'antigravity-gemini-3.1-pro'],
+          ['title', 'host-off-catalog-title'],
           ['primary', 'antigravity-gemini-3.8-flash'],
         ] as const) {
           const control = await dispatch(kind, modelID)

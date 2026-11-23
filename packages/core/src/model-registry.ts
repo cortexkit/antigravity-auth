@@ -310,10 +310,6 @@ export const AGY_NATIVE_MODEL_DEFINITIONS: Readonly<
     supportsThinking: true,
     vertexModelId: 'openai/gpt-oss-120b-maas',
   },
-  'gemini-3.1-flash-image': {
-    displayName: 'Gemini 3.1 Flash Image',
-    model: 'MODEL_PLACEHOLDER_M21',
-  },
 }
 
 export function getAgyNativeModel(
@@ -336,9 +332,10 @@ export function isRetiredAgyModel(model: string): boolean {
     .replace(/^gemini-(?=claude-)/, '')
     .replace(/-preview(?:-customtools)?$/, '')
   return (
-    (/^claude-(opus|sonnet)-4-6(?:-thinking)?(?:-(?:minimal|low|medium|high))?$/.test(
-      route,
-    ) ||
+    (route.includes('image') ||
+      /^claude-(opus|sonnet)-4-6(?:-thinking)?(?:-(?:minimal|low|medium|high))?$/.test(
+        route,
+      ) ||
       /^gemini-3\.1-pro(?:-(?:low|high))?$/.test(route) ||
       /^gemini-3\.5-flash(?:-(?:low|medium|high|extra-low))?$/.test(route) ||
       /^gemini-3\.[67]-flash(?:-(?:low|medium|high|tiered))?$/.test(route) ||
@@ -398,15 +395,6 @@ const ALL_MODEL_DEFINITIONS: OpencodeModelDefinitions = {
       high: { thinkingLevel: 'high' },
     },
   }),
-  'antigravity-gemini-3.1-flash-image': defineModel(
-    'antigravity-gemini-3.1-flash-image',
-    {
-      name: 'Gemini 3.1 Flash Image (Antigravity)',
-      reasoning: false,
-      limit: { context: 66000, output: 33000 },
-      modalities: { input: ['text', 'image'], output: ['text', 'image'] },
-    },
-  ),
   'antigravity-gemini-3.8-flash': defineModel('antigravity-gemini-3.8-flash', {
     name: 'Gemini 3.8 Flash (Antigravity)',
     reasoning: true,
@@ -553,7 +541,6 @@ const QUOTA_GROUP_BY_MODEL_ID: Record<string, ModelQuotaGroup> = {
   'gemini-3.8-flash-medium': 'gemini',
   'gemini-3.8-flash-high': 'gemini',
   'gemini-3.8-flash-tiered': 'gemini',
-  'gemini-3.1-flash-image': 'gemini',
   'gpt-oss-120b': 'non-gemini',
   'gpt-oss-120b-medium': 'non-gemini',
 }
@@ -564,7 +551,6 @@ const ANTIGRAVITY_OPENCODE_MODEL_IDS = [
   'antigravity-gemini-4-hydrogen',
   'antigravity-gemini-4-neon',
   'antigravity-gemini-3.8-flash',
-  'antigravity-gemini-3.1-flash-image',
   'antigravity-claude-sonnet-5-5',
   'antigravity-claude-opus-5-5',
   'antigravity-gpt-oss-120b-medium',

@@ -4,7 +4,6 @@ import type {
   Config,
   Hooks,
   PluginInput,
-  ToolDefinition,
 } from '@opencode-ai/plugin'
 import type { Provider as SDKProvider } from '@opencode-ai/sdk'
 
@@ -18,21 +17,13 @@ export type {
   RefreshParts,
 } from '@cortexkit/antigravity-auth-core'
 
-export type {
-  AuthHook,
-  AuthOAuthResult,
-  Config,
-  Hooks,
-  PluginInput,
-  ToolDefinition,
-}
+export type { AuthHook, AuthOAuthResult, Config, Hooks, PluginInput }
 
 export type PluginClient = PluginInput['client']
 export type PluginContext = PluginInput
 export type PluginConfig = Config
 export type PluginEventPayload = Parameters<NonNullable<Hooks['event']>>[0]
 export type AuthMethod = AuthHook['methods'][number]
-export type PluginTool = ToolDefinition
 
 export type ProviderModel = {
   cost?: { input: number; output: number }
@@ -54,7 +45,6 @@ type RequiredAuthHook = AuthHook & {
 
 export type PluginResult = {
   auth: RequiredAuthHook
-  tool: Record<string, ToolDefinition>
   config: NonNullable<Hooks['config']>
   event: NonNullable<Hooks['event']>
   dispose: NonNullable<Hooks['dispose']>

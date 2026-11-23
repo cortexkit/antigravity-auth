@@ -3,7 +3,6 @@ import { redactCredentialResponse } from '@cortexkit/antigravity-auth-core'
 import {
   cleanJSONSchemaForAntigravity,
   collectForwardedHeaders,
-  createSyntheticTextResponse,
   createThoughtBuffer,
   DEFAULT_THINKING_BUDGET,
   deduplicateThinkingText,
@@ -1779,27 +1778,6 @@ describe('cleanJSONSchemaForAntigravity', () => {
   })
 })
 
-describe('createSyntheticTextResponse', () => {
-  it('returns a complete non-error Gemini SSE frame', async () => {
-    const response = createSyntheticTextResponse('Image generation', {
-      'X-Antigravity-Response-Type': 'local_title',
-    })
-    const text = await response.text()
-    const event = JSON.parse(text.slice('data: '.length).trim())
-
-    expect(response.status).toBe(200)
-    expect(response.headers.get('X-Antigravity-Response-Type')).toBe(
-      'local_title',
-    )
-    expect(response.headers.get('X-Antigravity-Error-Type')).toBeNull()
-    expect(event.candidates[0]).toMatchObject({
-      content: { parts: [{ text: 'Image generation' }] },
-      finishReason: 'STOP',
-    })
-    expect(text.endsWith('\n\n')).toBe(true)
-  })
-})
-
 describe('createNativeGoogleErrorResponse', () => {
   it('returns exact non-success Google JSON for a local policy block', async () => {
     const response = createNativeGoogleErrorResponse({
@@ -2237,17 +2215,6 @@ describe('extractVariantThinkingConfig', () => {
       { thinkingConfig: { thinkingBudget: 8192 } },
     )
     expect(result).toEqual({ thinkingLevel: 'low' })
-  })
-
-  it('ignores generationConfig when providerOptions has googleSearch only', () => {
-    const result = extractVariantThinkingConfig(
-      { google: { googleSearch: { mode: 'auto' } } },
-      { thinkingConfig: { thinkingBudget: 8192 } },
-    )
-    expect(result).toEqual({
-      googleSearch: { mode: 'auto' },
-      thinkingBudget: 8192,
-    })
   })
 
   it('does not overwrite thinkingBudget: 0 from providerOptions with generationConfig fallback', () => {

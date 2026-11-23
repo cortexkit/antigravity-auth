@@ -224,7 +224,6 @@ describe('classifyQuotaGroup', () => {
       ['gemini-3.5-flash-low', 'Gemini 3.5 Flash (Low)'],
       ['gemini-3.1-pro', 'Gemini 3.1 Pro'],
       ['gemini-3-flash', 'Gemini 3 Flash'],
-      ['gemini-3.1-flash-image', 'Gemini 3.1 Flash Image'],
       ['gemini-pro-agent', 'Gemini Pro Agent'],
       ['gemini-3.6-flash-medium', 'Gemini 3.6 Flash (Medium)'],
     ]

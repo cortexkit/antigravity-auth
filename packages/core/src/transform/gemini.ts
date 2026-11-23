@@ -7,12 +7,7 @@
  * - Schema transformation (JSON Schema -> Gemini Schema format)
  */
 
-import type {
-  GoogleSearchConfig,
-  RequestPayload,
-  ThinkingConfig,
-  ThinkingTier,
-} from './types.ts'
+import type { RequestPayload, ThinkingConfig, ThinkingTier } from './types.ts'
 
 // Antigravity validates tool parameters against Gemini's protobuf `Schema`, so a
 // field outside it fails the whole request with HTTP 400: an unknown keyword such
@@ -588,15 +583,6 @@ export function isGemini25Model(model: string): boolean {
 }
 
 /**
- * Check if a model is an image generation model.
- * Image models don't support thinking and require imageConfig.
- */
-export function isImageGenerationModel(model: string): boolean {
-  const lower = model.toLowerCase()
-  return lower.includes('image') || lower.includes('imagen')
-}
-
-/**
  * Build Gemini 3 thinking config with thinkingLevel string.
  */
 export function buildGemini3ThinkingConfig(
@@ -622,57 +608,6 @@ export function buildGemini25ThinkingConfig(
       ? { thinkingBudget }
       : {}),
   }
-}
-
-/**
- * Image generation config for Gemini image models.
- *
- * Supported aspect ratios: "1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"
- */
-export interface ImageConfig {
-  aspectRatio?: string
-}
-
-/**
- * Valid aspect ratios for image generation.
- */
-const VALID_ASPECT_RATIOS = [
-  '1:1',
-  '2:3',
-  '3:2',
-  '3:4',
-  '4:3',
-  '4:5',
-  '5:4',
-  '9:16',
-  '16:9',
-  '21:9',
-]
-
-/**
- * Build image generation config for Gemini image models.
- *
- * Configuration is read from environment variables:
- * - OPENCODE_IMAGE_ASPECT_RATIO: Aspect ratio (e.g., "16:9", "4:3")
- *
- * Defaults to 1:1 aspect ratio if not specified.
- *
- * Note: Resolution setting is not currently supported by the Antigravity API.
- */
-export function buildImageGenerationConfig(): ImageConfig {
-  // Read aspect ratio from environment or default to 1:1
-  const aspectRatio = process.env.OPENCODE_IMAGE_ASPECT_RATIO || '1:1'
-
-  if (VALID_ASPECT_RATIOS.includes(aspectRatio)) {
-    return { aspectRatio }
-  }
-
-  console.warn(
-    `[gemini] Invalid aspect ratio "${aspectRatio}". Using default "1:1". Valid values: ${VALID_ASPECT_RATIOS.join(', ')}`,
-  )
-
-  // Default to 1:1 square aspect ratio
-  return { aspectRatio: '1:1' }
 }
 
 /**
@@ -838,8 +773,6 @@ export interface GeminiTransformOptions {
   tierThinkingLevel?: ThinkingTier
   /** Normalized thinking config from user settings */
   normalizedThinking?: { includeThoughts?: boolean; thinkingBudget?: number }
-  /** Google Search configuration */
-  googleSearch?: GoogleSearchConfig
 }
 
 export interface GeminiTransformResult {
@@ -858,13 +791,8 @@ export function applyGeminiTransforms(
   payload: RequestPayload,
   options: GeminiTransformOptions,
 ): GeminiTransformResult {
-  const {
-    model,
-    tierThinkingBudget,
-    tierThinkingLevel,
-    normalizedThinking,
-    googleSearch,
-  } = options
+  const { model, tierThinkingBudget, tierThinkingLevel, normalizedThinking } =
+    options
 
   // 1. Apply thinking config if needed
   if (normalizedThinking) {
@@ -894,30 +822,14 @@ export function applyGeminiTransforms(
     payload.generationConfig = generationConfig
   }
 
-  // 2. Apply Google Search (Grounding) if enabled
-  // Uses the new googleSearch API for Gemini 2.0+ / Gemini 3 models
-  // Note: The old googleSearchRetrieval with dynamicRetrievalConfig is deprecated
-  // The new API doesn't support threshold - the model decides when to search automatically
-  if (googleSearch && googleSearch.mode === 'auto') {
-    const tools = (payload.tools as unknown[]) || []
-    if (!payload.tools) {
-      payload.tools = tools
-    }
-    // Add Google Search tool using new API format for Gemini 2.0+
-    // See: https://ai.google.dev/gemini-api/docs/grounding
-    ;(payload.tools as any[]).push({
-      googleSearch: {},
-    })
-  }
-
-  // 3. Normalize tools
+  // 2. Normalize tools
   const result = normalizeGeminiTools(payload, {
     moveNumericConstraintsToDescription: model
       .toLowerCase()
       .startsWith('gpt-oss-'),
   })
 
-  // 4. Wrap tools in functionDeclarations format (fixes #203, #206)
+  // 3. Wrap tools in functionDeclarations format
   // Antigravity strict protobuf validation rejects wrapper-level 'parameters' field
   // Must be: [{ functionDeclarations: [{ name, description, parameters }] }]
   const wrapResult = wrapToolsAsFunctionDeclarations(payload)
@@ -946,31 +858,6 @@ export interface WrapToolsResult {
  * The wrapper-level 'parameters' field causes:
  *   "Unknown name 'parameters' at 'request.tools[0]'"
  */
-/**
- * Detect if a tool is a web search tool in any of the supported formats:
- * - Claude/Anthropic: { type: "web_search_20250305" } or { name: "web_search" }
- * - Gemini native: { googleSearch: {} } or { googleSearchRetrieval: {} }
- */
-function isWebSearchTool(tool: Record<string, unknown>): boolean {
-  // 1. Gemini native format
-  if (tool.googleSearch || tool.googleSearchRetrieval) {
-    return true
-  }
-
-  // 2. Claude/Anthropic format: { type: "web_search_20250305" }
-  if (tool.type === 'web_search_20250305') {
-    return true
-  }
-
-  // 3. Simple name-based format: { name: "web_search" | "google_search" }
-  const name = tool.name as string | undefined
-  if (name === 'web_search' || name === 'google_search') {
-    return true
-  }
-
-  return false
-}
-
 export function wrapToolsAsFunctionDeclarations(
   payload: RequestPayload,
 ): WrapToolsResult {
@@ -985,19 +872,12 @@ export function wrapToolsAsFunctionDeclarations(
   }> = []
 
   const passthroughTools: unknown[] = []
-  let hasWebSearchTool = false
 
   for (const tool of payload.tools as Array<Record<string, unknown>>) {
     // Handle passthrough tools (Google Search and Code Execution)
     if (tool.googleSearch || tool.googleSearchRetrieval || tool.codeExecution) {
       passthroughTools.push(tool)
       continue
-    }
-
-    // Detect and convert web search tools to Gemini format
-    if (isWebSearchTool(tool)) {
-      hasWebSearchTool = true
-      continue // Will be added as { googleSearch: {} } at the end
     }
 
     if (tool.functionDeclarations) {
@@ -1063,25 +943,10 @@ export function wrapToolsAsFunctionDeclarations(
 
   finalTools.push(...passthroughTools)
 
-  // Add googleSearch tool if a web search tool was detected
-  // Note: googleSearch cannot be combined with functionDeclarations in the same request
-  // If there are function declarations, we skip adding googleSearch (Gemini API limitation)
-  if (hasWebSearchTool && functionDeclarations.length === 0) {
-    finalTools.push({ googleSearch: {} })
-  } else if (hasWebSearchTool && functionDeclarations.length > 0) {
-    // Log warning: web search requested but can't be used with functions
-    console.warn(
-      '[gemini] web_search tool detected but cannot be combined with function declarations. ' +
-        'Use the explicit google_search() tool call instead.',
-    )
-  }
-
   payload.tools = finalTools
 
   return {
     wrappedFunctionCount: functionDeclarations.length,
-    passthroughToolCount:
-      passthroughTools.length +
-      (hasWebSearchTool && functionDeclarations.length === 0 ? 1 : 0),
+    passthroughToolCount: passthroughTools.length,
   }
 }

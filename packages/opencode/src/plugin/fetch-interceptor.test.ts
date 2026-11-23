@@ -350,51 +350,6 @@ describe('createFetchInterceptor', () => {
     })
   })
 
-  describe('local image titles', () => {
-    it('retains successful synthetic text for local image-model title requests', async () => {
-      const context = await makeContext()
-      const interceptor = createFetchInterceptor(context)
-      try {
-        const response = await interceptor.fetch(
-          'https://generativelanguage.googleapis.com/v1beta/models/antigravity-gemini-3.1-flash-image:streamGenerateContent',
-          {
-            method: 'POST',
-            body: JSON.stringify({
-              contents: [
-                {
-                  role: 'user',
-                  parts: [
-                    { text: 'Generate a title for this conversation:\n' },
-                  ],
-                },
-                { role: 'user', parts: [{ text: 'Generate a red triangle' }] },
-              ],
-            }),
-          },
-        )
-        expect(response.status).toBe(200)
-        expect(response.headers.get('content-type')).toBe('text/event-stream')
-        expect(response.headers.get('x-antigravity-response-type')).toBe(
-          'local_title',
-        )
-        expect(response.headers.get('x-antigravity-error-type')).toBeNull()
-        const text = await response.text()
-        expect(JSON.parse(text.slice('data: '.length).trim())).toMatchObject({
-          candidates: [
-            {
-              content: { parts: [{ text: 'Generate a red triangle' }] },
-              finishReason: 'STOP',
-            },
-          ],
-        })
-        expect(transportMock).not.toHaveBeenCalled()
-      } finally {
-        interceptor.dispose()
-        await context.accountManager.dispose()
-      }
-    })
-  })
-
   describe('Request normalization', () => {
     it('normalizes a Request input into a URL+init so the transform pipeline sees headers/body', async () => {
       transportHandler = async (input, init) => {

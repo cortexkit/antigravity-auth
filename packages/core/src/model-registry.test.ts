@@ -48,7 +48,6 @@ const EXPECTED_NATIVE_IDS = [
   'claude-sonnet-5-5-medium',
   'claude-sonnet-5-5-high',
   'gpt-oss-120b-medium',
-  'gemini-3.1-flash-image',
 ].sort()
 
 const REQUIRED_PUBLIC_MODEL_FIELDS = [
@@ -114,7 +113,6 @@ describe('model registry', () => {
     expect(modelNames).toEqual([
       'antigravity-claude-opus-5-5',
       'antigravity-claude-sonnet-5-5',
-      'antigravity-gemini-3.1-flash-image',
       'antigravity-gemini-3.8-flash',
       'antigravity-gemini-4-argon',
       'antigravity-gemini-4-carbon',
@@ -221,21 +219,6 @@ describe('model registry', () => {
       reasoning: true,
       limit: { context: 131072, output: 32768 },
     })
-  })
-
-  it('retains the server-offered image route', () => {
-    expect(
-      Object.hasOwn(
-        getPublicModelDefinitions(),
-        'antigravity-gemini-3.1-flash-image',
-      ),
-    ).toBe(true)
-    expect(serverCatalog.lists.imageGenerationModelIds).toContain(
-      'gemini-3.1-flash-image',
-    )
-    expect(getAgyModelEnum('gemini-3.1-flash-image')).toBe(
-      'MODEL_PLACEHOLDER_M21',
-    )
   })
 
   it('pins supported metadata to the server map rather than CLI picker omissions', () => {
@@ -409,9 +392,9 @@ describe('server catalog authority', () => {
         }
       }
     }
-    for (const route of ['gemini-3.8-flash-low', 'gemini-3.1-flash-image']) {
-      expect(isRetiredAgyModel(route)).toBe(false)
-      expect(Object.hasOwn(serverCatalog.models, route)).toBe(true)
-    }
+    expect(isRetiredAgyModel('gemini-3.8-flash-low')).toBe(false)
+    expect(Object.hasOwn(serverCatalog.models, 'gemini-3.8-flash-low')).toBe(
+      true,
+    )
   })
 })

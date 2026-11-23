@@ -220,30 +220,6 @@ describe('resolveModelWithTier', () => {
     })
   })
 
-  describe('Image models', () => {
-    it('parses the Antigravity-prefixed Gemini image route', () => {
-      const result = resolveModelWithTier('antigravity-gemini-3-pro-image')
-      expect(result.actualModel).toBe('gemini-3-pro-image')
-      expect(result.isImageModel).toBe(true)
-    })
-
-    it('parses the unprefixed Gemini image route', () => {
-      const result = resolveModelWithTier('gemini-3-pro-image')
-      expect(result.actualModel).toBe('gemini-3-pro-image')
-      expect(result.isImageModel).toBe(true)
-    })
-
-    it('resolves the live Gemini 3.1 Flash Image route without thinking', () => {
-      expect(
-        resolveModelWithTier('antigravity-gemini-3.1-flash-image'),
-      ).toMatchObject({
-        actualModel: 'gemini-3.1-flash-image',
-        isThinkingModel: false,
-        isImageModel: true,
-      })
-    })
-  })
-
   describe('GPT-OSS', () => {
     it('resolves the only live GPT-OSS route with its captured thinking budget', () => {
       expect(

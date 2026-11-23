@@ -36,7 +36,6 @@ import { createLocationLogger } from '../logger'
 import { createOperatorSettingsController } from '../operator-settings'
 import {
   buildThinkingWarmupBody,
-  getImageModelLocalTitle,
   getLastCacheStats,
   prepareAntigravityRequest,
   transformAntigravityResponse,
@@ -51,7 +50,6 @@ const WIRE: RequestWire = {
   prepare: prepareAntigravityRequest,
   transformResponse: transformAntigravityResponse,
   buildThinkingWarmupBody,
-  getImageModelLocalTitle,
   getLastCacheStats,
 }
 
@@ -525,30 +523,14 @@ describe('per-account model lists in the request engine', () => {
   it('serves a title request from an account allowed the title model', async () => {
     const h = harness({
       count: 2,
-      // row-0 serves only the image model; the title goes to the fallback
-      // text model, which row-0 does not list.
-      accountModels: { 'row-0': ['gemini-3.1-flash-image'] },
+      accountModels: { 'row-0': ['gemini-4-carbon'] },
     })
-    const result = await send(h, 'gemini-3.1-flash-image', {
+    const result = await send(h, 'some-host-model', {
       kind: 'title',
       session: { sessionId: 'title', parentSessionId: null },
     })
-    // The title went to the fallback text model, not the image model.
-    expect(TITLE_FALLBACK_MODEL).toStartWith('gemini-3.8-flash')
-    expect(String(h.bodies[0])).not.toContain('flash-image')
+    expect(JSON.parse(String(h.bodies[0])).model).toBe(TITLE_FALLBACK_MODEL)
     expect(result.status).toBe(200)
-    expect(h.sentFor).toEqual([1])
-  })
-
-  it('serves an image request only from an account whose list names the image model', async () => {
-    const h = harness({
-      count: 2,
-      accountModels: {
-        'row-0': ['gemini-4-carbon'],
-        'row-1': ['gemini-3.1-flash-image'],
-      },
-    })
-    expect((await send(h, 'gemini-3.1-flash-image')).status).toBe(200)
     expect(h.sentFor).toEqual([1])
   })
 

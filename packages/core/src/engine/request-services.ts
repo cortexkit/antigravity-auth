@@ -22,7 +22,6 @@ import {
   type HealthScoreTracker,
   HostRefusalError,
   isClaudeThinkingModel,
-  isImageGenerationModel,
   isRetiredAgyModel,
   isUpstreamFailure,
   MAX_UNCONFIRMED_RATE_LIMIT_RETRIES,
@@ -102,10 +101,7 @@ import {
   getResponseCleanup,
   retainResponseLifetime,
 } from './request-cancellation.ts'
-import {
-  createSyntheticTextResponse,
-  isEmptyResponseBody,
-} from './request-helpers.ts'
+import { isEmptyResponseBody } from './request-helpers.ts'
 import {
   extractAntigravityError,
   extractRateLimitErrorInfoReason,
@@ -698,23 +694,21 @@ export type RequestKind = 'primary' | 'compaction' | 'title' | 'generate'
 
 /**
  * The model a title request is sent to when the host selected one this
- * plugin does not serve as text: an unregistered model or an image model.
+ * plugin does not serve: an unregistered, non-retired model.
  */
 export const TITLE_FALLBACK_MODEL = 'gemini-3.8-flash-low'
 
 /**
- * Routes a title request: a registered text model is kept; any other model
- * (unregistered, or an image model) is replaced in the URL by
- * `TITLE_FALLBACK_MODEL`. Everything else in the URL is unchanged.
+ * Routes a title request after retirement has been checked. Unregistered
+ * models use `TITLE_FALLBACK_MODEL`; everything else in the URL is unchanged.
  */
 export function routeTitleModel(url: string): string {
   const model = extractModelFromUrl(url)
-  if (model === null) return url
+  if (model === null || isRetiredAgyModel(model)) return url
   const registered =
     Object.hasOwn(getPublicModelDefinitions(), model) ||
     Object.hasOwn(getResolverAliasMap(), model)
-  if (registered && !isImageGenerationModel(model) && !isRetiredAgyModel(model))
-    return url
+  if (registered) return url
   return url.replace(`/models/${model}`, `/models/${TITLE_FALLBACK_MODEL}`)
 }
 
@@ -722,10 +716,17 @@ export function routeTitleModel(url: string): string {
  * Return the retired-model error using only the model registry: callers need
  * neither an initialized account store nor an available vault to reject it.
  */
-export function retiredModelResponse(url: string): Response | undefined {
+export function retiredModelResponse(
+  url: string,
+  selectedModel?: string,
+): Response | undefined {
   const model = extractModelFromUrl(url)
-  if (!model || !isRetiredAgyModel(model)) return undefined
-  return engineRefusalResponse('retired_model')
+  if (
+    (model && isRetiredAgyModel(model)) ||
+    (selectedModel && isRetiredAgyModel(selectedModel))
+  ) {
+    return engineRefusalResponse('retired_model')
+  }
 }
 
 /**
@@ -1313,18 +1314,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       }
     }
 
-    // A host that names the request kind (OpenCode 2) routes titles by that
-    // kind only. Without a kind (OpenCode 1) the title prompt itself is
-    // recognised, as before.
+    const retired = retiredModelResponse(input)
+    if (retired) return retired
+
     const kind = options.kind
-    if (kind === undefined || kind === 'title') {
-      const localImageTitle = wire.getImageModelLocalTitle(input, init)
-      if (localImageTitle !== undefined) {
-        return createSyntheticTextResponse(localImageTitle, {
-          'X-Antigravity-Response-Type': 'local_title',
-        })
-      }
-    }
     let selectedVariant = options.variant
     if (kind === 'title') {
       const routed = routeTitleModel(input)
@@ -1333,8 +1326,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       input = routed
     }
 
-    const retired = retiredModelResponse(input)
-    if (retired) return retired
     const selectedModel = extractModelFromUrl(input)
 
     let variant: PrepareRequestOptions['variant']

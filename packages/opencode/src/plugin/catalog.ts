@@ -1,6 +1,15 @@
 import { ANTIGRAVITY_MENU_COMMAND } from './commands'
 import { getOpencode1ModelDefinitions } from './config/models'
+import { createLogger } from './logger'
 import { getAntigravityOpencodeModelIds } from './model-registry'
+
+const log = createLogger('catalog')
+
+function readObject(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined
+}
 
 type OpencodeMutableConfig = Record<string, unknown> & {
   provider?: Record<
@@ -16,12 +25,24 @@ type OpencodeMutableConfig = Record<string, unknown> & {
 export function applyAntigravityProviderCatalog(
   config: Record<string, unknown>,
   providerId: string,
+  logger: Pick<typeof log, 'warn'> = log,
 ): void {
   const mutableConfig = config as OpencodeMutableConfig
   mutableConfig.provider ??= {}
 
   const providerConfig = mutableConfig.provider[providerId] ?? {}
   const models = getOpencode1ModelDefinitions()
+  for (const entry of Object.values(providerConfig.models ?? {})) {
+    const model = readObject(entry)
+    for (const options of [
+      readObject(model?.options),
+      ...Object.values(readObject(model?.variants) ?? {}).map(readObject),
+    ]) {
+      if (!options || !Object.hasOwn(options, 'googleSearch')) continue
+      logger.warn('Ignored removed googleSearch model option')
+      delete options.googleSearch
+    }
+  }
   providerConfig.models = {
     ...(providerConfig.models ?? {}),
     ...models,

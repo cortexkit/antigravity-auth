@@ -367,6 +367,12 @@ export function createSettingsRuntime(
       protection.accountModels === 'deny-all'
         ? compileModelAccess(undefined, { unusable: true })
         : compileModelAccess(protection.accountModels)
+    for (const issue of policy.issues) {
+      if (issue.reason === 'retired-model')
+        log.warn(
+          `Ignored retired model in account_models: ${JSON.stringify(issue.modelId)}`,
+        )
+    }
     operator = {
       killswitch: {
         enabled: killswitch.enabled,

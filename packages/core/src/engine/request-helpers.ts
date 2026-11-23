@@ -3,8 +3,7 @@ import {
   EMPTY_SCHEMA_PLACEHOLDER_NAME,
 } from '../constants.ts'
 import { toGeminiSchema } from '../index.ts'
-import type { GoogleSearchConfig } from '../transform/types.ts'
-import type { RequestLogger, SaveResponseImage } from './ports.ts'
+import type { RequestLogger } from './ports.ts'
 
 /** Diagnostics use the caller's helper log channel without retaining global state. */
 export type RequestHelperLog = Pick<RequestLogger, 'debug'>
@@ -381,8 +380,6 @@ export interface VariantThinkingConfig {
   thinkingBudget?: number
   /** Whether to include thoughts in output */
   includeThoughts?: boolean
-  /** Google Search configuration */
-  googleSearch?: GoogleSearchConfig
 }
 
 /**
@@ -424,19 +421,6 @@ export function extractVariantThinkingConfig(
       const tc = google.thinkingConfig as Record<string, unknown>
       if (typeof tc.thinkingBudget === 'number') {
         result.thinkingBudget = tc.thinkingBudget
-      }
-    }
-
-    // Extract Google Search config
-    if (google.googleSearch && typeof google.googleSearch === 'object') {
-      const search = google.googleSearch as Record<string, unknown>
-      result.googleSearch = {
-        mode:
-          search.mode === 'auto' || search.mode === 'off'
-            ? search.mode
-            : undefined,
-        threshold:
-          typeof search.threshold === 'number' ? search.threshold : undefined,
       }
     }
   }
@@ -1129,11 +1113,7 @@ export function deepFilterThinkingBlocks(
  * thinking parts (type: "thinking") to reasoning format.
  * Claude responses through Antigravity may use candidates structure with Anthropic-style parts.
  */
-function transformGeminiCandidate(
-  candidate: any,
-  processImageData?: SaveResponseImage,
-  log?: RequestHelperLog,
-): any {
+function transformGeminiCandidate(candidate: any, log?: RequestHelperLog): any {
   if (!candidate || typeof candidate !== 'object') {
     return candidate
   }
@@ -1211,17 +1191,6 @@ function transformGeminiCandidate(
       }
     }
 
-    // Handle image data (inlineData) - save to disk and return file path
-    if (part.inlineData) {
-      const result = processImageData?.({
-        mimeType: part.inlineData.mimeType,
-        data: part.inlineData.data,
-      })
-      if (result) {
-        return { text: result }
-      }
-    }
-
     return part
   })
 
@@ -1241,7 +1210,6 @@ function transformGeminiCandidate(
  */
 export function transformThinkingParts(
   response: unknown,
-  processImageData?: SaveResponseImage,
   log?: RequestHelperLog,
 ): unknown {
   if (!response || typeof response !== 'object') {
@@ -1290,7 +1258,7 @@ export function transformThinkingParts(
   // Handle Gemini-style candidates array
   if (Array.isArray(resp.candidates)) {
     result.candidates = resp.candidates.map((candidate) =>
-      transformGeminiCandidate(candidate, processImageData, log),
+      transformGeminiCandidate(candidate, log),
     )
   }
 
@@ -2619,50 +2587,4 @@ export function applyToolPairingFixes(
   }
 
   return { contentsFixed, messagesFixed }
-}
-
-// ============================================================================
-// LOCAL TEXT AND NATIVE GOOGLE ERROR RESPONSES
-// ============================================================================
-
-/**
- * Creates a synthetic Gemini SSE streaming response with successful local text.
- *
- * The intercepted provider route is Google/Gemini, so the synthetic body must
- * match OpenCode's Gemini protocol (`data: { candidates, usageMetadata }`).
- * Returning Anthropic-style SSE here can make the downstream parser fail before
- * it records a normal `step-finish`.
- */
-export function createSyntheticTextResponse(
-  text: string,
-  extraHeaders: Record<string, string> = {},
-): Response {
-  const outputTokens = Math.max(1, Math.ceil(text.length / 4))
-  const event = {
-    candidates: [
-      {
-        content: {
-          role: 'model',
-          parts: [{ text }],
-        },
-        finishReason: 'STOP',
-      },
-    ],
-    usageMetadata: {
-      promptTokenCount: 0,
-      candidatesTokenCount: outputTokens,
-      totalTokenCount: outputTokens,
-    },
-  }
-
-  return new Response(`data: ${JSON.stringify(event)}\n\n`, {
-    status: 200,
-    headers: {
-      'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
-      Connection: 'keep-alive',
-      'X-Antigravity-Synthetic': 'true',
-      ...extraHeaders,
-    },
-  })
 }

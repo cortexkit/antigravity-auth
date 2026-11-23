@@ -16,9 +16,11 @@ import {
 import {
   EngineRefusalError,
   engineRefusalResponse,
+  fetchInputToUrl,
   isGenerativeLanguageRequest,
   publishResponse,
   type RegisterResponseHandoff,
+  retiredModelResponse,
 } from '@cortexkit/antigravity-auth-core/engine'
 import { RuntimeLayoutRefusal } from '../runtime-layout.ts'
 import {
@@ -714,6 +716,10 @@ export function createAuthLoader({
         publishResponse(async (onResponseHandoff) => {
           try {
             assertOpen()
+            if (isGenerativeLanguageRequest(input)) {
+              const retired = retiredModelResponse(fetchInputToUrl(input))
+              if (retired) return retired
+            }
             const authority = (await readAuthority?.()) ?? 'local'
             // Shutdown may have begun while the authority was read; nothing is
             // built or sent after admission closes, even while disposal drains.
