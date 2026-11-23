@@ -1,4 +1,5 @@
 import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { ENGINE_REFUSALS } from '@cortexkit/antigravity-auth-core/engine'
 import { AIError, type ContentPart, Media, Message } from '@opencode/ai'
 import { make } from '@opencode/ai/promise'
 import { configure } from '@opencode/ai/providers/google'
@@ -64,8 +65,14 @@ export function recordSignature(
 export function recordFailure(output: Surface, error: unknown) {
   const message = error instanceof Error ? error.message : String(error)
   output.errors.push(message)
+  // The engine's fixed refusal texts identify themselves exactly; the
+  // patterns below remain for host-made and base-capture wording.
+  const fixed = Object.values(ENGINE_REFUSALS).find(
+    ({ text }) => message === text || message.startsWith(`${text} `),
+  )?.id
   const kind =
-    /context.?(?:overflow|length)|prompt is too long|input token count .* exceeds/i.test(
+    fixed ??
+    (/context.?(?:overflow|length)|prompt is too long|input token count .* exceeds/i.test(
       message,
     )
       ? 'context_overflow'
@@ -95,7 +102,7 @@ export function recordFailure(output: Surface, error: unknown) {
                           ? 'embedded_error'
                           : /cancel|abort/i.test(message)
                             ? 'cancelled'
-                            : 'upstream_http'
+                            : 'upstream_http')
   if (!output.terminal.some((value) => value.startsWith('failure:')))
     output.terminal.push(`failure:${kind}`)
 }
