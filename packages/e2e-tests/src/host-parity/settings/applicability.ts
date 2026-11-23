@@ -44,7 +44,7 @@ const single: Proof = {
     'packages/pi/src/request-pool.ts:48; packages/pi/src/request-settings.ts:93',
 }
 const hostedCredentials = notApplicable(
-  'Vault custody admits the selected route for a send; it does not refresh a local login.',
+  'Requests authorized by a vault use a vault credential for each send and do not refresh a local login.',
   'packages/opencode/src/plugin/shared/vault-request-credentials.ts; packages/pi/src/request-engine.ts:245',
 )
 const v1Only = notApplicable(
@@ -236,7 +236,8 @@ const oc1Poller = (test: string, titleFragment?: string) =>
   )
 const oc2Runtime = (test: string, binding: string) =>
   applied(`${oc}shared/runtime.test.ts`, test, binding)
-const vaultTrackers = executorProof(
+const vaultTrackers = applied(
+  `${oc}shared/vault-request-credentials.test.ts`,
   'vault routes use configured tracker scores and token balances on a successful dispatch',
   `${v1}:338; ${oc}fetch-interceptor.ts:502; ${ga}:2010; ${ga}:1781`,
 )
@@ -551,7 +552,7 @@ const matrix = {
     kinds(ocLocalModels, ocVaultModels),
     kinds(
       notApplicable(
-        'Pi uses the native Google slot without a vault route ID for the policy.',
+        'Pi’s native Google login has no vault route ID to match against an account model list.',
         `${pi}request-engine.ts:271; ${pi}vault-source.ts`,
       ),
       piVaultModels,

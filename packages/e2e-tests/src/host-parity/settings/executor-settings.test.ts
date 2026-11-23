@@ -1,6 +1,5 @@
 import { expect, test } from 'bun:test'
 import { createLocalQuotaRefresh } from '@cortexkit/antigravity-auth-core/engine'
-import { createConfiguredAccountTrackers } from '../../../../opencode/src/plugin/accounts.ts'
 import { DEFAULT_CONFIG } from '../../../../opencode/src/plugin/config/index.ts'
 import { initRuntimeConfig } from '../../../../opencode/src/plugin/config/loader.ts'
 import { createRequestExecutor } from '../../../../opencode/src/plugin/shared/request-executor.ts'
@@ -21,7 +20,6 @@ import {
   vaultDeps,
   wireBearers,
 } from '../../../../opencode/src/plugin/shared/request-services-harness.test.ts'
-import { createVaultAccountPool } from '../../../../opencode/src/plugin/shared/vault-request-credentials.ts'
 
 const domains = ['local', 'vault'] as const
 
@@ -392,73 +390,5 @@ test('the local quota refresh interval enables or skips an advisory refresh afte
     )
     await dispatch(h, 'local')
     expect(calls).toEqual(Array(expectedCalls).fill(0))
-  }
-})
-
-test('vault routes use configured tracker scores and token balances on a successful dispatch', async () => {
-  const h = harness({ respond: async () => okJson() })
-  const route = {
-    routeId: 'route',
-    credentialId: 'credential',
-    accountIdentity: 'identity',
-    label: 'Account',
-  }
-  const pool = createVaultAccountPool({
-    ...createConfiguredAccountTrackers(
-      {
-        ...DEFAULT_CONFIG,
-        health_score: {
-          ...DEFAULT_CONFIG.health_score!,
-          initial: 53,
-          success_reward: 7,
-        },
-        token_bucket: {
-          max_tokens: 13,
-          initial_tokens: 4,
-          regeneration_rate_per_minute: 0.1,
-        },
-      },
-      () => FIXED_NOW,
-    ),
-    now: () => FIXED_NOW,
-    source: {
-      routes: () => [route],
-      refresh: async () => {},
-      admit: async () => ({
-        ...route,
-        accessToken: 'fixture',
-        projectId: 'fixture',
-        recordVersion: 1,
-        expiresAtMs: null,
-      }),
-      reportServedStatus: async () => false,
-    },
-  })
-  const { healthTracker: health, tokenTracker: token } = pool.selector
-  const executor = createRequestExecutor({
-    ...h.deps,
-    assertAdmission: (signal) => pool.sync(signal),
-    accounts: pool.selector,
-    config: { ...h.deps.config, account_selection_strategy: 'hybrid' },
-    credentials: pool.credentials,
-    trackers: { health, token },
-  })
-  try {
-    await pool.sync()
-    const row = pool.selector.getAccounts()[0]!
-    expect([health.getScore(row.index), token.getTokens(row.index)]).toEqual([
-      53, 4,
-    ])
-    const response = await executor.execute(NON_STREAM_URL, CHAT_INIT())
-    expect(response.status).toBe(200)
-    await response.text()
-    expect(h.calls).toHaveLength(1)
-    expect([health.getScore(row.index), token.getTokens(row.index)]).toEqual([
-      60, 3,
-    ])
-  } finally {
-    await executor.dispose()
-    await pool.flush()
-    await disposePools()
   }
 })
