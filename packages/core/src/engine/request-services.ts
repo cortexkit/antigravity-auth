@@ -3218,18 +3218,17 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               response.status === 429 &&
               boundedRefusal !== undefined &&
               boundedRefusal.text === undefined
-            const routingIdentity =
-              (routedPlacement ||
-                vaultCredentials?.boundRoute ||
-                unreadableLimit) &&
-              sendAdmission &&
-              sessionKey &&
-              routing.hasAccessor()
+            const servedRoutingIdentity =
+              sendAdmission && sessionKey && routing.hasAccessor()
                 ? {
                     sessionId: sessionKey,
                     accountId: sendAdmission.accountIdentity,
                     credentialId: sendAdmission.credentialId,
                   }
+                : undefined
+            const routingIdentity =
+              routedPlacement || vaultCredentials?.boundRoute || unreadableLimit
+                ? servedRoutingIdentity
                 : undefined
             const routedIdentity = routedPlacement ? routingIdentity : undefined
             if (sessionKey) {
@@ -3323,11 +3322,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   i -= 1
                   continue
                 }
-                // An unreadable real refusal is still evidence of a short
-                // backoff, even if the original ask fell back to local order.
-                if (routingIdentity)
+                // The served vault login needs a short backoff even when the
+                // plugin selected it without a routing placement.
+                if (servedRoutingIdentity)
                   routing.report({
-                    ...routingIdentity,
+                    ...servedRoutingIdentity,
                     kind: 'transient_backoff',
                     retryAtMs,
                   })
