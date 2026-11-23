@@ -1415,7 +1415,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     type FailureContext = {
       response: Response
       streaming: boolean
-      debugContext: ReturnType<LocationDebug['startAntigravityDebugRequest']>
+      debugContext: ReturnType<RequestDebug['startAntigravityDebugRequest']>
       requestedModel?: string
       projectId?: string
       endpoint?: string
@@ -1423,7 +1423,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       sessionId?: string
       toolDebugMissing?: number
       toolDebugSummary?: string
-      dumpContext?: ReturnType<GeminiDumpState['dumpRequest']>
+      dumpContext?: ReturnType<RequestDump['dumpRequest']>
     }
 
     type RetainedMainAttemptFailure =
@@ -1763,7 +1763,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     family,
                     {
                       killswitch: operatorKillswitch,
-                      log_level: 'info',
                     },
                     {
                       now: Date.now(),
@@ -1793,7 +1792,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 enabled: false,
                 minimum_remaining_percent: 0,
               },
-              log_level: 'info',
             },
             quotaModel: model,
             ...(floorKeying ? { floorKeying } : {}),
@@ -1955,7 +1953,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             deadline.wait(() => {
               const input = {
                 sessionId: accountSessionIdentity.id,
-                provider: 'antigravity',
+                provider: 'antigravity' as const,
                 modelId: model,
                 candidates,
                 deadlineMs: Math.min(
