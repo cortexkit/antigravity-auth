@@ -161,6 +161,8 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
     'Conservative: private-mode native credential fixtures.',
   'packages/e2e-tests/src/v1-unmigrated-upgrade.e2e.test.ts':
     'Upgrade write fence preserves native pool locks and filesystem sidecars.',
+  'packages/e2e-tests/src/plugin-flow.e2e.test.ts':
+    'Private-mode vault approval fixture for the local OAuth admission recheck.',
   'packages/e2e-tests/src/rpc-tui-flow.e2e.test.ts':
     'Port-file removal on disposal of the real RPC server.',
   'packages/e2e-tests/src/setup.cleanup.test.ts':

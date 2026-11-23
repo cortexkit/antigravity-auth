@@ -2770,6 +2770,28 @@ describe('request.ts', () => {
   })
 
   describe('transformAntigravityResponse', () => {
+    const quotaErrorInfo = {
+      '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+      reason: 'QUOTA_EXHAUSTED',
+    }
+    const upstreamHttpError = {
+      code: 400,
+      status: 'INVALID_ARGUMENT',
+      message:
+        'Google refused the Antigravity request. Check the plugin log for details.',
+    }
+    const unconfirmedQuotaError = {
+      code: 412,
+      status: 'FAILED_PRECONDITION',
+      message:
+        'Antigravity refused the request without a stated reason. If this keeps happening, change the agent system prompt or wait before sending another request.',
+    }
+    const quotaError = (resetClause = '') => ({
+      code: 429,
+      status: 'RESOURCE_EXHAUSTED',
+      message: `Antigravity quota has been used up.${resetClause}`,
+    })
+
     describe('Gemini displayed-thinking de-duplication', () => {
       const sse = (events: unknown[][]) =>
         new Response(
@@ -2974,11 +2996,10 @@ describe('request.ts', () => {
             error: { code: number; message: string; status: string }
           }
 
-          expect(transformed.status).toBe(status)
-          expect(errorBody.error.code).toBe(status)
-          expect(errorBody.error.status).toBe(
-            status === 429 ? 'RESOURCE_EXHAUSTED' : 'INVALID_ARGUMENT',
-          )
+          expect(transformed.status).toBe(status === 429 ? 412 : 400)
+          expect(errorBody).toEqual({
+            error: status === 429 ? unconfirmedQuotaError : upstreamHttpError,
+          })
           expect(errorBody.error.message.length).toBeLessThan(4_000)
           expect(errorBody.error.message).not.toContain(schemaMarker)
           expect(errorBody.error.message).not.toMatch(
@@ -3192,11 +3213,12 @@ describe('request.ts', () => {
             details: [
               null,
               123,
-              { '@type': 456 },
+              { '@type': 456, reason: 'MODEL_CAPACITY_EXHAUSTED' },
               {
                 '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                 retryDelay: '15s',
               },
+              quotaErrorInfo,
             ],
           },
         }),
@@ -3210,6 +3232,9 @@ describe('request.ts', () => {
       expect(transformed.status).toBe(429)
       expect(transformed.headers.get('retry-after')).toBe('15')
       expect(transformed.headers.get('retry-after-ms')).toBe('15000')
+      expect(await transformed.json()).toEqual({
+        error: quotaError(' Quota resets in 15s.'),
+      })
     })
 
     it('preserves executor retry timing source precedence (RetryInfo > message > headers)', async () => {
@@ -3220,6 +3245,7 @@ describe('request.ts', () => {
             code: 429,
             message: 'Quota exceeded. Resets in 2h.',
             details: [
+              quotaErrorInfo,
               {
                 '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                 retryDelay: '30s',
@@ -3249,6 +3275,7 @@ describe('request.ts', () => {
           error: {
             code: 429,
             message: 'Quota exceeded. Resets in 45s.',
+            details: [quotaErrorInfo],
           },
         }),
         {
@@ -3272,6 +3299,7 @@ describe('request.ts', () => {
           error: {
             code: 429,
             message: 'Quota exceeded.',
+            details: [quotaErrorInfo],
           },
         }),
         {
@@ -3303,11 +3331,9 @@ describe('request.ts', () => {
         undefined,
         'project-secret-123',
       )
-      expect(transString.status).toBe(401)
+      expect(transString.status).toBe(400)
       const jsonString = await transString.json()
-      expect(jsonString).toMatchObject({
-        error: { code: 401, status: 'UNAUTHENTICATED' },
-      })
+      expect(jsonString).toEqual({ error: upstreamHttpError })
       expect(JSON.stringify(jsonString)).not.toContain('Permission denied for')
       expect(JSON.stringify(jsonString)).not.toContain('project-secret-123')
 
@@ -3319,7 +3345,7 @@ describe('request.ts', () => {
       const transBool = await transformAntigravityResponse(respBool, false)
       expect(transBool.status).toBe(400)
       const jsonBool = await transBool.json()
-      expect(jsonBool).toMatchObject({ error: { code: 400 } })
+      expect(jsonBool).toEqual({ error: upstreamHttpError })
       expect(JSON.stringify(jsonBool)).not.toContain('FAILED')
 
       // Number error
@@ -3328,13 +3354,11 @@ describe('request.ts', () => {
         headers: { 'content-type': 'application/json', 'retry-after': '30' },
       })
       const transNum = await transformAntigravityResponse(respNum, false)
-      expect(transNum.status).toBe(429)
-      expect(transNum.headers.get('retry-after')).toBe('30')
-      expect(transNum.headers.get('retry-after-ms')).toBe('30000')
+      expect(transNum.status).toBe(412)
+      expect(transNum.headers.get('retry-after')).toBeNull()
+      expect(transNum.headers.get('retry-after-ms')).toBeNull()
       const jsonNum = await transNum.json()
-      expect(jsonNum).toMatchObject({
-        error: { code: 429, status: 'RESOURCE_EXHAUSTED' },
-      })
+      expect(jsonNum).toEqual({ error: unconfirmedQuotaError })
 
       // Error array
       const respArr = new Response(
@@ -3352,7 +3376,7 @@ describe('request.ts', () => {
       )
       expect(transArr.status).toBe(400)
       const jsonArr = await transArr.json()
-      expect(jsonArr).toMatchObject({ error: { code: 400 } })
+      expect(jsonArr).toEqual({ error: upstreamHttpError })
       expect(JSON.stringify(jsonArr)).not.toContain('error one')
       expect(JSON.stringify(jsonArr)).not.toContain('project-secret-123')
     })
@@ -3431,6 +3455,7 @@ describe('request.ts', () => {
               code: 429,
               message: `Quota reached for ${secret}. Resets in 2h.`,
               details: [
+                quotaErrorInfo,
                 {
                   '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                   retryDelay: '25s',
@@ -3459,8 +3484,7 @@ describe('request.ts', () => {
       expect(trans.headers.get('retry-after')).toBe('25')
       expect(trans.headers.get('retry-after-ms')).toBe('25000')
       const json = (await trans.json()) as any
-      expect(json).toMatchObject({ error: { code: 429 } })
-      expect(json.error.message).toContain('Quota resets in 25s.')
+      expect(json).toEqual({ error: quotaError(' Quota resets in 25s.') })
       expect(JSON.stringify(json)).not.toContain('preserve-me')
       expect(JSON.stringify(json)).not.toContain(secret)
     })
@@ -3471,6 +3495,7 @@ describe('request.ts', () => {
           error: {
             code: 429,
             message: 'Quota exceeded for project-secret-123',
+            details: [quotaErrorInfo],
           },
           siblingField: 'preserved-sibling',
           siblingConfig: { nested: true },
@@ -3488,7 +3513,7 @@ describe('request.ts', () => {
       const json = (await trans.json()) as any
       expect(json.siblingField).toBeUndefined()
       expect(json.siblingConfig).toBeUndefined()
-      expect(json.error.code).toBe(429)
+      expect(json).toEqual({ error: quotaError() })
       expect(json.error.message).not.toContain('proj****-123')
       expect(json.error.message).not.toContain('project-secret-123')
       expect(json.error.message).not.toContain('[Debug Info]')
@@ -3558,6 +3583,7 @@ describe('request.ts', () => {
           error: {
             code: 429,
             message: 'Quota exceeded for project-secret-123. Resets in 10s.',
+            details: [quotaErrorInfo],
           },
         }),
         {
@@ -3581,6 +3607,7 @@ describe('request.ts', () => {
       expect(trans.headers.get('retry-after')).toBe('10')
       expect(trans.headers.get('retry-after-ms')).toBe('10000')
       const body = (await trans.json()) as any
+      expect(body).toEqual({ error: quotaError(' Quota resets in 10s.') })
       expect(body.error.message).not.toContain('proj****-123')
       expect(body.error.message).not.toContain('project-secret-123')
     })
@@ -3588,7 +3615,7 @@ describe('request.ts', () => {
     it('reads a chunked quota body once and retains validated timing but not diagnostics', async () => {
       const chunk1 = '{"error":{"code":429,"message":"Quota exceeded for '
       const chunk2 = 'project-secret-123 in region us-central1. '
-      const chunk3 = 'Resets in 15s."}}'
+      const chunk3 = `Resets in 15s.","details":[${JSON.stringify(quotaErrorInfo)}]}}`
 
       const bodyStream = new ReadableStream({
         start(controller) {
@@ -3603,7 +3630,7 @@ describe('request.ts', () => {
         status: 429,
         headers: {
           'content-type': 'application/json',
-          'retry-after': '15',
+          'retry-after': '90',
         },
       })
 
@@ -3643,19 +3670,23 @@ describe('request.ts', () => {
       expect(trans.headers.get('retry-after-ms')).toBe('15000')
 
       const json = (await trans.json()) as any
-      expect(json.error.message).toContain(
-        'Antigravity quota has been used up.',
-      )
+      expect(json).toEqual({ error: quotaError(' Quota resets in 15s.') })
       expect(json.error.message).not.toContain('proj****-123')
       expect(json.error.message).not.toContain('project-secret-123')
-      expect(json.error.message).toContain('Quota resets in 15s')
+      expect(json.error.message).not.toContain('us-central1')
 
       await expect(resp.text()).rejects.toThrow('Illegal double consumption')
     })
 
     it('returns canonical application/json content-type for recognized failed SSE with object error', async () => {
-      const sseText =
-        'data: {"error":{"code":429,"message":"Resource exhausted for project-secret-123. Resets in 10s.","status":"RESOURCE_EXHAUSTED"}}\n\n'
+      const sseText = `data: ${JSON.stringify({
+        error: {
+          code: 429,
+          message: 'Resource exhausted for project-secret-123. Resets in 10s.',
+          status: 'RESOURCE_EXHAUSTED',
+          details: [quotaErrorInfo],
+        },
+      })}\n\n`
       const response = new Response(sseText, {
         status: 429,
         headers: {
@@ -3679,16 +3710,23 @@ describe('request.ts', () => {
       expect(trans.headers.get('x-request-id')).toBeNull()
 
       const json = (await trans.json()) as any
-      expect(json.error.code).toBe(429)
+      expect(json).toEqual({ error: quotaError(' Quota resets in 10s.') })
       expect(json.error.message).not.toContain('proj****-123')
       expect(json.error.message).not.toContain('project-secret-123')
-      expect(json.error.message).toContain('Quota resets in 10s')
       expect(json.error.message).not.toContain('[Debug Info]')
     })
 
     it('returns canonical application/json content-type for recognized failed SSE with wrapped error', async () => {
-      const sseText =
-        'data: [{"error":{"code":429,"message":"Quota reached for project-secret-123"}},{"siblingKey":"preserve"}]\n\n'
+      const sseText = `data: ${JSON.stringify([
+        {
+          error: {
+            code: 429,
+            message: 'Quota reached for project-secret-123',
+            details: [quotaErrorInfo],
+          },
+        },
+        { siblingKey: 'preserve' },
+      ])}\n\n`
       const response = new Response(sseText, {
         status: 429,
         headers: {
@@ -3711,8 +3749,9 @@ describe('request.ts', () => {
       expect(trans.headers.get('retry-after-ms')).toBe('20000')
 
       const json = (await trans.json()) as any
-      expect(json).toMatchObject({ error: { code: 429 } })
+      expect(json).toEqual({ error: quotaError(' Quota resets in 20s.') })
       expect(JSON.stringify(json)).not.toContain('siblingKey')
+      expect(JSON.stringify(json)).not.toContain('project-secret-123')
     })
 
     it('discards unrecognized SSE error framing and private server headers', async () => {
@@ -3832,6 +3871,7 @@ describe('request.ts', () => {
             resetAfterMs: 888888,
             retryAfterSeconds: 777777,
             details: [
+              quotaErrorInfo,
               {
                 '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                 retryDelay: '25s',
@@ -3864,6 +3904,7 @@ describe('request.ts', () => {
             resetAfterMs: 888888,
             retryAfterSeconds: 777777,
             details: [
+              quotaErrorInfo,
               {
                 '@type': 'type.googleapis.com/google.rpc.RetryInfo',
                 retryDelay: 1e308,
@@ -3897,6 +3938,7 @@ describe('request.ts', () => {
             retryAfterMs: 999999,
             resetAfterMs: 888888,
             retryAfterSeconds: 777777,
+            details: [quotaErrorInfo],
           },
         }),
         {
@@ -3914,7 +3956,7 @@ describe('request.ts', () => {
       expect(transMessage.headers.get('retry-after')).toBe('20')
       expect(transMessage.headers.get('retry-after-ms')).toBe('20000')
 
-      // 3. Conflicting error fields with true upstream Retry-After header
+      // 4. Conflicting error fields with true upstream Retry-After header
       const respWithHeader = new Response(
         JSON.stringify({
           error: {
@@ -3923,6 +3965,7 @@ describe('request.ts', () => {
             retryAfterMs: 999999,
             resetAfterMs: 888888,
             retryAfterSeconds: 777777,
+            details: [quotaErrorInfo],
           },
         }),
         {

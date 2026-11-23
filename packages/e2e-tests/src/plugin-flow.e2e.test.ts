@@ -35,7 +35,7 @@ import {
   spyOn,
 } from 'bun:test'
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join, sep } from 'node:path'
 
 import {
   type AccountRepository,
@@ -44,6 +44,10 @@ import {
   readAccountStoreBinding,
   resolveAccountStorePaths,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  hostEnrollmentPaths,
+  vaultAuthority,
+} from '@cortexkit/antigravity-auth-core/common-auth/claustrum'
 import { createDefaultAccountStoreOperations } from '../../opencode/src/cli'
 import * as oauthMethodsModule from '../../opencode/src/plugin/oauth-methods'
 import {
@@ -51,6 +55,10 @@ import {
   saveAccountsReplace,
 } from '../../opencode/src/plugin/storage'
 import type { Provider } from '../../opencode/src/plugin/types'
+import {
+  OPENCODE_VAULT_ENROLLMENT_NAME,
+  OPENCODE_VAULT_HOST,
+} from '../../opencode/src/plugin/vault-custody'
 import type { SidebarStateV1 } from '../../opencode/src/sidebar-state'
 import { phase, runDiagnosticCase } from './e2e-phase-diagnostic'
 import { runFetchRouter } from './fetch-router'
@@ -62,6 +70,8 @@ afterAll(cleanupE2eRootsForCurrentFile)
 let harness: E2eHarness | undefined
 
 const FIXED_NOW = Date.parse('2026-07-22T12:00:00.000Z')
+const STREAM_STOP =
+  'data: {"response":{"candidates":[{"finishReason":"STOP"}]}}'
 const casePaths = new Set<string>()
 
 function emptyProvider(): Provider {
@@ -419,6 +429,7 @@ describe('plugin flow (e2e)', () => {
         chunks: [
           'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"hello"}]}}]}}',
           'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":" world"}]}}]}}',
+          STREAM_STOP,
         ],
       })
 
@@ -470,6 +481,7 @@ describe('plugin flow (e2e)', () => {
         model: 'gemini-3-flash',
         chunks: [
           'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"from-b"}]}}]}}',
+          STREAM_STOP,
         ],
       })
 
@@ -606,6 +618,7 @@ describe('plugin flow (e2e)', () => {
         model: 'gemini-3-flash',
         chunks: [
           'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"recovered"}]}}]}}',
+          STREAM_STOP,
         ],
       })
 
@@ -869,7 +882,12 @@ describe('plugin flow (e2e)', () => {
         verifier: 'verifier',
         projectId: 'project-c',
       }))
-      const exchange = mock(async () => fakeSuccess)
+      const exchange = mock<
+        oauthMethodsModule.OAuthMethodDependencies['exchange']
+      >(async (_code, _state, options) => {
+        await options?.admit?.()
+        return fakeSuccess
+      })
       const startListener = mock(async () => {
         throw new Error('headless CLI must not open a listener')
       })
@@ -915,7 +933,12 @@ describe('plugin flow (e2e)', () => {
       expect(await authorization.callback()).toEqual(fakeSuccess)
       expect(authorize).toHaveBeenCalledWith('project-c')
       expect(exchange).toHaveBeenCalledTimes(1)
-      expect(exchange).toHaveBeenCalledWith('code-c', state)
+      expect(exchange).toHaveBeenCalledWith('code-c', state, {
+        admit: expect.any(Function),
+      })
+      const admit = exchange.mock.calls[0]?.[2]?.admit
+      if (!admit) throw new Error('expected exchange admission recheck')
+      await expect(admit()).resolves.toBeUndefined()
       expect(promptAddAnotherAccount).toHaveBeenCalledWith(1)
       expect(startListener).not.toHaveBeenCalled()
       expect(h.server.requests).toHaveLength(0)
@@ -937,6 +960,38 @@ describe('plugin flow (e2e)', () => {
         status: 'present',
         metadata: { projectId: 'project-c', managedProjectId: 'managed-c' },
       })
+
+      const { vaultDir, refusal } = await prepareVaultFolder({
+        accountFile: path,
+      })
+      expect(refusal).toBeUndefined()
+      expect(vaultDir.startsWith(`${dirname(h.testRoot)}${sep}`)).toBe(true)
+      const enrollment = hostEnrollmentPaths({
+        stateDir: vaultDir,
+        host: OPENCODE_VAULT_HOST,
+      })
+      expect(dirname(enrollment.statePath)).toBe(vaultDir)
+      mkdirSync(vaultDir, { recursive: true, mode: 0o700 })
+      // Approval makes the vault authoritative even before a local token file exists.
+      writeFileSync(
+        enrollment.statePath,
+        JSON.stringify({
+          version: 1,
+          phase: 'approved',
+          proposedName: OPENCODE_VAULT_ENROLLMENT_NAME,
+          tokenGeneration: 1,
+          updatedAt: Date.now(),
+        }),
+        { mode: 0o600, flag: 'wx' },
+      )
+      try {
+        expect(
+          await vaultAuthority(enrollment, OPENCODE_VAULT_ENROLLMENT_NAME),
+        ).toBe('vault')
+        await expect(admit()).rejects.toMatchObject({ id: 'authority_changed' })
+      } finally {
+        rmSync(enrollment.statePath)
+      }
     })
   })
 })
