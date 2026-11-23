@@ -4268,9 +4268,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           [...selectedCredentials],
           [...selectedProjectIds],
         )
-        return isUpstreamFailure(error)
-          ? markUpstreamFailure(redacted)
-          : redacted
+        if (isUpstreamFailure(error)) {
+          log.debug('Antigravity transport failed', { error: redacted.message })
+          return new EngineRefusalError('transport_error')
+        }
+        return redacted
       }
       const pending = withRoutingWaitReports(
         routing,

@@ -7,6 +7,7 @@ import {
   getPublicModelDefinitions,
   hostFailure,
   loadCommonAuthPiSlot,
+  redactCredentialText,
   refreshAntigravityToken,
   vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
@@ -99,7 +100,10 @@ async function loginAntigravity(
   const result = await exchangeAntigravity(rawCode, state, { admit })
   await admit()
   if (result.type !== 'success') {
-    throw new Error(`Antigravity OAuth exchange failed: ${result.error}`)
+    failureLog.debug('Antigravity OAuth exchange failed', {
+      error: redactCredentialText(result.error, [rawCode, state]),
+    })
+    throw new EngineRefusalError('account_reauthorize')
   }
 
   return {

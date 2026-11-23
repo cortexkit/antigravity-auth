@@ -2,7 +2,6 @@ import { describe, expect, it, spyOn } from 'bun:test'
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { redactCredentialError } from '@cortexkit/antigravity-auth-core'
 import type {
   SignatureStore,
   StreamingCallbacks,
@@ -2882,7 +2881,7 @@ describe('request.ts', () => {
         expect(text).not.toContain('Cumulative step one, then two')
       })
     })
-    it('masks project IDs in failed request text', async () => {
+    it('omits the upstream message and project from a final HTTP refusal', async () => {
       const projectId = 'my-real-project-123456'
       const response = new Response(
         JSON.stringify({
@@ -2904,13 +2903,11 @@ describe('request.ts', () => {
       }
 
       expect(error.error.message).not.toContain(projectId)
-      expect(error.error.message).toContain(
-        'Upstream rejected project my-r****3456',
-      )
-      expect(error.error.message).toContain('Project: my-r****3456')
+      expect(error.error.message).not.toContain('Upstream rejected project')
+      expect(error.error.message).not.toContain('my-r****3456')
     })
 
-    it('keeps Unknown when a failed request has no project ID', async () => {
+    it('keeps project diagnostics out of a refusal without a project ID', async () => {
       const transformed = await transformAntigravityResponse(
         new Response(
           JSON.stringify({ error: { message: 'Upstream rejected' } }),
@@ -2927,7 +2924,7 @@ describe('request.ts', () => {
         error: { message: string }
       }
 
-      expect(error.error.message).toContain('Project: Unknown')
+      expect(error.error.message).not.toContain('Project:')
     })
 
     it('bounds tool-rich HTTP 400 and 429 errors without tool JSON', async () => {
@@ -3026,19 +3023,10 @@ describe('request.ts', () => {
           )
           expect(errorBody.error.message.length).toBeLessThan(4_000)
           expect(errorBody.error.message).not.toContain(schemaMarker)
-          expect(errorBody.error.message).toContain('[Debug Info]')
-          expect(errorBody.error.message).toContain('Requested Model:')
-          expect(errorBody.error.message).toContain('Effective Model:')
-          expect(errorBody.error.message).toContain('Project: tool****ject')
-          expect(errorBody.error.message).toContain('Endpoint:')
-          expect(errorBody.error.message).toContain(`Status: ${status}`)
-          expect(errorBody.error.message).toContain(
-            `Request ID: request-${status}`,
+          expect(errorBody.error.message).not.toMatch(
+            /Debug Info|Requested Model:|Effective Model:|Project:|Endpoint:|Status:|Request ID:|Tool Debug/,
           )
-          expect(errorBody.error.message).toContain('Tool Debug Missing: 0')
-          expect(errorBody.error.message).toContain(
-            'Tool Debug Summary: decl=debug_tool_000,src=function/custom,hasSchema=y',
-          )
+          expect(transformed.headers.get('x-request-id')).toBeNull()
         }
 
         await closeDebugLog()
@@ -3055,7 +3043,7 @@ describe('request.ts', () => {
       }
     })
 
-    it('injects [ThinkingResolution] details when debug_tui is enabled', async () => {
+    it('keeps refusal diagnostics private even with debug_tui enabled', async () => {
       initializeDebug({
         ...DEFAULT_CONFIG,
         debug: false,
@@ -3095,12 +3083,12 @@ describe('request.ts', () => {
       )
 
       const bodyText = await transformed.text()
-      expect(bodyText).toContain('[ThinkingResolution]')
-      expect(bodyText).toContain('status=500 INTERNAL')
-      expect(bodyText).toContain(
+      expect(bodyText).not.toContain('[ThinkingResolution]')
+      expect(bodyText).not.toContain('status=500 INTERNAL')
+      expect(bodyText).not.toContain(
         'endpoint=https://daily-cloudcode-pa.googleapis.com/v1internal:generateContent',
       )
-      expect(bodyText).toContain('account=test@example.com')
+      expect(bodyText).not.toContain('account=test@example.com')
 
       initializeDebug(DEFAULT_CONFIG)
     })
@@ -3134,7 +3122,7 @@ describe('request.ts', () => {
       )
 
       await expect(transformed.text()).resolves.toContain(
-        'Request contains an invalid argument.',
+        'Google refused the Antigravity request.',
       )
     })
 
@@ -3168,7 +3156,7 @@ describe('request.ts', () => {
       ).rejects.toMatchObject({ message: 'THINKING_RECOVERY_NEEDED' })
     })
 
-    it('sanitizes and validates retry headers for non-2xx responses without error envelope', async () => {
+    it('does not pass retry hints from a generic server refusal', async () => {
       const response = new Response(
         JSON.stringify([{ unexpected: 'array-response' }]),
         {
@@ -3182,9 +3170,9 @@ describe('request.ts', () => {
       )
 
       const transformed = await transformAntigravityResponse(response, false)
-      expect(transformed.status).toBe(503)
-      expect(transformed.headers.get('retry-after')).toBe('50')
-      expect(transformed.headers.get('retry-after-ms')).toBe('50000')
+      expect(transformed.status).toBe(400)
+      expect(transformed.headers.get('retry-after')).toBeNull()
+      expect(transformed.headers.get('retry-after-ms')).toBeNull()
     })
 
     it('handles malformed details entries with non-string @type without throwing', async () => {
@@ -3294,7 +3282,7 @@ describe('request.ts', () => {
       expect(transformedHeaders.headers.get('retry-after-ms')).toBe('60000')
     })
 
-    it('preserves primitive string, boolean, number, and array error fields untouched except redaction', async () => {
+    it('projects primitive and array upstream errors into the native refusal envelope', async () => {
       // String error
       const respString = new Response(
         JSON.stringify({ error: 'Permission denied for project-secret-123' }),
@@ -3307,11 +3295,12 @@ describe('request.ts', () => {
         undefined,
         'project-secret-123',
       )
-      expect(transString.status).toBe(403)
+      expect(transString.status).toBe(401)
       const jsonString = await transString.json()
-      expect(jsonString).toEqual({
-        error: 'Permission denied for proj****-123',
+      expect(jsonString).toMatchObject({
+        error: { code: 401, status: 'UNAUTHENTICATED' },
       })
+      expect(JSON.stringify(jsonString)).not.toContain('Permission denied for')
       expect(JSON.stringify(jsonString)).not.toContain('project-secret-123')
 
       // Boolean error
@@ -3320,9 +3309,10 @@ describe('request.ts', () => {
         { status: 500, headers: { 'content-type': 'application/json' } },
       )
       const transBool = await transformAntigravityResponse(respBool, false)
-      expect(transBool.status).toBe(500)
+      expect(transBool.status).toBe(400)
       const jsonBool = await transBool.json()
-      expect(jsonBool).toEqual({ error: true, status: 'FAILED' })
+      expect(jsonBool).toMatchObject({ error: { code: 400 } })
+      expect(JSON.stringify(jsonBool)).not.toContain('FAILED')
 
       // Number error
       const respNum = new Response(JSON.stringify({ error: 429 }), {
@@ -3334,7 +3324,9 @@ describe('request.ts', () => {
       expect(transNum.headers.get('retry-after')).toBe('30')
       expect(transNum.headers.get('retry-after-ms')).toBe('30000')
       const jsonNum = await transNum.json()
-      expect(jsonNum).toEqual({ error: 429 })
+      expect(jsonNum).toMatchObject({
+        error: { code: 429, status: 'RESOURCE_EXHAUSTED' },
+      })
 
       // Error array
       const respArr = new Response(
@@ -3352,9 +3344,8 @@ describe('request.ts', () => {
       )
       expect(transArr.status).toBe(400)
       const jsonArr = await transArr.json()
-      expect(jsonArr).toEqual({
-        error: ['error one in proj****-123', 'error two'],
-      })
+      expect(jsonArr).toMatchObject({ error: { code: 400 } })
+      expect(JSON.stringify(jsonArr)).not.toContain('error one')
       expect(JSON.stringify(jsonArr)).not.toContain('project-secret-123')
     })
 
@@ -3376,7 +3367,7 @@ describe('request.ts', () => {
       ).rejects.toMatchObject({ message: 'THINKING_RECOVERY_NEEDED' })
     })
 
-    it('sets prompt_too_long context error header on primitive error string without coercing', async () => {
+    it('recognizes overflow in a primitive upstream error without exposing it', async () => {
       const response = new Response(
         JSON.stringify({ error: 'Prompt is too long for model context' }),
         {
@@ -3385,12 +3376,14 @@ describe('request.ts', () => {
         },
       )
       const transformed = await transformAntigravityResponse(response, false)
-      expect(transformed.status).toBe(400)
-      expect(transformed.headers.get('x-antigravity-context-error')).toBe(
-        'prompt_too_long',
-      )
+      expect(transformed.status).toBe(413)
       const json = await transformed.json()
-      expect(json).toEqual({ error: 'Prompt is too long for model context' })
+      expect(json).toMatchObject({
+        error: {
+          code: 413,
+          message: 'Prompt is too long: context length exceeded.',
+        },
+      })
     })
 
     it('detects thinking recovery and context error on malformed JSON responses', async () => {
@@ -3406,7 +3399,7 @@ describe('request.ts', () => {
         transformAntigravityResponse(malformedThinking, false),
       ).rejects.toMatchObject({ message: 'THINKING_RECOVERY_NEEDED' })
 
-      // Malformed JSON containing context length sets header
+      // Malformed JSON with overflow evidence still produces a context-length error.
       const malformedContext = new Response(
         '{ malformed json: prompt is too long',
         {
@@ -3418,12 +3411,10 @@ describe('request.ts', () => {
         malformedContext,
         false,
       )
-      expect(transContext.headers.get('x-antigravity-context-error')).toBe(
-        'prompt_too_long',
-      )
+      expect(transContext.status).toBe(413)
     })
 
-    it('consistent real project masking and wrapped RetryInfo headers across error types', async () => {
+    it('uses wrapped RetryInfo without exposing sibling fields or project identifiers', async () => {
       const secret = 'my-project-secret-456'
       const wrapped = new Response(
         JSON.stringify([
@@ -3460,13 +3451,13 @@ describe('request.ts', () => {
       expect(trans.headers.get('retry-after')).toBe('25')
       expect(trans.headers.get('retry-after-ms')).toBe('25000')
       const json = (await trans.json()) as any
-      expect(Array.isArray(json)).toBe(true)
-      expect(json[0].siblingKey).toBe('preserve-me')
-      expect(json[0].error.message).toContain('my-p****-456')
-      expect(json[0].error.message).not.toContain(secret)
+      expect(json).toMatchObject({ error: { code: 429 } })
+      expect(json.error.message).toContain('Quota resets in 25s.')
+      expect(JSON.stringify(json)).not.toContain('preserve-me')
+      expect(JSON.stringify(json)).not.toContain(secret)
     })
 
-    it('preserves siblings of wrapped error objects while injecting debug information', async () => {
+    it('omits siblings, project identifiers and debug information from quota refusals', async () => {
       const resp = new Response(
         JSON.stringify({
           error: {
@@ -3487,15 +3478,15 @@ describe('request.ts', () => {
       )
       expect(trans.status).toBe(429)
       const json = (await trans.json()) as any
-      expect(json.siblingField).toBe('preserved-sibling')
-      expect(json.siblingConfig).toEqual({ nested: true })
+      expect(json.siblingField).toBeUndefined()
+      expect(json.siblingConfig).toBeUndefined()
       expect(json.error.code).toBe(429)
-      expect(json.error.message).toContain('proj****-123')
+      expect(json.error.message).not.toContain('proj****-123')
       expect(json.error.message).not.toContain('project-secret-123')
-      expect(json.error.message).toContain('[Debug Info]')
+      expect(json.error.message).not.toContain('[Debug Info]')
     })
 
-    it('preserves non-JSON non-2xx plain text and HTML error responses with redaction', async () => {
+    it('translates plain text and HTML errors without exposing diagnostics', async () => {
       // Plain text 502
       const plainResp = new Response(
         '502 Bad Gateway: Upstream failure for project-secret-123',
@@ -3508,12 +3499,10 @@ describe('request.ts', () => {
         undefined,
         'project-secret-123',
       )
-      expect(transPlain.status).toBe(502)
-      expect(transPlain.headers.get('content-type')).toContain('text/plain')
+      expect(transPlain.status).toBe(400)
+      expect(transPlain.headers.get('content-type')).toBe('application/json')
       const plainText = await transPlain.text()
-      expect(plainText).toContain(
-        '502 Bad Gateway: Upstream failure for proj****-123',
-      )
+      expect(plainText).not.toContain('502 Bad Gateway')
       expect(plainText).not.toContain('project-secret-123')
 
       // HTML 500
@@ -3528,14 +3517,15 @@ describe('request.ts', () => {
         undefined,
         'project-secret-123',
       )
-      expect(transHtml.status).toBe(500)
-      expect(transHtml.headers.get('content-type')).toContain('text/html')
+      expect(transHtml.status).toBe(400)
+      expect(transHtml.headers.get('content-type')).toBe('application/json')
       const htmlText = await transHtml.text()
-      expect(htmlText).toContain('Internal error in proj****-123')
+      expect(htmlText).not.toContain('<html>')
+      expect(htmlText).not.toContain('Internal error in')
       expect(htmlText).not.toContain('project-secret-123')
     })
 
-    it('handles malformed JSON with safe fallback and original buffered body', async () => {
+    it('handles malformed JSON without returning the buffered upstream body', async () => {
       const malformedResp = new Response(
         '{ invalid json with project-secret-123',
         { status: 500, headers: { 'content-type': 'application/json' } },
@@ -3547,10 +3537,10 @@ describe('request.ts', () => {
         undefined,
         'project-secret-123',
       )
-      expect(transMalformed.status).toBe(500)
+      expect(transMalformed.status).toBe(400)
       const json = (await transMalformed.json()) as any
-      expect(json.error.code).toBe(500)
-      expect(json.error.message).toContain('{ invalid json with proj****-123')
+      expect(json.error.code).toBe(400)
+      expect(json.error.message).not.toContain('invalid json with')
       expect(json.error.message).not.toContain('project-secret-123')
     })
 
@@ -3583,11 +3573,11 @@ describe('request.ts', () => {
       expect(trans.headers.get('retry-after')).toBe('10')
       expect(trans.headers.get('retry-after-ms')).toBe('10000')
       const body = (await trans.json()) as any
-      expect(body.error.message).toContain('proj****-123')
+      expect(body.error.message).not.toContain('proj****-123')
       expect(body.error.message).not.toContain('project-secret-123')
     })
 
-    it('reads chunked body only once and preserves status and diagnostic information', async () => {
+    it('reads a chunked quota body once and retains validated timing but not diagnostics', async () => {
       const chunk1 = '{"error":{"code":429,"message":"Quota exceeded for '
       const chunk2 = 'project-secret-123 in region us-central1. '
       const chunk3 = 'Resets in 15s."}}'
@@ -3645,10 +3635,12 @@ describe('request.ts', () => {
       expect(trans.headers.get('retry-after-ms')).toBe('15000')
 
       const json = (await trans.json()) as any
-      expect(json.error.message).toContain('Quota exceeded for')
-      expect(json.error.message).toContain('proj****-123')
+      expect(json.error.message).toContain(
+        'Antigravity quota has been used up.',
+      )
+      expect(json.error.message).not.toContain('proj****-123')
       expect(json.error.message).not.toContain('project-secret-123')
-      expect(json.error.message).toContain('quota resets in 15s')
+      expect(json.error.message).toContain('Quota resets in 15s')
 
       await expect(resp.text()).rejects.toThrow('Illegal double consumption')
     })
@@ -3676,14 +3668,14 @@ describe('request.ts', () => {
       expect(trans.headers.get('content-type')).toBe('application/json')
       expect(trans.headers.get('retry-after')).toBe('10')
       expect(trans.headers.get('retry-after-ms')).toBe('10000')
-      expect(trans.headers.get('x-request-id')).toBe('req-sse-fail-1')
+      expect(trans.headers.get('x-request-id')).toBeNull()
 
       const json = (await trans.json()) as any
       expect(json.error.code).toBe(429)
-      expect(json.error.message).toContain('proj****-123')
+      expect(json.error.message).not.toContain('proj****-123')
       expect(json.error.message).not.toContain('project-secret-123')
-      expect(json.error.message).toContain('quota resets in 10s')
-      expect(json.error.message).toContain('[Debug Info]')
+      expect(json.error.message).toContain('Quota resets in 10s')
+      expect(json.error.message).not.toContain('[Debug Info]')
     })
 
     it('returns canonical application/json content-type for recognized failed SSE with wrapped error', async () => {
@@ -3711,11 +3703,11 @@ describe('request.ts', () => {
       expect(trans.headers.get('retry-after-ms')).toBe('20000')
 
       const json = (await trans.json()) as any
-      expect(Array.isArray(json)).toBe(true)
-      expect(json[1].siblingKey).toBe('preserve')
+      expect(json).toMatchObject({ error: { code: 429 } })
+      expect(JSON.stringify(json)).not.toContain('siblingKey')
     })
 
-    it('retains text/event-stream content-type and framing on raw/unrecognized SSE fallback', async () => {
+    it('discards unrecognized SSE error framing and private server headers', async () => {
       const rawText =
         'event: custom_failure\ndata: unparseable non-json raw error for project-secret-123\n\n'
       const response = new Response(rawText, {
@@ -3734,16 +3726,16 @@ describe('request.ts', () => {
         'project-secret-123',
       )
 
-      expect(trans.status).toBe(500)
-      expect(trans.headers.get('content-type')).toBe('text/event-stream')
-      expect(trans.headers.get('x-server')).toBe('test-gateway')
+      expect(trans.status).toBe(400)
+      expect(trans.headers.get('content-type')).toBe('application/json')
+      expect(trans.headers.get('x-server')).toBeNull()
       const bodyText = await trans.text()
-      expect(bodyText).toContain('event: custom_failure')
-      expect(bodyText).toContain('proj****-123')
+      expect(bodyText).not.toContain('event: custom_failure')
+      expect(bodyText).not.toContain('proj****-123')
       expect(bodyText).not.toContain('project-secret-123')
     })
 
-    it('rejects on body read stream error preserving original status, scrubbed metadata, and plain headers record', async () => {
+    it('removes original status and credentials when the refusal body cannot be read', async () => {
       const secretJwt =
         'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgN'
       const secretBearer = 'Bearer ya29.a0ARrdaM-secret-bearer-token'
@@ -3770,56 +3762,32 @@ describe('request.ts', () => {
         },
       })
 
-      let caughtError: any = null
-      try {
-        await transformAntigravityResponse(
-          resp,
-          false,
-          null,
-          undefined,
-          'project-secret-123',
-        )
-      } catch (err) {
-        caughtError = err
-      }
-
-      expect(caughtError).toBeInstanceOf(Error)
-      expect(caughtError.statusCode).toBe(429)
-      expect(caughtError.status).toBe(429)
-      expect(caughtError.statusText).toBe('Too Many Requests')
-
-      // Plain record headers assertions
-      expect(caughtError.headers).toBeTypeOf('object')
-      expect(Array.isArray(caughtError.headers)).toBe(false)
-      expect(caughtError.headers['retry-after']).toBe('30')
-      expect(caughtError.headers['retry-after-ms']).toBe('30000')
-      expect(caughtError.headers['x-request-id']).toBe('req-read-err-429')
-      expect(caughtError.headers['x-auth-secret']).toBe(syntheticHeaderSecret)
-
-      // Message and cause credential scrubbing assertions
-      expect(caughtError.message).toContain('Failed to read response body:')
-      expect(caughtError.message).toContain('[credential]')
-      expect(caughtError.message).toContain('proj****-123')
-      expect(caughtError.message).not.toContain(secretBearer)
-      expect(caughtError.message).not.toContain(secretJwt)
-      expect(caughtError.message).not.toContain('project-secret-123')
-
-      if (caughtError.cause) {
-        expect(caughtError.cause.message).not.toContain(secretBearer)
-        expect(caughtError.cause.message).not.toContain(secretJwt)
-        expect(caughtError.cause.message).not.toContain('project-secret-123')
-      }
-
-      // Downstream outer credential redactor must scrub synthetic credential from plain header record
-      const safeScrubbed = redactCredentialError(caughtError, [
+      const refusal = await transformAntigravityResponse(
+        resp,
+        false,
+        null,
+        undefined,
+        'project-secret-123',
+      )
+      expect(refusal.status).toBe(412)
+      expect(refusal.headers.get('retry-after')).toBeNull()
+      expect(refusal.headers.get('retry-after-ms')).toBeNull()
+      expect(refusal.headers.get('x-request-id')).toBeNull()
+      expect(refusal.headers.get('x-auth-secret')).toBeNull()
+      const text = await refusal.text()
+      expect(text).toContain('Antigravity could not communicate with Google.')
+      for (const marker of [
+        secretBearer,
+        secretJwt,
         syntheticHeaderSecret,
-      ]) as any
-      expect(safeScrubbed.headers['x-auth-secret']).toBe('[credential]')
-      expect(safeScrubbed.headers['retry-after']).toBe('30')
-      expect(safeScrubbed.headers['x-request-id']).toBe('req-read-err-429')
+        'project-secret-123',
+        'Stream aborted',
+      ]) {
+        expect(text).not.toContain(marker)
+      }
     })
 
-    it('rejects on body read stream error for status 503 and removes invalid retry headers', async () => {
+    it('does not attach retry metadata to a body read failure at a server status', async () => {
       const errorStream = new ReadableStream({
         pull(controller) {
           controller.error(new Error('Backend socket abruptly severed'))
@@ -3836,23 +3804,12 @@ describe('request.ts', () => {
         },
       })
 
-      let caughtError: any = null
-      try {
-        await transformAntigravityResponse(resp, false)
-      } catch (err) {
-        caughtError = err
-      }
-
-      expect(caughtError).toBeInstanceOf(Error)
-      expect(caughtError.statusCode).toBe(503)
-      expect(caughtError.status).toBe(503)
-      expect(caughtError.statusText).toBe('Service Unavailable')
-
-      // Validated retry header pair derived from valid ms (12500ms -> 13s)
-      expect(caughtError.headers['retry-after']).toBe('13')
-      expect(caughtError.headers['retry-after-ms']).toBe('12500')
-      expect(caughtError.headers['retry-after']).not.toBe(
-        'invalid-non-numeric-value',
+      const refusal = await transformAntigravityResponse(resp, false)
+      expect(refusal.status).toBe(412)
+      expect(refusal.headers.get('retry-after')).toBeNull()
+      expect(refusal.headers.get('retry-after-ms')).toBeNull()
+      expect(await refusal.text()).not.toContain(
+        'Backend socket abruptly severed',
       )
     })
 

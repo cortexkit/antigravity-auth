@@ -30,7 +30,9 @@ function refusal<Id extends string>(
       late: options.late ?? false,
     },
     pi: { event: 'error', stopReason: options.aborted ? 'aborted' : 'error' },
-    rpcStatus: options.rpcStatus ?? 'FAILED_PRECONDITION',
+    rpcStatus:
+      options.rpcStatus ??
+      (status === 400 ? 'INVALID_ARGUMENT' : 'FAILED_PRECONDITION'),
   } as const
 }
 

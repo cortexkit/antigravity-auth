@@ -361,7 +361,8 @@ const createAntigravityPluginRuntime =
     }
     const mayRunLocalAccounts = async () =>
       (await readAuthority()) === 'local' &&
-      (await authLoader.accountStore()).status !== 'migration-required'
+      (await authLoader.accountStore()).status !== 'migration-required' &&
+      (await readAuthority()) === 'local'
     const quotaManager = createOpenCodeQuotaManager(client, providerId, {
       // Route quota fetches through the injected transport so e2e and
       // custom-host deployments stay on the loopback/mock server for both

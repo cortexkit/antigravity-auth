@@ -1268,7 +1268,7 @@ export function createGaRpcActivation(
     run: (signal: AbortSignal) => Promise<T>,
   ): Promise<T> => {
     const controller = new AbortController()
-    const forward = () => controller.abort(signal?.reason)
+    const forward = () => controller.abort(new EngineRefusalError('cancelled'))
     if (signal?.aborted) forward()
     else signal?.addEventListener('abort', forward, { once: true })
     const done = run(controller.signal)

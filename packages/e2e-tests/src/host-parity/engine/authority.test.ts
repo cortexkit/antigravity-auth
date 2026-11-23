@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test'
+import { expect, spyOn, test } from 'bun:test'
 import { dirname, join } from 'node:path'
 import * as engine from '@cortexkit/antigravity-auth-core/engine'
 import { createGaPoolLogin } from '../../../../opencode/src/ga/server/pool-login.ts'
@@ -11,6 +11,7 @@ import { createRequestExecutor } from '../../../../opencode/src/plugin/shared/re
 import {
   CHAT_INIT,
   harness,
+  routedTime,
   STREAM_URL,
 } from '../../../../opencode/src/plugin/shared/request-services-harness.test.ts'
 import { CUSTODY_PROVIDER_KEY_MARKER } from '../../../../pi/src/index.ts'
@@ -44,6 +45,65 @@ const credentials = {
 }
 
 for (const target of ['vault', 'unreadable'] as const) {
+  test(`a capacity retry cannot regenerate credentials or send after switching to ${target}`, async () => {
+    let authority: string = 'local'
+    let notices = 0
+    const stopped = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const clock = routedTime(1_000, 2_000)
+    const random = spyOn(Math, 'random').mockReturnValue(0.5)
+    const fixture = harness({
+      config: { quiet_mode: false },
+      async respond() {
+        return Response.json(
+          {
+            error: {
+              status: 'UNAVAILABLE',
+              details: [{ reason: 'MODEL_CAPACITY_EXHAUSTED' }],
+            },
+          },
+          { status: 503 },
+        )
+      },
+      async notify(message) {
+        if (
+          /server busy|waiting for capacity/i.test(message) &&
+          ++notices === 2
+        ) {
+          stopped.resolve()
+          await release.promise
+        }
+      },
+    })
+    const regenerate = spyOn(fixture.pool, 'regenerateAccountFingerprint')
+    const executor = createRequestExecutor({
+      ...fixture.deps,
+      async assertAdmission() {
+        if (authority !== 'local') throw admissionRefusal()
+      },
+    })
+    try {
+      const done = executor
+        .execute(STREAM_URL, CHAT_INIT())
+        .catch((error: Error) => error.message)
+      expect(
+        await Promise.race([stopped.promise.then(() => 'waiting'), done]),
+      ).toBe('waiting')
+      authority = target
+      release.resolve()
+      expect(await done).toBe(authorityMessage)
+      expect(regenerate).not.toHaveBeenCalled()
+      expect(fixture.calls).toHaveLength(2)
+    } finally {
+      release.resolve()
+      await executor.dispose()
+      await fixture.pool.dispose()
+      regenerate.mockRestore()
+      random.mockRestore()
+      clock.restore()
+    }
+  })
+
   test(`OpenCode's proactive refresh discards its result after switching to ${target}`, async () => {
     let authority: string = 'local'
     const fixture = harness()
@@ -405,7 +465,7 @@ for (const target of ['vault', 'unreadable'] as const) {
         })
       }) as typeof fetch
       const completion = provider
-        .oauth!.refreshToken(native, {})
+        .oauth!.refreshToken(native, new AbortController().signal)
         .catch((error: Error) => error.message)
       await exchangeEntered.promise
       if (target === 'vault') await adapter.switchToVault()
