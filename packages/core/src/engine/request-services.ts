@@ -3615,6 +3615,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                       model,
                       rateLimitReason,
                       serverRetryMs,
+                      config.failure_ttl_seconds * 1000,
                     )
                     await routingSleep(effectiveDelayMs, 'account_limit')
                     i -= 1
