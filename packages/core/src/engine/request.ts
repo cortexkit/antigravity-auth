@@ -2840,9 +2840,7 @@ async function transformAntigravityResponseIn(
         lower,
       )
     ) {
-      const refusal = engineRefusalResponse('context_overflow')
-      refusal.headers.set('x-antigravity-context-error', 'prompt_too_long')
-      return refusal
+      return engineRefusalResponse('context_overflow')
     }
     if (response.status === 429) {
       const retry = resolveRetryMetadata({

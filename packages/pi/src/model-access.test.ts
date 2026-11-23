@@ -28,11 +28,7 @@ import type {
   PiVaultSetup,
   PiVaultSetupStatus,
 } from './vault-setup.ts'
-import {
-  createPiVaultSend,
-  type PiVaultAccountSource,
-  PiVaultSendError,
-} from './vault-source.ts'
+import { createPiVaultSend, type PiVaultAccountSource } from './vault-source.ts'
 
 const ROUTE: VaultRouteRef = Object.freeze({
   routeId: 'vault:a',
@@ -133,7 +129,7 @@ describe('Pi vault sends and account_models', () => {
       new AbortController().signal,
       'antigravity-gemini-4-carbon',
     )
-    await expect(refused).rejects.toBeInstanceOf(PiVaultSendError)
+    await expect(refused).rejects.toMatchObject({ id: 'model_not_allowed' })
     await expect(refused).rejects.toThrow(PI_ACCOUNT_MODELS_REFUSAL)
     expect(sends).toEqual([])
     expect(dispatched).toEqual([])

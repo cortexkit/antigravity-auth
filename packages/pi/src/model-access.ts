@@ -29,6 +29,7 @@ import {
   AntigravityMenuRefusal,
 } from '@cortexkit/antigravity-auth-core'
 import type { SettingsHandle } from '@cortexkit/antigravity-auth-core/common-auth/settings'
+import { ENGINE_REFUSALS } from '@cortexkit/antigravity-auth-core/engine'
 import type {
   AccountModels,
   AppliedProtection,
@@ -47,8 +48,7 @@ type SettingsModule =
 type PolicyModule = typeof import('@cortexkit/antigravity-auth-core/settings')
 
 /** The vault-mode refusal for a model the serving account's list forbids. */
-export const PI_ACCOUNT_MODELS_REFUSAL =
-  'This vault account is set not to serve this model (account_models in antigravity-auth.jsonc). Choose another model or account, or change Account models in /antigravity. No request was sent.'
+export const PI_ACCOUNT_MODELS_REFUSAL = ENGINE_REFUSALS.model_not_allowed.text
 
 /** Fixed text when Pi would have to create the settings file to save a list. */
 export const PI_ACCOUNT_MODELS_NO_FILE =

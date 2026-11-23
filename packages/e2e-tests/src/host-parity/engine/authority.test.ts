@@ -5,6 +5,9 @@ import { createGaPoolLogin } from '../../../../opencode/src/ga/server/pool-login
 import { createAccountCommandOAuthService } from '../../../../opencode/src/plugin/account-command-oauth.ts'
 import { DEFAULT_CONFIG } from '../../../../opencode/src/plugin/config/index.ts'
 import { createFetchInterceptor } from '../../../../opencode/src/plugin/fetch-interceptor.ts'
+import { createLogger } from '../../../../opencode/src/plugin/logger.ts'
+import { createLocationProactiveRefreshQueue } from '../../../../opencode/src/plugin/refresh-queue.ts'
+import { createRequestExecutor } from '../../../../opencode/src/plugin/shared/request-executor.ts'
 import {
   CHAT_INIT,
   harness,
@@ -40,6 +43,70 @@ const credentials = {
 }
 
 for (const target of ['vault', 'unreadable'] as const) {
+  test(`OpenCode's proactive refresh discards its result after switching to ${target}`, async () => {
+    let authority: string = 'local'
+    const fixture = harness()
+    const account = fixture.pool.getAccounts()[0]!
+    account.expires = Date.now() + 60_000
+    let updates = 0
+    let saves = 0
+    let subsequentReads = 0
+    const stopped = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const queue = createLocationProactiveRefreshQueue(
+      {
+        logger: createLogger('authority-regression'),
+        async refreshToken(auth) {
+          stopped.resolve()
+          await release.promise
+          return { ...auth, access: 'refreshed-access' }
+        },
+      },
+      { mayRun: async () => authority === 'local' },
+    )
+    queue.setAccountManager({
+      getAccounts() {
+        if (authority !== 'local') subsequentReads++
+        return [account]
+      },
+      toAuthDetails: (entry) => fixture.pool.toAuthDetails(entry),
+      updateFromAuth() {
+        updates++
+      },
+      async saveToDisk() {
+        saves++
+      },
+    })
+    const realTimer = globalThis.setTimeout
+    let invoke: (() => void) | undefined
+    let displacedTimer: ReturnType<typeof setTimeout> | undefined
+    try {
+      globalThis.setTimeout = ((callback: () => void, delay?: number) => {
+        invoke = callback
+        displacedTimer = realTimer(() => {}, delay)
+        return displacedTimer
+      }) as typeof setTimeout
+      try {
+        queue.start()
+      } finally {
+        globalThis.setTimeout = realTimer
+      }
+      clearTimeout(displacedTimer)
+      expect(invoke).toBeFunction()
+      invoke?.()
+      await stopped.promise
+      const settling = Reflect.get(queue, 'inflightRefresh') as Promise<void>
+      authority = target
+      release.resolve()
+      await settling
+      expect([subsequentReads, updates, saves]).toEqual([0, 0, 0])
+    } finally {
+      release.resolve()
+      await queue.dispose()
+      await fixture.pool.dispose()
+    }
+  })
+
   test(`OpenCode 1 selects no sender after the host auth read switches to ${target}`, async () => {
     let authority: string = 'local'
     const fixture = harness()
@@ -152,7 +219,7 @@ for (const target of ['vault', 'unreadable'] as const) {
     const original = fixture.deps.credentials
     if (original.domain !== 'local')
       throw new Error('Expected the local fixture')
-    const executor = engine.createRequestExecutor({
+    const executor = createRequestExecutor({
       ...fixture.deps,
       async assertAdmission() {
         if (authority !== 'local') throw admissionRefusal()
@@ -200,7 +267,7 @@ for (const target of ['vault', 'unreadable'] as const) {
     const original = fixture.deps.credentials
     if (original.domain !== 'local')
       throw new Error('Expected the local fixture')
-    const executor = engine.createRequestExecutor({
+    const executor = createRequestExecutor({
       ...fixture.deps,
       async assertAdmission() {
         if (authority !== 'local') throw admissionRefusal()
@@ -297,7 +364,9 @@ for (const target of ['vault', 'unreadable'] as const) {
     try {
       const attempt = await service.start(false)
       const completion = attempt
-        .paste('fixture-code')
+        .paste(
+          'http://localhost:51121/oauth-callback?state=encoded-state&code=fixture-code',
+        )
         .catch((error: Error) => error.message)
       await exchangeEntered.promise
       authority = target

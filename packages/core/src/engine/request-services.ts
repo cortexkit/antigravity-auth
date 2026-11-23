@@ -3011,6 +3011,16 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               await deadline.wait(() =>
                 observe(() => {
                   const headers = new Headers()
+                  const type = response.headers.get('content-type')
+                  if (
+                    type === 'application/json' ||
+                    type === 'text/event-stream' ||
+                    type === 'text/plain'
+                  )
+                    headers.set('content-type', type)
+                  const length = response.headers.get('content-length')
+                  if (length && /^\d+$/.test(length))
+                    headers.set('content-length', length)
                   for (const key of ['retry-after', 'retry-after-ms']) {
                     const value = response.headers.get(key)
                     if (value && /^\d+(?:\.\d+)?$/.test(value))

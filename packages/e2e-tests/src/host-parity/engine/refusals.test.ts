@@ -2,8 +2,10 @@ import { expect, test } from 'bun:test'
 import * as engine from '@cortexkit/antigravity-auth-core/engine'
 import { isContextOverflow } from '@earendil-works/pi-ai'
 import { conversation } from '../cases.ts'
+import { Environment } from '../environment.ts'
 import { candidate, sse } from '../fixtures.ts'
 import { google2 } from '../native-google.ts'
+import { piAdapter } from '../pi-surface.ts'
 import { runConversation } from '../runner.ts'
 import { openCode1IsOverflow } from './vendor/opencode1-overflow.ts'
 import { openCode1WouldRetry } from './vendor/opencode1-retry.ts'
@@ -97,6 +99,22 @@ test('the closed refusal table cannot induce an unintended host resend', async (
 
 const marker = '/private/refusal-marker-503 account@example.invalid'
 const input = conversation('private failure details')
+
+test('Pi returns a safe cancellation instead of a caller-supplied abort reason', async () => {
+  const environment = new Environment()
+  const pi = await piAdapter(environment, 'local', false)
+  try {
+    const controller = new AbortController()
+    controller.abort(new Error(marker))
+    const turn = await pi.run(input, 'cancelled', controller.signal)
+    expect(turn.errors).toEqual(['Antigravity request cancelled.'])
+    expect(environment.hooks).toEqual([])
+    expect(environment.physicalSends).toEqual([])
+  } finally {
+    await pi.dispose()
+    await environment.dispose()
+  }
+})
 
 for (const subject of ['opencode1', 'opencode2', 'pi-flat'] as const) {
   test(`${subject} never publishes upstream refusal bodies or arbitrary headers`, async () => {

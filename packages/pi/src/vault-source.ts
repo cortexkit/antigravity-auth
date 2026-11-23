@@ -28,11 +28,9 @@ import type {
   ClaustrumEnrollmentConnection,
   ClaustrumScopedClient,
 } from '@cortexkit/antigravity-auth-core/common-auth/claustrum'
+import { EngineRefusalError } from '@cortexkit/antigravity-auth-core/engine'
 
-import {
-  PI_ACCOUNT_MODELS_REFUSAL,
-  type PiModelAccess,
-} from './model-access.ts'
+import type { PiModelAccess } from './model-access.ts'
 import {
   getPiAntigravityVaultDir,
   getPiAntigravityVaultModeFile,
@@ -175,7 +173,7 @@ export function createPiVaultSend(
       await options.accountModels.ready()
       signal.throwIfAborted()
       if (!options.accountModels.policy().allows(ref.routeId, modelId ?? ''))
-        throw new PiVaultSendError(PI_ACCOUNT_MODELS_REFUSAL)
+        throw new EngineRefusalError('model_not_allowed')
     }
     return source.send(ref, dispatch, { site: 'model', signal })
   }
@@ -207,7 +205,7 @@ export function createPiVaultRequest(options: PiVaultRequestPathOptions) {
         if (
           !options.accountModels.policy().allows(route.routeId, modelId ?? '')
         )
-          throw new PiVaultSendError(PI_ACCOUNT_MODELS_REFUSAL)
+          throw new EngineRefusalError('model_not_allowed')
       }
       if (!source.admit)
         throw new PiVaultSendError(
