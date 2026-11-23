@@ -2187,7 +2187,7 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
     const { result } = await collectStream(startWithCaller(caller))
     expect(fetchWithAgyCliTransportMock).not.toHaveBeenCalled()
     expect(result.stopReason).toBe('aborted')
-    expect(result.errorMessage).toBe(reason.message)
+    expect(result.errorMessage).toBe('Antigravity request cancelled.')
     expect(listeners.size).toBe(0)
   })
 
@@ -2218,9 +2218,12 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
     const reason = new Error('Pi opening canceled')
     caller.abort(reason)
     const { result } = await pending
-    expect(requestSignal.reason).toBe(reason)
+    expect(requestSignal.reason).toMatchObject({
+      id: 'cancelled',
+      message: 'Antigravity request cancelled.',
+    })
     expect(result.stopReason).toBe('aborted')
-    expect(result.errorMessage).toBe(reason.message)
+    expect(result.errorMessage).toBe('Antigravity request cancelled.')
     expect(listeners.size).toBe(0)
     expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
   })
@@ -2265,9 +2268,12 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
     const result = await stream.result()
     expect(events).toContain('text_delta')
     expect(events.at(-1)).toBe('error')
-    expect(requestSignal.reason).toBe(reason)
+    expect(requestSignal.reason).toMatchObject({
+      id: 'cancelled',
+      message: 'Antigravity request cancelled.',
+    })
     expect(result.stopReason).toBe('aborted')
-    expect(result.errorMessage).toBe(reason.message)
+    expect(result.errorMessage).toBe('Antigravity request cancelled.')
     expect(response.body!.locked).toBe(false)
     expect(listeners.size).toBe(0)
     expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)

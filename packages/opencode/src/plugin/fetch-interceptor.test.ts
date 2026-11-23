@@ -477,7 +477,7 @@ describe('createFetchInterceptor', () => {
         if (result.kind !== 'rejected')
           throw new Error('Disposed request completed successfully')
         expect(result.error).toMatchObject({
-          message: 'The Antigravity request executor is disposed',
+          message: 'The local request runtime is disposed',
         })
         expect(closed).toBe(true)
       } finally {
@@ -1744,7 +1744,8 @@ describe('createFetchInterceptor', () => {
           if (stop === 'caller cancellation') expect(error).toBe(reason)
           else
             expect(error).toMatchObject({
-              message: 'The Antigravity request executor is disposed',
+              id: 'cancelled',
+              message: 'Antigravity request cancelled.',
             })
           expect(vault.admitted).toHaveLength(0)
           expect(transportMock).not.toHaveBeenCalled()

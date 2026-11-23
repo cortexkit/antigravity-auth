@@ -8,8 +8,8 @@ import {
 } from '@cortexkit/antigravity-auth-core'
 import type { RegisterResponseHandoff } from '@cortexkit/antigravity-auth-core/engine'
 import {
+  callerAbortReason,
   createLocalQuotaRefresh,
-  EngineRefusalError,
   engineRefusalResponse,
   isGenerativeLanguageRequest,
   type LocalRequestCredentials,
@@ -65,7 +65,7 @@ function fetchFailure(
 ): unknown {
   const signal =
     init?.signal ?? (input instanceof Request ? input.signal : undefined)
-  if (signal?.aborted) return new EngineRefusalError('cancelled')
+  if (signal?.aborted) return callerAbortReason(signal)
   return hostFailure(error, (diagnostic) => failureLog.error(diagnostic))
 }
 

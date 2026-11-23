@@ -13,10 +13,10 @@ export function createAfterHandoff(
   onFailure: () => void,
 ) {
   const controller = new AbortController()
-  const cancellation = createRequestCancellation([
-    ...signals,
-    controller.signal,
-  ])
+  const cancellation = createRequestCancellation(
+    [...signals, controller.signal],
+    null,
+  )
   let run: ((signal: AbortSignal) => Promise<void>) | undefined
   let acknowledged = false
   let finished = false

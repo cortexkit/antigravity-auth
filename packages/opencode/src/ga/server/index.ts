@@ -39,6 +39,7 @@ import {
   type refreshAntigravityToken,
 } from '@cortexkit/antigravity-auth-core'
 import {
+  callerAbortReason,
   collectForwardedHeaders,
   deriveRetryHeaderPairFromMs,
   ENGINE_REFUSALS,
@@ -743,13 +744,20 @@ export async function startGaLoopbackBridge(
               // the body is where the genuine error is delivered.
               const failure = takeFailure(state)
               reader.releaseLock()
-              if (failure) controller.error(failure)
+              if (request.signal.aborted)
+                controller.error(callerAbortReason(request.signal))
+              else if (failure) controller.error(failure)
               else controller.close()
               return
             }
             controller.enqueue(value)
           } catch (error) {
-            controller.error(takeFailure(state) ?? error)
+            const failure = takeFailure(state)
+            controller.error(
+              request.signal.aborted
+                ? callerAbortReason(request.signal)
+                : (failure ?? error),
+            )
             reader.releaseLock()
           }
         },
@@ -793,9 +801,7 @@ export async function startGaLoopbackBridge(
             server.close(() => resolve())
           })
           for (const controller of running) {
-            controller.abort(
-              new Error('The Antigravity activation was disposed'),
-            )
+            controller.abort(new EngineRefusalError('cancelled'))
           }
           for (const socket of sockets) socket.destroy()
           await Promise.allSettled([...reads])

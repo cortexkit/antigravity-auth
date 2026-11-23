@@ -1663,7 +1663,8 @@ describe('GA composed transport', () => {
         if (stop === 'caller cancellation') expect(error).toBe(reason)
         else
           expect(error).toMatchObject({
-            message: 'The Antigravity request executor is disposed',
+            id: 'cancelled',
+            message: 'Antigravity request cancelled.',
           })
         expect(admissions).toBe(0)
         expect(networkCalls).toHaveLength(0)

@@ -1,4 +1,4 @@
-import { EngineRefusalError } from './refusals.ts'
+import { ENGINE_REFUSALS, EngineRefusalError } from './refusals.ts'
 
 export interface RequestCancellation {
   readonly signal: AbortSignal
@@ -20,9 +20,17 @@ export function getResponseCleanup(
   return responseCleanup.get(response)
 }
 
+/** Keep caller identity for the host SDK, but don't expose a non-error abort value. */
+export function callerAbortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException(ENGINE_REFUSALS.cancelled.text, 'AbortError')
+}
+
 /** Keep caller and final-shutdown cancellation independent without requiring AbortSignal.any. */
 export function createRequestCancellation(
   signals: readonly AbortSignal[],
+  caller: AbortSignal | null | undefined = signals[0],
 ): RequestCancellation {
   const controller = new AbortController()
   const remove: (() => void)[] = []
@@ -31,12 +39,20 @@ export function createRequestCancellation(
   }
   for (const source of signals) {
     if (source.aborted) {
-      controller.abort(new EngineRefusalError('cancelled'))
+      controller.abort(
+        source === caller
+          ? callerAbortReason(source)
+          : new EngineRefusalError('cancelled'),
+      )
       release()
       break
     }
     const forward = () => {
-      controller.abort(new EngineRefusalError('cancelled'))
+      controller.abort(
+        source === caller
+          ? callerAbortReason(source)
+          : new EngineRefusalError('cancelled'),
+      )
       release()
     }
     remove.push(() => source.removeEventListener('abort', forward))

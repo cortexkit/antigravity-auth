@@ -34,6 +34,17 @@ describe('request cancellation lifetime', () => {
     expectReleased(caller, shutdown)
   })
 
+  it('supplies an AbortError when a caller aborts with a non-error reason', () => {
+    const caller = new AbortController()
+    caller.abort('unstructured caller reason')
+    const cancellation = createRequestCancellation([caller.signal])
+    expect(cancellation.signal.reason).toMatchObject({
+      name: 'AbortError',
+      message: 'Antigravity request cancelled.',
+    })
+    expect(getEventListeners(caller.signal, 'abort')).toHaveLength(0)
+  })
+
   it('releases all source listeners at body EOF, not at headers', async () => {
     const { caller, shutdown, cancellation } = sources()
     const retained = await retainResponseLifetime(
@@ -82,9 +93,15 @@ describe('request cancellation lifetime', () => {
     try {
       const controller = source === 'caller' ? caller : shutdown
       controller.abort(reason)
-      expect(cancellation.signal.reason).toBe(reason)
-      expect(cancelledWith).toBe(reason)
-      expect(await outcome).toEqual({ kind: 'error', error: reason })
+      const delivered = cancellation.signal.reason
+      if (source === 'caller') expect(delivered).toBe(reason)
+      else
+        expect(delivered).toMatchObject({
+          id: 'cancelled',
+          message: 'Antigravity request cancelled.',
+        })
+      expect(cancelledWith).toBe(delivered)
+      expect(await outcome).toEqual({ kind: 'error', error: delivered })
       expect(settled).toBe(false)
       release()
       await retained.settled

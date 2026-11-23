@@ -1131,7 +1131,8 @@ for (const scenario of [
           if (hungQuota) {
             expect(quotaSignal?.aborted).toBe(true)
             expect(quotaSignal?.reason).toMatchObject({
-              message: 'The Antigravity request executor is disposed',
+              id: 'cancelled',
+              message: 'Antigravity request cancelled.',
             })
           }
           if (expiredQuota) {

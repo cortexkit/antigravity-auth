@@ -4308,6 +4308,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
   function dispose(): Promise<void> {
     disposePromise ??= (async () => {
       retired = true
+      log.debug('The Antigravity request executor is disposed')
       shutdown.abort(
         new HostRefusalError('The Antigravity request executor is disposed'),
       )
@@ -4332,6 +4333,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         requestedSignal
           ? [requestedSignal, shutdown.signal]
           : [shutdown.signal],
+        deps.typedEvents ? null : (requestedSignal ?? null),
       )
       const deadline = new PreResponseDeadline(
         cancellation.signal,
@@ -4358,7 +4360,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           [...selectedCredentials],
           [...selectedProjectIds],
         )
-        if (isUpstreamFailure(error)) {
+        if (
+          isUpstreamFailure(error) &&
+          (!cancellation.signal.aborted || error !== cancellation.signal.reason)
+        ) {
           log.debug('Antigravity transport failed', { error: redacted.message })
           return new EngineRefusalError('transport_error')
         }
@@ -4390,7 +4395,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               return (await advance()).value
             } catch (error) {
               if (cancellation.signal.aborted)
-                throw new EngineRefusalError('cancelled')
+                throw redactFailure(cancellation.signal.reason)
               if (error instanceof PreResponseTimeoutError)
                 throw new EngineRefusalError('deadline')
               if (error instanceof EngineRefusalError) throw error
@@ -4404,8 +4409,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           })
         })
         .catch((error: unknown) => {
-          if (cancellation.signal.aborted)
-            throw new EngineRefusalError('cancelled')
+          if (cancellation.signal.aborted) throw cancellation.signal.reason
           if (error instanceof PreResponseTimeoutError) {
             log.debug('pre-response-timeout', { reason: error.reason })
             return waitPolicy.refusal?.() ?? engineRefusalResponse('deadline')

@@ -7220,7 +7220,8 @@ describe('createRequestExecutor cancellation and overflow', () => {
       expect(physicalReason).toBeInstanceOf(Error)
       await shutdownObserved
       expect(physicalReason).toMatchObject({
-        message: 'The Antigravity request executor is disposed',
+        id: 'cancelled',
+        message: 'Antigravity request cancelled.',
       })
       expect(controller.signal.aborted).toBe(false)
       expect(cleaned).toBe(false)
@@ -7322,7 +7323,7 @@ describe('createRequestExecutor cancellation and overflow', () => {
       await executor.dispose()
       expect(await nextRead).toMatchObject({
         kind: 'error',
-        error: { message: 'The Antigravity request executor is disposed' },
+        error: { id: 'cancelled', message: 'Antigravity request cancelled.' },
       })
       await retirement
       expect(retired).toBe(true)
@@ -8196,7 +8197,7 @@ describe('OpenCode 1 runtime replacement with admitted streams', () => {
       await lifecycle.dispose()
       expect(pendingRead).toMatchObject({
         kind: 'error',
-        error: { message: 'The Antigravity request executor is disposed' },
+        error: { id: 'cancelled', message: 'Antigravity request cancelled.' },
       })
       // Shutdown cancelled the physical upstream body and waited for the
       // stream before disposing the manager it used, then the live one.
