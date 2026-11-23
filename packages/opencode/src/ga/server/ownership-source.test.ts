@@ -21,7 +21,6 @@ import {
   loadCommonAuthStoreModules,
   QUOTA_MANAGER_DEFAULT_TIMEOUT_MS,
   readAccountStoreAdmission,
-  VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
 import { createRequestCancellation } from '@cortexkit/antigravity-auth-core/engine'
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
@@ -722,7 +721,7 @@ for (const scenario of [
       const sends: GaSendInput[] = []
       const quotaReached = Promise.withResolvers<void>()
       const quotaGate = Promise.withResolvers<void>()
-      const quotaRecorded = Promise.withResolvers<void>()
+      const quotaRefused = Promise.withResolvers<void>()
       const quotaSkipped = Promise.withResolvers<void>()
       const quotaAuthorizationReached = Promise.withResolvers<void>()
       const quotaAuthorizationGate = Promise.withResolvers<void>()
@@ -866,8 +865,6 @@ for (const scenario of [
             } catch (error) {
               refusals.push(error)
               throw error
-            } finally {
-              quotaRecorded.resolve()
             }
           }
           const repository = new Proxy(input.repository, {
@@ -1029,6 +1026,8 @@ for (const scenario of [
               logs.push(record)
               if (record.message === 'advisory-quota-skipped-refresh-needed')
                 quotaSkipped.resolve()
+              if (record.message.startsWith('quota-refresh-failed '))
+                quotaRefused.resolve()
             },
           }),
         )
@@ -1169,8 +1168,8 @@ for (const scenario of [
         if (!hungQuota && !expiredQuota) {
           quotaReleased = true
           quotaGate.resolve()
-          await capture('advisory.recordQuota.settled', () =>
-            deadline('advisory recordQuota', quotaRecorded.promise),
+          await capture('advisory.quota-refused', () =>
+            deadline('advisory authority recheck', quotaRefused.promise),
           )
         }
         await turn()
@@ -1239,7 +1238,7 @@ for (const scenario of [
           }),
         )
       }
-      expect(recordQuotaAttempts).toBe(hungQuota || expiredQuota ? 0 : 1)
+      expect(recordQuotaAttempts).toBe(0)
       if (expiredQuota) {
         expect(quotaCalls).toBe(0)
         expect(
@@ -1258,11 +1257,7 @@ for (const scenario of [
       }
       expect(underlyingQuotaWrites).toBe(0)
       expect(metadataAttemptsAfterSwitch).toBe(0)
-      expect(refusals).toHaveLength(hungQuota || expiredQuota ? 0 : 1)
-      if (!hungQuota && !expiredQuota) {
-        expect(refusals[0]).toBeInstanceOf(Error)
-        expect((refusals[0] as Error).message).toBe(VAULT_ACCOUNT_REMEDY)
-      }
+      expect(refusals).toEqual([])
       expect(unhandled).toEqual([])
       if (requiredFailure) {
         expect(phases.map(({ operation }) => operation)).toEqual([
@@ -1292,18 +1287,21 @@ for (const scenario of [
         logs.filter(
           (record) => record.message === 'post-response-local-write-refused',
         ),
-      ).toEqual(
-        hungQuota || expiredQuota
-          ? []
-          : [
-              {
-                service: 'antigravity.request',
-                level: 'debug',
-                message: 'post-response-local-write-refused',
-                extra: { count: 1 },
-              },
-            ],
-      )
+      ).toEqual([])
+      if (!hungQuota && !expiredQuota) {
+        expect(
+          logs
+            .filter(({ message }) =>
+              message.startsWith('quota-refresh-failed '),
+            )
+            .map(({ extra }) => extra),
+        ).toEqual([
+          {
+            error:
+              'Error: Antigravity credential authority changed. No further local account operations were performed.',
+          },
+        ])
+      }
       expect(fileEvents).toEqual([])
       expect(afterFiles).toEqual(beforeFiles)
     }),

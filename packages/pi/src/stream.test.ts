@@ -680,7 +680,9 @@ describe('selected credential boundary', () => {
         }),
       )
       expect(result.stopReason).toBe('error')
-      expect(result.errorMessage).toContain('Vault enrollment excludes local')
+      expect(result.errorMessage).toBe(
+        'Antigravity credential authority changed. No further local account operations were performed.',
+      )
       expect(ensureProjectContextMock).toHaveBeenCalledTimes(1)
       expect(fetchWithAgyCliTransportMock).not.toHaveBeenCalled()
     } finally {
@@ -1830,8 +1832,7 @@ describe('streamCortexKitAntigravity', () => {
 
     expect(events.map((event) => event.type)).toEqual(['start', 'error'])
     expect(result.stopReason).toBe('error')
-    expect(result.errorMessage).toContain('RESOURCE_EXHAUSTED')
-    expect(result.errorMessage).toContain('Gemini quota exhausted')
+    expect(result.errorMessage).toBe('Antigravity returned an embedded error.')
   })
 
   it('surfaces prompt feedback instead of returning an empty success', async () => {
@@ -1845,8 +1846,7 @@ describe('streamCortexKitAntigravity', () => {
 
     expect(events.map((event) => event.type)).toEqual(['start', 'error'])
     expect(result.stopReason).toBe('error')
-    expect(result.errorMessage).toContain('SAFETY')
-    expect(result.errorMessage).toContain('Blocked prompt')
+    expect(result.errorMessage).toBe('Response stopped by Google: SAFETY.')
   })
 
   it('rejects clean EOF without a terminal candidate', async () => {
@@ -1858,7 +1858,7 @@ describe('streamCortexKitAntigravity', () => {
 
     expect(events.map((event) => event.type)).toEqual(['start', 'error'])
     expect(result.stopReason).toBe('error')
-    expect(result.errorMessage).toContain('without a terminal candidate')
+    expect(result.errorMessage).toBe('Antigravity returned an empty response.')
   })
 
   it('rejects Gemini candidate finish failures even after text or a tool call', async () => {
@@ -1869,7 +1869,7 @@ describe('streamCortexKitAntigravity', () => {
     for (const [finishReason, label] of [
       ['SAFETY', 'SAFETY'],
       ['MALFORMED_FUNCTION_CALL', 'MALFORMED_FUNCTION_CALL'],
-      ['unexpected upstream detail 429', 'unknown reason'],
+      ['unexpected upstream detail 429', 'unknown'],
     ]) {
       for (const part of partCases) {
         const { events, result } = await runStream(
@@ -1883,13 +1883,13 @@ describe('streamCortexKitAntigravity', () => {
         expect(events.at(-1)?.type).toBe('error')
         expect(result.stopReason).toBe('error')
         expect(result.errorMessage).toBe(
-          `Google stopped the response: ${label}.`,
+          `Response stopped by Google: ${label}.`,
         )
       }
     }
   })
 
-  it('preserves partial text when Gemini ends with CONTINUATION', async () => {
+  it('preserves partial text and refuses an unsupported CONTINUATION finish', async () => {
     const { events, result } = await runStream(
       fakeModel(),
       sseResponse([
@@ -1898,8 +1898,9 @@ describe('streamCortexKitAntigravity', () => {
       ]),
       'candidate-continuation',
     )
-    expect(events.at(-1)?.type).toBe('done')
-    expect(result.stopReason).toBe('length')
+    expect(events.at(-1)?.type).toBe('error')
+    expect(result.stopReason).toBe('error')
+    expect(result.errorMessage).toBe('Response stopped by Google: unknown.')
     expect(result.content).toEqual([{ type: 'text', text: 'partial answer' }])
   })
 
@@ -2174,15 +2175,13 @@ describe('streamCortexKitAntigravity', () => {
       },
     )
     expect(result.stopReason).toBe('error')
-    expect(result.errorMessage).toBe(
-      'Antigravity stream error: embedded failure',
-    )
+    expect(result.errorMessage).toBe('Antigravity returned an embedded error.')
     expect(open.wasCancelled()).toBe(true)
     expect(open.response.body!.locked).toBe(false)
     expect(aborted).toBe(false)
   })
 
-  it('uses the shared transform’s terminal-frame usage for GPT', async () => {
+  it('records GPT usage reported separately from the finish frame', async () => {
     const { result } = await runStream(
       fakeModel('antigravity-gpt-oss-120b-medium'),
       sseResponse([
@@ -2192,10 +2191,9 @@ describe('streamCortexKitAntigravity', () => {
       'gpt-trailing-usage',
     )
     expect(result.stopReason).toBe('stop')
-    // The shared transform supplies zero usage when its terminal frame has no usage.
-    expect(result.usage.input).toBe(0)
-    expect(result.usage.output).toBe(0)
-    expect(result.usage.totalTokens).toBe(0)
+    expect(result.usage.input).toBe(10)
+    expect(result.usage.output).toBe(3)
+    expect(result.usage.totalTokens).toBe(13)
   })
 
   it('finishes a GPT turn at STOP when trailing usage never arrives', async () => {
@@ -2433,7 +2431,7 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
     expect(consume).toHaveBeenCalledTimes(1)
     expect(result.stopReason).toBe('error')
     expect(result.errorMessage).toBe(
-      'Antigravity request failed: HTTP 418 upstream failure',
+      'Google refused the Antigravity request. Check the plugin log for details.',
     )
     expect(response.bodyUsed).toBe(true)
     expect(response.body!.locked).toBe(true)
@@ -2464,8 +2462,8 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
       expect(result.stopReason).toBe('error')
       expect(result.errorMessage).toBe(
         failure
-          ? 'HTTP body read failure'
-          : 'Antigravity request failed: HTTP 418 upstream failure',
+          ? 'Antigravity could not communicate with Google. Check the plugin log for details.'
+          : 'Google refused the Antigravity request. Check the plugin log for details.',
       )
       expect(source.response.bodyUsed).toBe(true)
       expect(source.response.body!.locked).toBe(stock.response.body!.locked)

@@ -1723,8 +1723,15 @@ describe('GA composed transport', () => {
         expect(vault.gets).toHaveLength(2)
         expect(vault.lists()).toBe(listsBefore401)
         expect(vault.reports).toHaveLength(0)
-        await expect(clock.drive(execute())).rejects.toMatchObject({
-          kind: 'unavailable',
+        const refused = await clock.drive(execute())
+        expect(refused.status).toBe(412)
+        expect(await refused.json()).toEqual({
+          error: {
+            code: 412,
+            status: 'FAILED_PRECONDITION',
+            message:
+              'Antigravity could not communicate with Google. Check the plugin log for details.',
+          },
         })
         expect(sends).toHaveLength(2)
         expect(vault.gets.length).toBeGreaterThan(2)
@@ -2331,8 +2338,14 @@ describe('GA composed request context', () => {
         const reason = new DOMException('job cancelled', 'AbortError')
         controller.abort(reason)
         expect(sent.signal.aborted).toBe(true)
-        expect(sent.signal.reason).toBe(reason)
-        expect(await failure).toBe(reason)
+        expect(sent.signal.reason).toHaveProperty(
+          'message',
+          'Antigravity request cancelled.',
+        )
+        expect(await failure).toHaveProperty(
+          'message',
+          'Antigravity request cancelled.',
+        )
         expect(networkCalls).toHaveLength(0)
       } finally {
         await location.dispose()

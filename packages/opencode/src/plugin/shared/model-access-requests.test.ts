@@ -61,7 +61,7 @@ const ACCOUNT_MODELS_REFUSAL_BODY = {
     code: 412,
     status: 'FAILED_PRECONDITION',
     message:
-      'The requested Antigravity model is not available to the configured accounts. Choose another model. The account_models setting limits which accounts may serve it; change it in /antigravity \u2192 Accounts.',
+      'The account_models setting limits which accounts may serve this Antigravity model. Choose another model or change the setting in /antigravity → Accounts.',
   },
 }
 

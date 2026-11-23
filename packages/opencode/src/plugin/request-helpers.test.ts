@@ -3035,14 +3035,20 @@ describe('parseDurationToMs and retry validation', () => {
       { status: 400, headers: { 'content-type': 'application/json' } },
     )
     const transformed = await transformAntigravityResponse(rawResponse, false)
-    const text = await transformed.text()
-    expect(text).toContain('Session resets in 5m.')
-    expect(text).not.toContain('quota resets in')
+    expect(transformed.status).toBe(400)
+    expect(transformed.headers.has('retry-after')).toBe(false)
+    expect(await transformed.json()).toEqual({
+      error: {
+        code: 400,
+        status: 'INVALID_ARGUMENT',
+        message:
+          'Google refused the Antigravity request. Check the plugin log for details.',
+      },
+    })
   })
 
-  it('leaves a 400 that merely mentions quota without a reset clause untouched', async () => {
-    // The bare word "quota" is not a quota error: with no reset clause the
-    // host sees the upstream text unchanged and gets no rewritten delay.
+  it('does not treat a generic 400 that mentions quota as quota exhaustion', async () => {
+    // An unrelated mention of quota does not justify forwarding a retry hint.
     const message = 'Request rejected: API quota audit note for project'
     const rawResponse = new Response(
       JSON.stringify({ error: { code: 400, message } }),
@@ -3052,12 +3058,16 @@ describe('parseDurationToMs and retry validation', () => {
       },
     )
     const transformed = await transformAntigravityResponse(rawResponse, false)
-    const body = (await transformed.json()) as {
-      error: { message: string }
-    }
-    expect(body.error.message).toContain(message)
-    expect(body.error.message).not.toContain('quota resets in')
-    expect(transformed.headers.get('retry-after')).toBe('600')
+    expect(transformed.status).toBe(400)
+    expect(transformed.headers.has('retry-after')).toBe(false)
+    expect(await transformed.json()).toEqual({
+      error: {
+        code: 400,
+        status: 'INVALID_ARGUMENT',
+        message:
+          'Google refused the Antigravity request. Check the plugin log for details.',
+      },
+    })
   })
 
   it('normalizeResetDuration leaves unrelated credential-like tokens unchanged', () => {
@@ -3087,12 +3097,20 @@ describe('parseDurationToMs and retry validation', () => {
     ).toBe('quota resets in 2h 1m2s-synthetic-opaque-credential')
   })
 
-  it('composition: transformAntigravityResponse then redactCredentialResponse removes credential', async () => {
+  const quotaExhaustedDetails = [
+    {
+      '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+      reason: 'QUOTA_EXHAUSTED',
+    },
+  ]
+
+  it('publishes validated quota timing without upstream credentials or a mask', async () => {
     const syntheticSecret = 'sk-ant-api03-1d2h3m4s5e-secretkey'
     const rawResponse = new Response(
       JSON.stringify({
         error: {
           code: 429,
+          details: quotaExhaustedDetails,
           message: `Request with token ${syntheticSecret} exceeded quota. Resets in 2h55m14s.`,
         },
       }),
@@ -3112,16 +3130,24 @@ describe('parseDurationToMs and retry validation', () => {
     ])
     const text = await redacted.text()
     expect(text).not.toContain(syntheticSecret)
-    expect(text).toContain('[credential]')
-    expect(text).toContain('quota resets in 2h 55m 14s')
+    expect(text).not.toContain('[credential]')
+    expect(JSON.parse(text)).toEqual({
+      error: {
+        code: 429,
+        status: 'RESOURCE_EXHAUSTED',
+        message:
+          'Antigravity quota has been used up. Quota resets in 2h 55m 14s.',
+      },
+    })
   })
 
-  it('composition: leaves an after-clause credential intact for the real redactor', async () => {
+  it('publishes quota timing without the opaque credential after the reset clause', async () => {
     const syntheticSecret = '1d2h3m4s5e-synthetic-opaque-credential'
     const rawResponse = new Response(
       JSON.stringify({
         error: {
           code: 429,
+          details: quotaExhaustedDetails,
           message: `Resets in 2h55m14s. ${syntheticSecret}`,
         },
       }),
@@ -3132,17 +3158,25 @@ describe('parseDurationToMs and retry validation', () => {
       syntheticSecret,
     ])
     const text = await redacted.text()
-    expect(text).toContain('[credential]')
+    expect(text).not.toContain('[credential]')
     expect(text).not.toContain(syntheticSecret)
-    expect(text).toContain('quota resets in 2h 55m 14s.')
+    expect(JSON.parse(text)).toEqual({
+      error: {
+        code: 429,
+        status: 'RESOURCE_EXHAUSTED',
+        message:
+          'Antigravity quota has been used up. Quota resets in 2h 55m 14s.',
+      },
+    })
   })
 
-  it('composition: does not consume credential suffixes that resemble shorter duration components', async () => {
+  it('excludes credential suffixes that resemble shorter duration components from the reset time', async () => {
     const syntheticSecret = '1m2s-synthetic-opaque-credential'
     const rawResponse = new Response(
       JSON.stringify({
         error: {
           code: 429,
+          details: quotaExhaustedDetails,
           message: `Resets in 2h ${syntheticSecret}`,
         },
       }),
@@ -3154,8 +3188,15 @@ describe('parseDurationToMs and retry validation', () => {
       syntheticSecret,
     ])
     const text = await redacted.text()
-    expect(text).toContain('[credential]')
+    expect(text).not.toContain('[credential]')
     expect(text).not.toContain(syntheticSecret)
+    expect(JSON.parse(text)).toEqual({
+      error: {
+        code: 429,
+        status: 'RESOURCE_EXHAUSTED',
+        message: 'Antigravity quota has been used up. Quota resets in 2h.',
+      },
+    })
   })
 })
 

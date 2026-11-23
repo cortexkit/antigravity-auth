@@ -19,11 +19,11 @@ import type {
 import {
   ANTIGRAVITY_ENDPOINT_DAILY,
   createAntigravityVaultAccountSource,
-  HostRefusalError,
   loadCommonAuthClaustrum,
   setLogSink,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import { EngineRefusalError } from '@cortexkit/antigravity-auth-core/engine'
 import {
   hostFileError,
   hostFileErrorKinds,
@@ -120,8 +120,8 @@ const GENERATIVE_INIT: RequestInit = {
 
 async function expectNativeFailure(
   response: Response,
-  status: 401 | 412 | 502,
-  googleStatus: 'UNAUTHENTICATED' | 'FAILED_PRECONDITION' | 'UNAVAILABLE',
+  status: 400 | 401 | 412,
+  googleStatus: 'INVALID_ARGUMENT' | 'UNAUTHENTICATED' | 'FAILED_PRECONDITION',
 ): Promise<string> {
   expect(response.status).toBe(status)
   expect(response.ok).toBe(false)
@@ -136,6 +136,13 @@ async function expectNativeFailure(
   if (status < 500) expectNoOpenCodeRetryHints(text)
   expect(text).not.toMatch(/candidates|finishReason|usageMetadata|data:/)
   return text
+}
+
+async function expectTransportRefusal(response: Response) {
+  const text = await expectNativeFailure(response, 412, 'FAILED_PRECONDITION')
+  expect(JSON.parse(text).error.message).toBe(
+    'Antigravity could not communicate with Google. Check the plugin log for details.',
+  )
 }
 
 function expectFailFastBody(text: string): void {
@@ -868,7 +875,7 @@ describe('createFetchInterceptor', () => {
         }
         transportHandler = async () =>
           new Response(
-            'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]}}]}}\n\n',
+            'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"done"}]},"finishReason":"STOP"}]}}\n\n',
             { headers: { 'content-type': 'text/event-stream' } },
           )
         const context = await makeContext({
@@ -1197,7 +1204,7 @@ describe('createFetchInterceptor', () => {
               ...GENERATIVE_INIT,
               signal: controller.signal,
             }),
-          ).rejects.toBe(abortReason)
+          ).rejects.toHaveProperty('message', 'Antigravity request cancelled.')
           expect(toasts).toHaveLength(1)
           expect(toasts[0]).toContain('Waiting')
           expect(transportMock).not.toHaveBeenCalled()
@@ -1226,8 +1233,9 @@ describe('createFetchInterceptor', () => {
           GENERATIVE_INIT,
         )
         const text = await expectNativeFailure(response, 401, 'UNAUTHENTICATED')
-        expect(text).toContain('Missing access token')
-        expect(text).toContain('opencode auth login')
+        expect(JSON.parse(text).error.message).toBe(
+          'Antigravity did not authorize the account. Reauthorize Antigravity before sending another request.',
+        )
         expect(tokenFetch).toHaveBeenCalledTimes(1)
         expect(transportMock).not.toHaveBeenCalled()
       } finally {
@@ -1237,7 +1245,7 @@ describe('createFetchInterceptor', () => {
     })
 
     for (const contextMessage of ['Prompt is too long', 'prompt_too_long']) {
-      it(`preserves original context 400 bytes and headers for ${contextMessage}`, async () => {
+      it(`returns a fixed context overflow without upstream headers for ${contextMessage}`, async () => {
         const payload = ` { "error": { "code": 400, "status": "INVALID_ARGUMENT", "message": "${contextMessage}", "details": [{"original":true}] } }\n`
         const original = new Response(payload, {
           status: 400,
@@ -1260,19 +1268,18 @@ describe('createFetchInterceptor', () => {
             GENERATIVE_URL,
             GENERATIVE_INIT,
           )
-          expect(response).toBe(original)
           expect(response.ok).toBe(false)
-          expect(response.status).toBe(400)
-          expect(response.statusText).toBe('Bad Request')
-          expect(response.bodyUsed).toBe(false)
+          expect(response.status).toBe(413)
           expect([...response.headers]).toEqual([
-            ['content-type', 'application/json; charset=utf-8'],
-            ['retry-after', '17'],
-            ['x-original-overflow', 'retained'],
+            ['content-type', 'application/json'],
           ])
-          expect(new Uint8Array(await response.arrayBuffer())).toEqual(
-            new TextEncoder().encode(payload),
-          )
+          expect(await response.json()).toEqual({
+            error: {
+              code: 413,
+              status: 'INVALID_ARGUMENT',
+              message: 'Prompt is too long: context length exceeded.',
+            },
+          })
           expect(transportMock).toHaveBeenCalledTimes(1)
           expect(toasts).toEqual([
             'Context too long - use /compact to reduce size',
@@ -1284,7 +1291,7 @@ describe('createFetchInterceptor', () => {
       })
     }
 
-    it('returns a native 502 only after the bounded empty-response attempts', async () => {
+    it('returns a fixed 400 only after the bounded empty-response attempts', async () => {
       transportHandler = async () =>
         new Response('{"response":{"candidates":[]}}', {
           headers: { 'content-type': 'application/json' },
@@ -1299,8 +1306,14 @@ describe('createFetchInterceptor', () => {
           ),
           GENERATIVE_INIT,
         )
-        const text = await expectNativeFailure(response, 502, 'UNAVAILABLE')
-        expect(text).toContain('empty response')
+        const text = await expectNativeFailure(
+          response,
+          400,
+          'INVALID_ARGUMENT',
+        )
+        expect(JSON.parse(text).error.message).toBe(
+          'Antigravity returned an empty response.',
+        )
         expect(transportMock).toHaveBeenCalledTimes(2)
       } finally {
         interceptor.dispose()
@@ -1999,9 +2012,9 @@ describe('createFetchInterceptor', () => {
           expect(vault.lists()).toBe(listsBefore401)
           expect(vault.reports).toHaveLength(0)
           expect(transportMock).toHaveBeenCalledTimes(2)
-          await expect(
-            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
-          ).rejects.toMatchObject({ kind: 'unavailable' })
+          await expectTransportRefusal(
+            await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          )
           expect(transportMock).toHaveBeenCalledTimes(2)
           expect(vault.gets.length).toBeGreaterThan(2)
           expect(vault.reports).toHaveLength(0)
@@ -2026,9 +2039,9 @@ describe('createFetchInterceptor', () => {
           expect(vault.gets).toHaveLength(2)
           expect(vault.reports).toHaveLength(1)
           expect(transportMock).toHaveBeenCalledTimes(1)
-          await expect(
-            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
-          ).rejects.toMatchObject({ kind: 'unavailable' })
+          await expectTransportRefusal(
+            await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          )
           expect(transportMock).toHaveBeenCalledTimes(1)
           expect(vault.reports).toHaveLength(1)
         } finally {
@@ -2051,9 +2064,9 @@ describe('createFetchInterceptor', () => {
           expect(vault.gets).toHaveLength(2)
           expect(transportMock).toHaveBeenCalledTimes(1)
           vault.unreachable()
-          await expect(
-            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
-          ).rejects.toMatchObject({ kind: 'unavailable' })
+          await expectTransportRefusal(
+            await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          )
           expect(transportMock).toHaveBeenCalledTimes(1)
           expect(vault.reports).toHaveLength(1)
         } finally {
@@ -2072,13 +2085,13 @@ describe('createFetchInterceptor', () => {
             (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
           ).toBe(200)
           vault.deny()
-          await expect(
-            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
-          ).rejects.toMatchObject({ code: 'grant_denied' })
+          await expectTransportRefusal(
+            await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          )
           vault.unreachable()
-          await expect(
-            interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
-          ).rejects.toMatchObject({ kind: 'unavailable' })
+          await expectTransportRefusal(
+            await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+          )
           expect(transportMock).toHaveBeenCalledTimes(1)
           expect(vault.reports).toHaveLength(0)
         } finally {
@@ -2261,12 +2274,7 @@ describe('createFetchInterceptor', () => {
           contents: [{ role: 'user', parts: [{ text: 'hello' }] }],
         }),
       })
-      await expect(request).rejects.toMatchObject({
-        message: 'read ECONNRESET',
-        code: 'ECONNRESET',
-        syscall: 'read',
-      })
-      await expect(request).rejects.toBe(resetError)
+      await expectTransportRefusal(await request)
       expect(transportMock).toHaveBeenCalledTimes(2)
       interceptor.dispose()
     })
@@ -2399,7 +2407,7 @@ describe('createFetchInterceptor', () => {
             ...GENERATIVE_INIT,
             signal: caller.signal,
           }),
-        ).rejects.toBe(reason)
+        ).rejects.toHaveProperty('message', 'Antigravity request cancelled.')
       }
       try {
         await limited(a)
@@ -2462,9 +2470,7 @@ it.each(
 it('admits no further local physical attempt when enrollment changes during a failed send', async () => {
   let local = true
   let physicalAttempts = 0
-  const admissionError = new HostRefusalError(
-    'Local work is excluded by vault enrollment',
-  )
+  const admissionError = new EngineRefusalError('authority_changed')
   const context = await makeContext({
     assertAdmission: async () => {
       if (!local) throw admissionError
@@ -2496,8 +2502,10 @@ it('admits no further local physical attempt when enrollment changes during a fa
   const interceptor = createFetchInterceptor(context)
   try {
     const pending = interceptor.fetch(GENERATIVE_URL, GENERATIVE_INIT)
-    await expect(pending).rejects.toThrow(admissionError.message)
-    await expect(pending).rejects.toBe(admissionError)
+    await expect(pending).rejects.toHaveProperty(
+      'message',
+      'Antigravity credential authority changed. No further local account operations were performed.',
+    )
     expect(physicalAttempts).toBe(1)
   } finally {
     await interceptor.dispose()
