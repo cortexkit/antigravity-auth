@@ -1732,11 +1732,11 @@
         "response": 400,
         "headers": {
           "content-type": "application/json",
-          "content-length": "107"
+          "content-length": "142"
         }
       },
       {
-        "payload": "inner retry request"
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
       },
       {
         "response": 200,
@@ -1783,6 +1783,34 @@
               "implicit": true
             }
           }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002714",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "claude-sonnet-5-5-low",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
         }
       ],
       "text": ["Four."],
@@ -1811,11 +1839,11 @@
         "response": 400,
         "headers": {
           "content-type": "application/json",
-          "content-length": "107"
+          "content-length": "142"
         }
       },
       {
-        "payload": "inner retry request"
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
       },
       {
         "response": 200,
@@ -1862,6 +1890,34 @@
               "implicit": true
             }
           }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002714",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "claude-sonnet-5-5-low",
+            "outcome": "completed",
+            "account_id": "parity-identity",
+            "status": 200,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "outcome": "served",
+            "headers": {}
+          }
         }
       ],
       "text": ["Four."],
@@ -1890,11 +1946,11 @@
         "response": 400,
         "headers": {
           "content-type": "application/json",
-          "content-length": "107"
+          "content-length": "142"
         }
       },
       {
-        "payload": "inner retry request"
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
       },
       {
         "response": 200,
@@ -1949,17 +2005,17 @@
         "response": 400,
         "headers": {
           "content-type": "application/json",
-          "content-length": "107"
+          "content-length": "142"
         }
       },
       {
-        "payload": "inner retry request"
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
       },
       {
         "response": 400,
         "headers": {
           "content-type": "application/json",
-          "content-length": "107"
+          "content-length": "142"
         }
       }
     ]
@@ -2000,6 +2056,25 @@
               "implicit": true
             }
           }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002714",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "claude-sonnet-5-5-low",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 400,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
         }
       ],
       "text": [""],
@@ -2028,17 +2103,17 @@
         "response": 400,
         "headers": {
           "content-type": "application/json",
-          "content-length": "107"
+          "content-length": "142"
         }
       },
       {
-        "payload": "inner retry request"
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
       },
       {
         "response": 400,
         "headers": {
           "content-type": "application/json",
-          "content-length": "107"
+          "content-length": "142"
         }
       }
     ]
@@ -2079,6 +2154,25 @@
               "implicit": true
             }
           }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "billing",
+            "attempt_id": "00000000-0000-4000-8000-000000002714",
+            "request_kind": "primary",
+            "credential_id": "parity-credential",
+            "provider": "antigravity",
+            "model": "claude-sonnet-5-5-low",
+            "outcome": "failed",
+            "account_id": "parity-identity",
+            "status": 400,
+            "attempt": 2,
+            "charge_basis": "subscription_included",
+            "cache": {
+              "implicit": true
+            }
+          }
         }
       ],
       "text": [""],
@@ -2107,17 +2201,17 @@
         "response": 400,
         "headers": {
           "content-type": "application/json",
-          "content-length": "107"
+          "content-length": "142"
         }
       },
       {
-        "payload": "inner retry request"
+        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
       },
       {
         "response": 400,
         "headers": {
           "content-type": "application/json",
-          "content-length": "107"
+          "content-length": "142"
         }
       }
     ]
@@ -2922,6 +3016,7 @@
       ],
       "terminal": [["failure:stopped_by_google"]],
       "notices": [],
+      "finishCode": ["unknown"],
       "compaction": false,
       "hooks": []
     },
@@ -2995,6 +3090,7 @@
       ],
       "terminal": [["failure:stopped_by_google"]],
       "notices": [],
+      "finishCode": ["unknown"],
       "compaction": false,
       "hooks": []
     },
@@ -3068,6 +3164,7 @@
       ],
       "terminal": [["failure:stopped_by_google"]],
       "notices": [],
+      "finishCode": ["unknown"],
       "compaction": false,
       "hooks": []
     },
@@ -5808,9 +5905,14 @@
           "endpoint": "https://daily-cloudcode-pa.googleapis.com",
           "model": "gemini-3.8-flash-medium",
           "route": "parity-project"
+        },
+        {
+          "endpoint": "https://cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
         }
       ],
-      "delays": [],
+      "delays": [180000],
       "aborts": [],
       "cancellations": [180000, 360000],
       "reports": [],
@@ -5835,6 +5937,9 @@
     "piHooks": [
       {
         "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
       }
     ]
   },
@@ -5845,9 +5950,14 @@
           "endpoint": "https://daily-cloudcode-pa.googleapis.com",
           "model": "gemini-3.8-flash-medium",
           "route": "parity-project"
+        },
+        {
+          "endpoint": "https://cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
         }
       ],
-      "delays": [],
+      "delays": [180000],
       "aborts": [],
       "cancellations": [180000, 360000],
       "reports": [
@@ -5909,6 +6019,9 @@
     "piHooks": [
       {
         "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
       }
     ]
   },
@@ -5919,9 +6032,14 @@
           "endpoint": "https://daily-cloudcode-pa.googleapis.com",
           "model": "gemini-3.8-flash-medium",
           "route": "parity-project"
+        },
+        {
+          "endpoint": "https://cloudcode-pa.googleapis.com",
+          "model": "gemini-3.8-flash-medium",
+          "route": "parity-project"
         }
       ],
-      "delays": [],
+      "delays": [180000],
       "aborts": [],
       "cancellations": [180000, 360000],
       "reports": [
@@ -5981,6 +6099,9 @@
       "hooks": []
     },
     "piHooks": [
+      {
+        "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
+      },
       {
         "payload": "c1d7bc0d8ffc818bfd98da8039cf65ebf7ecc6bdd89968b3e3d3e84716ae12b8"
       }

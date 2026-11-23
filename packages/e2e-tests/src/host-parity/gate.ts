@@ -28,7 +28,7 @@ import { runConversation } from './runner.ts'
 import { responseScenarios, scenarioUsesClock } from './scenarios.ts'
 
 const baselineDigest =
-  'f61ce7ed4b922f2a638149a7fb1a2a4990537a663cec94c5e70e41b9e40c47ee'
+  '191b5d83aa7b69f54d580ac4686e16a98543c8b3ca941160ba83d27bea965ee2'
 const owners = ['pi', 'opencode2', 'engine', 'removals', 'settings'] as const
 type CaptureRevision = { ledger: string; wire: Wire[] }
 
@@ -111,6 +111,14 @@ export async function checkCorpus() {
       oracle.wire,
       revisions[caseKey(oracleId, input.oracle, 'local')],
     )
+
+    if (input.id.endsWith('xhigh')) {
+      const { actual, expected } = wireSemantics(input, oracleWire)
+      if (digest(actual) !== digest(expected))
+        throw new Error(
+          `${input.id}: the OpenCode 2 oracle must send numeric XHigh`,
+        )
+    }
 
     for (const subject of subjects) {
       const key = caseKey(input.id, subject, 'local')

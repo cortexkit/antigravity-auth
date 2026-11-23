@@ -69,32 +69,32 @@
   ],
   [
     "[\"Claude thinking on\",\"opencode2\",\"local\",\"wire.body\"]",
-    "1ed0d3e17cebff30f63dc1cc225461b66e35736156ac37e91d0daf8182852313",
+    "799413da26b0776df57821fb680945fef8e443c739ecfb8c568fc046daee9c19",
     "request-wire:D2"
   ],
   [
     "[\"Claude thinking on\",\"pi\",\"local\",\"wire.body\"]",
-    "ba4900262ef5301e157a6070782719c3dbcc5b489e090c578d9835b6897b640e",
+    "a9dd289b87a1876ef568407f3c4a7dd7ba792a63e6a57e222e70a2c5fe41d8f1",
     "request-wire:D2"
   ],
   [
     "[\"Claude thinking on\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "ba4900262ef5301e157a6070782719c3dbcc5b489e090c578d9835b6897b640e",
+    "a9dd289b87a1876ef568407f3c4a7dd7ba792a63e6a57e222e70a2c5fe41d8f1",
     "request-wire:D2"
   ],
   [
     "[\"Claude thinking off\",\"opencode2\",\"local\",\"wire.body\"]",
-    "1ed0d3e17cebff30f63dc1cc225461b66e35736156ac37e91d0daf8182852313",
+    "799413da26b0776df57821fb680945fef8e443c739ecfb8c568fc046daee9c19",
     "request-wire:D2"
   ],
   [
     "[\"Claude thinking off\",\"pi\",\"local\",\"wire.body\"]",
-    "ba4900262ef5301e157a6070782719c3dbcc5b489e090c578d9835b6897b640e",
+    "a9dd289b87a1876ef568407f3c4a7dd7ba792a63e6a57e222e70a2c5fe41d8f1",
     "request-wire:D2"
   ],
   [
     "[\"Claude thinking off\",\"pi-transcript\",\"local\",\"wire.body\"]",
-    "ba4900262ef5301e157a6070782719c3dbcc5b489e090c578d9835b6897b640e",
+    "a9dd289b87a1876ef568407f3c4a7dd7ba792a63e6a57e222e70a2c5fe41d8f1",
     "request-wire:D2"
   ],
   [
@@ -1079,11 +1079,6 @@
     "response-errors:D3"
   ],
   [
-    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"local\",\"delays\"]",
-    "7cd0293cbae2e0b1605df002902aa71db533aed523261212b4a6d8536c5cea2f",
-    "response-errors:D3"
-  ],
-  [
     "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"local\",\"terminal\"]",
     "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
     "response-errors:D3"
@@ -1131,11 +1126,6 @@
   [
     "[\"NOT_FOUND then a second request and control model\",\"opencode1\",\"vault\",\"terminal\"]",
     "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"vault\",\"delays\"]",
-    "a438ae1ef1f989bdb6d5ed179a6a3a73016c3efe2988472c1579d8cd753f6d44",
     "response-errors:D3"
   ],
   [
@@ -1201,11 +1191,6 @@
   [
     "[\"NOT_FOUND then a second request and control model\",\"opencode1\",\"host\",\"terminal\"]",
     "6b29979b03198c81dd0719ae1048c39921600a00c1f66486ae610004aed2c3ec",
-    "response-errors:D3"
-  ],
-  [
-    "[\"NOT_FOUND then a second request and control model\",\"opencode2\",\"host\",\"delays\"]",
-    "a438ae1ef1f989bdb6d5ed179a6a3a73016c3efe2988472c1579d8cd753f6d44",
     "response-errors:D3"
   ],
   [
@@ -1434,36 +1419,6 @@
     "response-errors:D3"
   ],
   [
-    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"local\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"local\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"local\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"local\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"local\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"local\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
     "[\"thinking-signature 400 then recovery\",\"pi\",\"local\",\"physicalSends\"]",
     "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
     "response-errors:D11"
@@ -1504,38 +1459,8 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"vault\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"vault\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"vault\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"vault\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
     "[\"thinking-signature 400 then recovery\",\"opencode2\",\"vault\",\"reports\"]",
-    "0188f84f9600cbb8edceebef186c5011f9c2cfcfa4394e61e80a681e1ac9a166",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"vault\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"vault\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "384a9e89cb8cd12aa5d2b6e9dac98ec5fb2220ca4bacd33f260cb13984cc275c",
     "response-errors:D11"
   ],
   [
@@ -1589,38 +1514,8 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"host\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"host\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode1\",\"host\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"host\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
     "[\"thinking-signature 400 then recovery\",\"opencode2\",\"host\",\"reports\"]",
-    "0188f84f9600cbb8edceebef186c5011f9c2cfcfa4394e61e80a681e1ac9a166",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"host\",\"text\"]",
-    "055539df4a0b804c58caf46c0cd2941af10d64c1395ddd8e50b5f55d945841e6",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature 400 then recovery\",\"opencode2\",\"host\",\"terminal\"]",
-    "eddbf0a4f5dbb37ccbda83e97b4242934da831a95baabf4ff75cc4509e47b9e1",
+    "384a9e89cb8cd12aa5d2b6e9dac98ec5fb2220ca4bacd33f260cb13984cc275c",
     "response-errors:D11"
   ],
   [
@@ -1674,13 +1569,8 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature terminal refusal\",\"opencode1\",\"local\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"opencode2\",\"local\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "[\"thinking-signature terminal refusal\",\"opencode1\",\"local\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D11"
   ],
   [
@@ -1704,18 +1594,13 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature terminal refusal\",\"opencode1\",\"vault\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"opencode2\",\"vault\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "[\"thinking-signature terminal refusal\",\"opencode1\",\"vault\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D11"
   ],
   [
     "[\"thinking-signature terminal refusal\",\"opencode2\",\"vault\",\"reports\"]",
-    "0188f84f9600cbb8edceebef186c5011f9c2cfcfa4394e61e80a681e1ac9a166",
+    "0047d61311ee8e3939e7eee54aff85ad075122399d2b7c3e0ab0d7e1dbfc19a9",
     "response-errors:D11"
   ],
   [
@@ -1749,18 +1634,13 @@
     "response-errors:D11"
   ],
   [
-    "[\"thinking-signature terminal refusal\",\"opencode1\",\"host\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
-    "response-errors:D11"
-  ],
-  [
-    "[\"thinking-signature terminal refusal\",\"opencode2\",\"host\",\"physicalSends\"]",
-    "da5581379fdf6e293dfc1ac5f0ebb67adc8bdd19d75ff14350b2d970bce220b1",
+    "[\"thinking-signature terminal refusal\",\"opencode1\",\"host\",\"terminal\"]",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D11"
   ],
   [
     "[\"thinking-signature terminal refusal\",\"opencode2\",\"host\",\"reports\"]",
-    "0188f84f9600cbb8edceebef186c5011f9c2cfcfa4394e61e80a681e1ac9a166",
+    "0047d61311ee8e3939e7eee54aff85ad075122399d2b7c3e0ab0d7e1dbfc19a9",
     "response-errors:D11"
   ],
   [
@@ -2099,8 +1979,18 @@
     "response-errors:D5"
   ],
   [
+    "[\"unlisted finish code\",\"opencode1\",\"local\",\"finishCode\"]",
+    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
+    "response-errors:D5"
+  ],
+  [
     "[\"unlisted finish code\",\"opencode2\",\"local\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode2\",\"local\",\"finishCode\"]",
+    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
     "response-errors:D5"
   ],
   [
@@ -2129,6 +2019,11 @@
     "response-errors:D5"
   ],
   [
+    "[\"unlisted finish code\",\"opencode1\",\"vault\",\"finishCode\"]",
+    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
+    "response-errors:D5"
+  ],
+  [
     "[\"unlisted finish code\",\"opencode2\",\"vault\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
     "response-errors:D5"
@@ -2136,6 +2031,11 @@
   [
     "[\"unlisted finish code\",\"opencode2\",\"vault\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode2\",\"vault\",\"finishCode\"]",
+    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
     "response-errors:D5"
   ],
   [
@@ -2174,6 +2074,11 @@
     "response-errors:D5"
   ],
   [
+    "[\"unlisted finish code\",\"opencode1\",\"host\",\"finishCode\"]",
+    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
+    "response-errors:D5"
+  ],
+  [
     "[\"unlisted finish code\",\"opencode2\",\"host\",\"reports\"]",
     "18c2483dff677528191621a6347d9469c6f2941e235b727a6a3df6c5d7605695",
     "response-errors:D5"
@@ -2181,6 +2086,11 @@
   [
     "[\"unlisted finish code\",\"opencode2\",\"host\",\"terminal\"]",
     "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
+    "response-errors:D5"
+  ],
+  [
+    "[\"unlisted finish code\",\"opencode2\",\"host\",\"finishCode\"]",
+    "1d8fc6ceb1f94c6326d6d5483d258fcb2e179e9869325b245d105c2219bf69fd",
     "response-errors:D5"
   ],
   [
@@ -3799,23 +3709,13 @@
     "response-errors:D7"
   ],
   [
-    "[\"pre-response deadline\",\"opencode1\",\"local\",\"physicalSends\"]",
-    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
+    "[\"pre-response deadline\",\"pi\",\"local\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
     "response-errors:D1"
   ],
   [
-    "[\"pre-response deadline\",\"opencode1\",\"local\",\"delays\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"opencode2\",\"local\",\"physicalSends\"]",
-    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"opencode2\",\"local\",\"delays\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
+    "[\"pre-response deadline\",\"pi\",\"local\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D1"
   ],
   [
@@ -3830,6 +3730,16 @@
   ],
   [
     "[\"pre-response deadline\",\"pi\",\"local\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"local\",\"delays\"]",
     "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D1"
   ],
@@ -3849,28 +3759,18 @@
     "response-errors:D1"
   ],
   [
-    "[\"pre-response deadline\",\"opencode1\",\"vault\",\"physicalSends\"]",
-    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"opencode1\",\"vault\",\"delays\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"opencode2\",\"vault\",\"physicalSends\"]",
-    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"opencode2\",\"vault\",\"delays\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
     "[\"pre-response deadline\",\"opencode2\",\"vault\",\"reports\"]",
     "7f06c2844947820e35450a78ad2c92f9f0a27c0b29471b3cca417b0178af3652",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"vault\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"vault\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D1"
   ],
   [
@@ -3890,6 +3790,16 @@
   ],
   [
     "[\"pre-response deadline\",\"pi\",\"vault\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"vault\",\"delays\"]",
     "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D1"
   ],
@@ -3914,28 +3824,18 @@
     "response-errors:D1"
   ],
   [
-    "[\"pre-response deadline\",\"opencode1\",\"host\",\"physicalSends\"]",
-    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"opencode1\",\"host\",\"delays\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"opencode2\",\"host\",\"physicalSends\"]",
-    "76a279f502403f9c7dba5551e4382ffa22adaff47d7d2416523ed8506292c294",
-    "response-errors:D1"
-  ],
-  [
-    "[\"pre-response deadline\",\"opencode2\",\"host\",\"delays\"]",
-    "9db0e39e0c95633950e92a678992d6732f8114b6089cfe2c4b8f93db94e3b090",
-    "response-errors:D1"
-  ],
-  [
     "[\"pre-response deadline\",\"opencode2\",\"host\",\"reports\"]",
     "7f06c2844947820e35450a78ad2c92f9f0a27c0b29471b3cca417b0178af3652",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"host\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi\",\"host\",\"delays\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D1"
   ],
   [
@@ -3955,6 +3855,16 @@
   ],
   [
     "[\"pre-response deadline\",\"pi\",\"host\",\"hooks\"]",
+    "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"physicalSends\"]",
+    "2cba485f03e733ac7f14d529807b91927dec2398adf5ad1cb4280fe8fc18b7dd",
+    "response-errors:D1"
+  ],
+  [
+    "[\"pre-response deadline\",\"pi-transcript\",\"host\",\"delays\"]",
     "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "response-errors:D1"
   ],
