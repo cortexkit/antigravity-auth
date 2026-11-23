@@ -71,6 +71,8 @@ Settings live in one JSONC file in the CortexKit settings folder: `~/.config/cor
 
 Most settings have sensible defaults — only configure what you need. The [settings declaration](../../core/src/settings/definition.ts) is authoritative; the [generated JSON Schema](../assets/antigravity-auth.schema.json) supplies editor validation. The `/antigravity` menu writes this file and keeps your comments, key order and unknown keys.
 
+The [settings-by-host table](SETTINGS.md) shows which settings take effect for each credential source. The examples below are for OpenCode; Pi reads only its supported settings from the user file. OpenCode 2 leaves session recovery and plugin updating to the host.
+
 - **Project file.** `<project>/.cortexkit/antigravity-auth.jsonc` can set only `quiet_mode`, `toast_scope`, `session_recovery`, `claude_tool_hardening` and `claude_prompt_auto_caching`. Every other setting sends traffic, writes files, chooses accounts or protects quota, so only the user file can set it. The plugin never writes a project file. While a project has no `.cortexkit/antigravity-auth.jsonc`, its old `.opencode/antigravity.json` is read the same way. In either file, a user-only setting (including the killswitch, its per-account floors and the log level) is ignored, and `/antigravity` Diagnostics names it.
 - **Invalid values are skipped.** A value outside its bounds or of the wrong type is skipped and its default applies; `/antigravity` Diagnostics names it. Earlier versions clamped some out-of-range values instead. A file that can't be parsed keeps its last readable values while OpenCode runs, and the menu refuses to write it.
 - **Protection settings never widen.** The per-account floors (`killswitch.accounts`) and `account_models` never fall back to "no restriction". If the file can't supply them, the last applied values stay in force; at start the plugin uses the values it last applied, kept in `~/.local/state/cortexkit/antigravity-auth/settings-protection.json`. With nothing kept, every account uses the global floor, and no account with a model list serves.
@@ -112,9 +114,9 @@ Settings that affect how the model thinks and responds.
 | Option | Default | Description |
 |--------|---------|-------------|
 | `keep_thinking` | `false` | Preserve Claude's thinking blocks across turns. **Warning:** enabling may degrade model stability. |
-| `session_recovery` | `true` | Auto-recover from tool_result_missing errors |
-| `auto_resume` | `true` | Auto-send resume prompt after recovery |
-| `resume_text` | `"continue"` | Text to send when auto-resuming |
+| `session_recovery` | `true` | OpenCode 1: auto-recover from missing tool results |
+| `auto_resume` | `true` | OpenCode 1: auto-send a resume prompt after recovery |
+| `resume_text` | `"continue"` | OpenCode 1: text to send when auto-resuming |
 
 ### About `keep_thinking`
 
@@ -167,8 +169,8 @@ Settings that control plugin behavior.
 |--------|---------|-------------|
 | `quiet_mode` | `false` | Hide toast notifications (except recovery) |
 | `debug` | `false` | Enable debug logging |
-| `log_dir` | `~/.local/state/cortexkit/antigravity-auth/logs/` | Custom directory for debug logs; `OPENCODE_ANTIGRAVITY_LOG_DIR` wins over it |
-| `auto_update` | `true` | Enable automatic plugin updates |
+| `log_dir` | `""` (default state directory) | Custom directory for debug logs; `OPENCODE_ANTIGRAVITY_LOG_DIR` wins over it |
+| `auto_update` | `true` | OpenCode 1: enable automatic plugin updates |
 
 ### Debug Logging
 
@@ -235,8 +237,8 @@ These settings are already `true` by default — you don't need to set them:
 
 | Setting | Default | What it does |
 |---------|---------|--------------|
-| `session_recovery` | `true` | Auto-recover from errors |
-| `auto_update` | `true` | Keep plugin updated |
+| `session_recovery` | `true` | OpenCode 1: auto-recover from missing tool results |
+| `auto_update` | `true` | OpenCode 1: keep the plugin updated |
 | `switch_on_first_rate_limit` | `true` | Fast account switching |
 
 These settings are `false` by default:
@@ -256,9 +258,8 @@ These settings are `false` by default:
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `empty_response_max_attempts` | `2` | Retries for empty API responses |
-| `empty_response_retry_delay_ms` | `2000` | Delay between retries |
-| `tool_id_recovery` | `true` | Fix mismatched tool IDs from context compaction |
+| `empty_response_max_attempts` | `2` | Retries for empty non-streaming API responses |
+| `empty_response_retry_delay_ms` | `2000` | Delay between non-streaming empty-response retries |
 | `claude_tool_hardening` | `true` | Prevent tool parameter hallucination |
 | `max_rate_limit_wait_seconds` | `300` | Cumulative wait budget while no account is eligible, shared by rate limits and soft quota; resets on eligible selection (0=unlimited) |
 
@@ -274,7 +275,7 @@ The [schema](../src/plugin/config/schema.ts) is the source of truth for complete
 | `debug_tui` | `false` | TUI verbosity independent of file logging; `OPENCODE_ANTIGRAVITY_DEBUG_TUI=1` |
 | `thinking_warmup` | `false` | Optional Claude probe for a missing thinking signature before tool-enabled requests |
 | `cache_warmup_on_switch` | `true` | After switching accounts, send an extra copy of the prepared request, read one response chunk, then cancel that response before the normal send; `OPENCODE_ANTIGRAVITY_CACHE_WARMUP_ON_SWITCH=1` |
-| `claude_prompt_auto_caching` | `false` | Add top-level `cache_control` when absent |
+| `claude_prompt_auto_caching` | `false` | Retained for compatibility; it does not change outgoing requests |
 | `max_account_switches` | `10` | Per-request account budget; `OPENCODE_ANTIGRAVITY_MAX_ACCOUNT_SWITCHES` |
 | `scheduling_mode` | `cache_first` | Also `balance` / `performance_first`; `OPENCODE_ANTIGRAVITY_SCHEDULING_MODE` |
 | `max_cache_first_wait_seconds` | `60` | Wait cap for cache-first scheduling |

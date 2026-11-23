@@ -4,16 +4,25 @@
 
 Open `/antigravity` in the configured OpenCode or Pi host. It opens a shared menu rather than accepting the old per-feature slash commands or their arguments. Sections and actions depend on the host and active credential source.
 
-| Section | Use |
-| --- | --- |
-| Accounts / Sign in | Inspect, enable/disable, remove, or reauthorize local accounts; start Google OAuth when local authority permits |
-| Quota | Inspect readings or check quota now |
-| Routing | Inspect the effective account selection strategy and configuration key |
-| Limits | Configure OpenCode's killswitch and account floors |
-| Diagnostics | Adjust OpenCode logging and wire-dump capture; treat dumps as sensitive |
-| Vault | Request enrollment, choose approved accounts, or disconnect to use local credentials again |
+| Section | OpenCode 1 and 2 | Pi |
+| --- | --- | --- |
+| Accounts | Local pool: enable or disable an account, pin it for model families, remove it, set its quota floor, edit **Models**, or **Clear limits**. OpenCode 2 also offers **Add account** and **Reauthorize** here. Vault: **Clear limits** and **Models**, not local sign-in or removal. | Local: explains use of Pi's native Google slot. Vault: **Models** for vault accounts when model-list editing is available. |
+| Quota | Inspect readings and use **Check quota now** when available. | Explains that Pi does not record or check quota. |
+| Routing | Inspect the effective account selection strategy; account choices are under Accounts. | Inspect the active credential source or selected vault account. No rotation. |
+| Limits | **Change limits** controls the quota killswitch and minimum remaining percent; per-account floors are under Accounts in local mode. | Explains that Pi does not apply quota floors or the killswitch. |
+| Diagnostics | Adjust log level and wire-dump capture; dismiss a settings move report when shown. Treat dumps as sensitive. | Not present. |
+| Sign in | OpenCode 1 local mode: **Start sign-in** and **Finish sign-in**. OpenCode 2 adds accounts from Accounts. | Not present; use `/login google` and `/logout` instead. |
+| Vault | Request access, check approval, activate custody, or disconnect as allowed. Thalamus owns the connection when hosted. | Select or turn off vault accounts, request access, activate custody, or disconnect as allowed. In Thalamus, account choices remain available but there are no enrollment or disconnect actions. |
 
 Both OpenCode generations expose the [shared account menu](../../core/src/antigravity-command-menu.ts) through their own terminal UI; account and credential operations run on the server. See [OpenCode 2's menu and sidebar](OPENCODE-2.md#ui-and-evidence-limits) for its host integration.
+
+With vault enrollment actions available, the menus are ordered as follows:
+
+- **OpenCode 1 local:** Accounts → Quota → Routing → Limits → Diagnostics → Sign in → Vault
+- **OpenCode 2 local:** Accounts → Quota → Routing → Limits → Diagnostics → Vault
+- **Pi:** Accounts → Quota → Routing → Limits → Vault
+
+Actions and sections may be hidden or disabled when the credential source, permissions or settings do not allow them.
 
 ## Standalone CLI
 
@@ -46,7 +55,7 @@ antigravity-auth rollback --offline [--yes]
 
 Exit codes are `0` for success, `1` for a thrown error, and `2` for parse failure, including unsupported commands/options. `list` and `quota` do not initialize or migrate account storage.
 
-**Pool replacement, not account addition:** standalone `antigravity-auth login` starts or replaces the local account pool; it does not append an account to an existing pool. When setup performs local OpenCode OAuth, it adds accounts; the host's account menu also adds accounts. Use `/antigravity` → Sign in to add an account without replacing the existing pool. Initialize a fresh store or complete offline migration first; do not recreate the legacy file or delete store files to bypass those requirements.
+**Pool replacement, not account addition:** standalone `antigravity-auth login` starts or replaces the local account pool; it does not append an account to an existing pool. Use `/antigravity` → Sign in on OpenCode 1 or Accounts → **Add account** on OpenCode 2 to add a login without replacing the pool. Initialize a fresh store or complete offline migration first; do not recreate the legacy file or delete store files to bypass those requirements.
 
 ## Host login routes
 
