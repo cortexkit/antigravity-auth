@@ -127,6 +127,7 @@ export class Environment {
   private instant = epoch
   private randomIndex = 0
   private nodeId = 0
+  private scopeId = 0
   private webId = 0
   private latestSend = epoch
   private readonly restore: (() => void)[] = []
@@ -151,6 +152,17 @@ export class Environment {
       active ? uuid(++this.webId) : originalWebUuid(),
     )
 
+    for (const [key, value] of [
+      ['platform', 'linux'],
+      ['arch', 'x64'],
+    ] as const) {
+      const previous = Object.getOwnPropertyDescriptor(process, key)
+      Object.defineProperty(process, key, { configurable: true, value })
+      this.restore.push(() => {
+        if (previous) Object.defineProperty(process, key, previous)
+      })
+    }
+
     // Ignore the runner's proxy environment without altering the target or
     // replacing any part of the sender that prepares or writes request bytes.
     for (const key of ['NO_PROXY', 'no_proxy'] as const) {
@@ -164,7 +176,11 @@ export class Environment {
   }
 
   nextNodeId() {
-    return uuid(++this.nodeId)
+    // Account, bridge and reporting IDs must not advance the request-scope
+    // sequence. Keep the production scope lookup; only supply its next IDs.
+    if (new Error().stack?.includes('createAgyRequestSessionContext'))
+      return uuid(++this.scopeId)
+    return uuid(10_000 + ++this.nodeId)
   }
 
   connect(

@@ -244,6 +244,7 @@ function repository(): AccountRepository {
     updateMetadata: async () => ({ ref: row.ref }),
     writeQuota: async () => ({ ref: row.ref }),
     recordFingerprint: async () => ({ ref: row.ref }),
+    recordUsage: async () => ({ ref: row.ref }),
     settled: async () => {},
     flush: async () => ({ failures: [] }),
     dispose: async () => {},
