@@ -359,9 +359,9 @@ async function runRateLimit(body: string, headers?: HeadersInit) {
   const wall = spyOn(Date, 'now').mockImplementation(() => instant)
   const realTimeout = globalThis.setTimeout
   const sleep = spyOn(globalThis, 'setTimeout').mockImplementation(((
-    callback,
-    delay,
-    ...args
+    callback: (...args: unknown[]) => void,
+    delay?: number,
+    ...args: unknown[]
   ) => {
     if (
       delay === undefined ||
@@ -375,18 +375,36 @@ async function runRateLimit(body: string, headers?: HeadersInit) {
       callback(...args)
     }, 0)
   }) as typeof setTimeout)
+  const engine = createPiRequestEngine({
+    preResponseClock: {
+      now: () => instant,
+      schedule(callback, delay) {
+        const timer = realTimeout(callback, delay)
+        timer.unref()
+        return () => clearTimeout(timer)
+      },
+    },
+  })
   fetchWithAgyCliTransportMock.mockImplementation(
     async () => new Response(body, { status: 429, headers }),
   )
   try {
     const turn = await collectStream(
-      streamCortexKitAntigravity(fakeModel(), userContext(), {
-        apiKey: 'test-token',
-        sessionId: 'rate-limit',
-      }),
+      startLocalStream(
+        fakeModel(),
+        userContext(),
+        {
+          apiKey: 'test-token',
+          sessionId: 'rate-limit',
+        },
+        undefined,
+        undefined,
+        engine,
+      ),
     )
     return { ...turn, waits }
   } finally {
+    await engine.dispose()
     sleep.mockRestore()
     wall.mockRestore()
   }

@@ -368,3 +368,84 @@ test('Pi custody does not report billing without a host session id', async () =>
     await env.dispose()
   }
 })
+
+test('an outstanding NOT_FOUND marks its original native credential, not the replacement', async () => {
+  const env = new Environment()
+  const sawOldSend = Promise.withResolvers<void>()
+  const oldReply = Promise.withResolvers<Response>()
+  const sent: string[] = []
+  const pi = await piAdapter(env, 'local', false, {}, async (_url, init) => {
+    const bearer = new Headers(init?.headers).get('authorization') ?? ''
+    sent.push(bearer)
+    if (bearer === `Bearer ${credential.accessToken}`) {
+      sawOldSend.resolve()
+      return oldReply.promise
+    }
+    return new Response(success.body, {
+      headers: { 'Content-Type': 'text/event-stream' },
+    })
+  })
+  try {
+    await pi.activate()
+    const pending = pi.run(input, 'old-request')
+    await sawOldSend.promise
+    await replaceLogin(pi.nativeAuthPath, 'new-slot')
+    expect((await pi.run(input, 'new-request')).terminal).toEqual(['stop'])
+    oldReply.resolve(new Response(missing.body, missing))
+    expect((await pending).terminal).toEqual(['failure:model_not_found'])
+    expect((await pi.run(input, 'new-request')).terminal).toEqual(['stop'])
+    expect(sent).toEqual([
+      `Bearer ${credential.accessToken}`,
+      `Bearer ${credential.accessToken}-new-slot`,
+      `Bearer ${credential.accessToken}-new-slot`,
+    ])
+  } finally {
+    oldReply.resolve(new Response(missing.body, missing))
+    await pi.dispose()
+    await env.dispose()
+  }
+})
+
+test('NOT_FOUND for the native login does not follow a Pi activation into vault custody', async () => {
+  const env = new Environment((_wire, index) =>
+    index === 0 ? missing : success,
+  )
+  const pi = await piAdapter(env, 'local', false)
+  try {
+    expect((await pi.run(input, 'switch-custody')).terminal).toEqual([
+      'failure:model_not_found',
+    ])
+    expect((await pi.run(input, 'switch-custody')).terminal).toEqual([
+      'failure:model_not_found',
+    ])
+    expect(env.physicalSends).toHaveLength(1)
+    await pi.switchToVault()
+    expect((await pi.run(input, 'switch-custody')).terminal).toEqual(['stop'])
+    expect(env.physicalSends).toHaveLength(2)
+  } finally {
+    await pi.dispose()
+    await env.dispose()
+  }
+})
+
+test('NOT_FOUND for a vault route does not apply to a later record version on that route', async () => {
+  const env = new Environment((_wire, index) =>
+    index === 0 ? missing : success,
+  )
+  const pi = await piAdapter(env, 'vault', false)
+  try {
+    expect((await pi.run(input, 'vault-version')).terminal).toEqual([
+      'failure:model_not_found',
+    ])
+    expect((await pi.run(input, 'vault-version')).terminal).toEqual([
+      'failure:model_not_found',
+    ])
+    expect(env.physicalSends).toHaveLength(1)
+    pi.replaceVaultRecord()
+    expect((await pi.run(input, 'vault-version')).terminal).toEqual(['stop'])
+    expect(env.physicalSends).toHaveLength(2)
+  } finally {
+    await pi.dispose()
+    await env.dispose()
+  }
+})

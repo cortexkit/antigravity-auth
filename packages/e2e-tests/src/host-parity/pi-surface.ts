@@ -5,6 +5,7 @@ import {
   loadCommonAuthClaustrum,
 } from '@cortexkit/antigravity-auth-core'
 import type { ClaustrumScopedClient } from '@cortexkit/antigravity-auth-core/common-auth/claustrum'
+import type { RequestTransport } from '@cortexkit/antigravity-auth-core/engine'
 import {
   type Api,
   type Context,
@@ -116,6 +117,7 @@ export async function piAdapter(
   custody: Custody,
   transcript: boolean,
   settings: Readonly<Record<string, unknown>> = {},
+  transport?: RequestTransport,
 ) {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
   if (!root) throw new Error('Host parity requires the root test preload')
@@ -139,6 +141,19 @@ export async function piAdapter(
     }),
     close() {},
   })
+  const approveVault = async () => {
+    const setup = new PiVaultSetup({
+      claustrum: await loadCommonAuthClaustrum(),
+      stateDir: dir,
+      modeFile,
+      readHostSlot: () => undefined,
+      connectEnrollment,
+    })
+    const enrolled = await setup.connectStep()
+    if (enrolled.state !== 'approved')
+      throw new Error(`Pi parity enrollment: ${enrolled.state}`)
+  }
+  let recordVersion = 1
   const client: ClaustrumScopedClient = {
     listScoped: async () => ({
       view: 'parity-roster',
@@ -152,7 +167,7 @@ export async function piAdapter(
           providerIds: [],
           refreshAdapter: 'antigravity',
           state: 'active',
-          recordVersion: 1,
+          recordVersion,
           operations: ['read'],
           createdAtMs: null,
         },
@@ -165,7 +180,7 @@ export async function piAdapter(
       projectId: credential.projectId,
       accountId: 'parity-identity',
       credentialId: 'parity-credential',
-      recordVersion: 1,
+      recordVersion,
       expiresAtMs: epoch + 86_400_000,
     }),
     reportAuthFailureScoped: async () => {},
@@ -185,6 +200,12 @@ export async function piAdapter(
     })
   let provider: ProviderConfig | undefined
   let stop: (() => Promise<void>) | undefined
+  let sessionStart:
+    | ((
+        event: unknown,
+        context: { hasUI: false; modelRegistry: { refresh(): void } },
+      ) => Promise<void>)
+    | undefined
   let executionId = 10_001
   const sessionStore = new AgyRequestSessionStore({
     now: () => Date.now(),
@@ -201,18 +222,7 @@ export async function piAdapter(
     )
     if (custody === 'local')
       await Bun.write(nativeAuthPath, JSON.stringify({ google: native }))
-    if (custody === 'vault') {
-      const setup = new PiVaultSetup({
-        claustrum: await loadCommonAuthClaustrum(),
-        stateDir: dir,
-        modeFile,
-        readHostSlot: () => undefined,
-        connectEnrollment,
-      })
-      const enrolled = await setup.connectStep()
-      if (enrolled.state !== 'approved')
-        throw new Error(`Pi parity enrollment: ${enrolled.state}`)
-    }
+    if (custody === 'vault') await approveVault()
     await registerCortexKitPiAntigravity(
       {
         registerProvider(_name: string, config: ProviderConfig) {
@@ -221,6 +231,7 @@ export async function piAdapter(
         registerCommand() {},
         on(event: string, handler: () => Promise<void>) {
           if (event === 'session_shutdown') stop = handler
+          if (event === 'session_start') sessionStart = handler
         },
       } as unknown as Registry,
       {
@@ -233,6 +244,7 @@ export async function piAdapter(
         connect: async () => client,
         connectEnrollment,
         requestEngine: {
+          transport,
           notify: (message) => environment.notices.push(message),
           sessions: {
             beginRequest: ({ sessionId }) =>
@@ -243,6 +255,17 @@ export async function piAdapter(
     )
   }
   return {
+    async switchToVault() {
+      await approveVault()
+      if (!sessionStart) throw new Error('Pi did not register session_start')
+      await sessionStart(undefined, {
+        hasUI: false,
+        modelRegistry: { refresh() {} },
+      })
+    },
+    replaceVaultRecord() {
+      recordVersion++
+    },
     get nativeAuthPath() {
       return nativeAuthPath
     },
@@ -273,15 +296,13 @@ export async function piAdapter(
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       } as Model<Api>
       const { level, budget, temperature, topP, maxTokens } = input.options
-      const auth =
-        custody === 'local'
-          ? (await Bun.file(nativeAuthPath).json()).google
-          : null
+      const auth = provider.oauth
+        ? (await Bun.file(nativeAuthPath).json()).google
+        : null
       const options = {
-        apiKey:
-          custody === 'local'
-            ? provider.oauth?.getApiKey(auth)
-            : CUSTODY_PROVIDER_KEY_MARKER,
+        apiKey: provider.oauth
+          ? provider.oauth.getApiKey(auth)
+          : CUSTODY_PROVIDER_KEY_MARKER,
         sessionId: session,
         signal,
         reasoning: level,
