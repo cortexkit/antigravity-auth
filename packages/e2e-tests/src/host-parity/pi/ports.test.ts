@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { fetchWithAgyCliTransport } from '@cortexkit/antigravity-auth-core'
+import { ENGINE_REFUSALS } from '@cortexkit/antigravity-auth-core/engine'
 import { conversation, models } from '../cases.ts'
 import { Environment } from '../environment.ts'
 import { bodyOf, candidate, credential, sse, success } from '../fixtures.ts'
@@ -24,8 +25,8 @@ const missing = {
     error: { status: 'NOT_FOUND', message: 'Fixture model not found' },
   }),
 }
-const modelUnavailable =
-  'Antigravity request failed: HTTP 412 {"error":{"code":412,"status":"FAILED_PRECONDITION","message":"The requested Antigravity model is not available to the configured accounts. Choose another model."}}'
+// Pi now reports the engine's fixed refusal, never Google's own body.
+const modelUnavailable = ENGINE_REFUSALS.model_not_found.text
 
 test('vault endpoint fallback waits for receipt I/O without advancing the fixture clock', async () => {
   const env = new Environment(() => ({ stall: 'before-headers' }))
