@@ -234,7 +234,24 @@ export class Environment {
       ms = 0,
       ...args: unknown[]
     ): Timer => {
-      if (ms <= 1) return realSetTimeout(call, ms, ...args)
+      // Advance request timers, not bridge job retention or background
+      // account persistence, which may be pending during an ordinary send.
+      const caller =
+        new Error().stack
+          ?.split('\n')
+          .slice(1)
+          .find(
+            (line) =>
+              !line.includes('host-parity/environment.') &&
+              !line.includes('bun:'),
+          ) ?? ''
+      if (
+        ms <= 1 ||
+        !/agy-transport\.|request-services\.|pre-response-deadline\.|(?:at nextWithTimeout )/.test(
+          caller,
+        )
+      )
+        return realSetTimeout(call, ms, ...args)
       const handle = realSetTimeout(() => {}, 2_147_483_647)
       handle.unref()
       this.timers.set(handle, {
