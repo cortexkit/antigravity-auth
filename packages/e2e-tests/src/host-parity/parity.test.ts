@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test'
 import { requestCases, subjects } from './cases.ts'
+import { bodyOf, epoch } from './fixtures.ts'
 import { admittedCapture, checkCorpus } from './gate.ts'
 import {
   baseCommit,
@@ -12,6 +13,7 @@ import {
 } from './gate-data.ts'
 import { recordCorpus } from './record.ts'
 import { runConversation } from './runner.ts'
+import { responseScenarios } from './scenarios.ts'
 
 const capturePath = process.env.HOST_PARITY_RECORD
 if (capturePath) {
@@ -88,6 +90,153 @@ test('the gate rejects a stale or changed known failure by exact field', () => {
   expect(check({ terminal: [['failure:deadline']] })[0]).toContain(name)
 })
 
+test('the cited legacy attachment layout still pins image bytes, MIME and text', () => {
+  const input = requestCases.find(
+    ({ id }) => id === 'tool-result image: mixed',
+  )!
+  const wire = (role: string, parts: object[]) => [
+    {
+      target: 'https://captured.test',
+      headers: [] as [string, string][],
+      bodyBase64: Buffer.from(
+        JSON.stringify({ request: { contents: [{ role, parts }] } }),
+      ).toString('base64'),
+    },
+  ]
+  const image = { inlineData: { mimeType: 'image/png', data: 'aGVsbG8=' } }
+  const result = {
+    name: 'capture',
+    response: { name: 'capture', content: 'text' },
+  }
+  const reference = wire('model', [
+    { functionResponse: { id: 'call', ...result, parts: [image] } },
+  ])
+  const legacy = (imagePart: typeof image, text: string) =>
+    wire('user', [
+      {
+        functionResponse: {
+          ...result,
+          response: { ...result.response, content: text },
+        },
+      },
+      imagePart,
+      {
+        text: 'Tool executed successfully and returned this image as a response',
+      },
+    ])
+  const expected = wireFields(reference, input, {
+    host: 'opencode1',
+    reference: true,
+  })
+  const fields = (observed: ReturnType<typeof wire>) =>
+    wireFields(observed, input, { host: 'opencode1' })
+  expect(fields(legacy(image, 'text'))).toEqual(expected)
+  expect(
+    fields(
+      legacy({ inlineData: { ...image.inlineData, data: 'd29ybGQ=' } }, 'text'),
+    ),
+  ).not.toEqual(expected)
+  expect(
+    fields(
+      legacy(
+        { inlineData: { ...image.inlineData, mimeType: 'image/jpeg' } },
+        'text',
+      ),
+    ),
+  ).not.toEqual(expected)
+  expect(fields(legacy(image, 'different'))).not.toEqual(expected)
+})
+
+test('OpenCode 2 drops an unsigned empty model part without dropping the turn', async () => {
+  const input = requestCases.find(({ id }) =>
+    id.endsWith('explicit empty text'),
+  )!
+  const result = await runConversation({
+    input,
+    subject: 'opencode2',
+    custody: 'local',
+  })
+  expect(bodyOf(result.wire[0]!).request).toMatchObject({
+    contents: [
+      { role: 'user', parts: [{ text: 'Look up the value.' }] },
+      { role: 'model', parts: [{ text: '.' }] },
+      { role: 'user', parts: [{ text: 'What did you find?' }] },
+    ],
+  })
+})
+
+const reportId = (suffix: number) =>
+  `00000000-0000-4000-8000-${String(suffix).padStart(12, '0')}`
+const billingReport = (attemptId: string) => ({
+  sessionId: 'example',
+  report: { kind: 'billing', attempt_id: attemptId, status: 200 },
+})
+const waitReport = (waitId: string, phase: 'start' | 'end') => ({
+  sessionId: 'example',
+  report: { kind: 'wait', wait_id: waitId, phase, reason: 'rate_limited' },
+})
+const checkReports = (actual: unknown, expected: unknown = []) => {
+  const mismatches: string[] = []
+  compareFields({
+    key: caseKey('example', 'pi', 'vault'),
+    actual: { reports: actual },
+    expected: { reports: expected },
+    known: new Map(),
+    mismatches,
+  })
+  return mismatches
+}
+
+test('the report gate compares ID relationships and all other fields', () => {
+  const trace = (id: number) => [
+    billingReport(reportId(id)),
+    waitReport(reportId(id + 1), 'start'),
+    waitReport(reportId(id + 1), 'end'),
+    billingReport(reportId(id + 2)),
+  ]
+  const expected = trace(1)
+  const actual = trace(4)
+  expect(checkReports(actual, expected)).toEqual([])
+  expect(checkReports(actual.slice(1), expected)).toHaveLength(1)
+  expect(checkReports([...actual.slice(1), actual[0]], expected)).toHaveLength(
+    1,
+  )
+  expect(
+    checkReports(
+      [
+        { sessionId: 'example', report: { ...actual[0]!.report, status: 403 } },
+        ...actual.slice(1),
+      ],
+      expected,
+    ),
+  ).toHaveLength(1)
+})
+
+test.each([
+  ['a malformed ID', [billingReport('broken')], 'Malformed report attempt_id'],
+  [
+    'a reused billing ID',
+    [billingReport(reportId(1)), billingReport(reportId(1))],
+    'Reused report attempt_id',
+  ],
+  [
+    'a wait end without a start',
+    [waitReport(reportId(1), 'end')],
+    'Unpaired report wait end',
+  ],
+  [
+    'a reused wait ID',
+    [
+      waitReport(reportId(1), 'start'),
+      waitReport(reportId(1), 'end'),
+      waitReport(reportId(1), 'start'),
+    ],
+    'Reused report wait_id',
+  ],
+])('the report gate rejects %s', (_description, trace, message) => {
+  expect(() => checkReports(trace)).toThrow(message as string)
+})
+
 test.each([
   ...subjects,
 ])('%s enters the stock public request and response paths', async (subject) => {
@@ -102,4 +251,46 @@ test.each([
     wire: [{ target: expect.stringContaining(':streamGenerateContent') }],
     turns: [{ text: 'Four.', terminal: ['stop'], errors: [] }],
   })
+})
+
+test.each([
+  'opencode1',
+  'opencode2',
+  'pi',
+] as const)('%s reports each unexplained refusal on an unrouted vault login', async (subject) => {
+  const scenario = responseScenarios.find(
+    ({ input }) => input.id === 'unexplained 429',
+  )!
+  const options = {
+    subject,
+    custody: 'vault' as const,
+    input: scenario.input,
+    timed: true,
+    reply: () => scenario.replies[0]!,
+  }
+  const withAccessor = await runConversation(options)
+  expect(withAccessor.physicalSends).toHaveLength(3)
+  expect(
+    withAccessor.reports.filter(
+      (entry) =>
+        (entry as { report?: { kind?: unknown } }).report?.kind ===
+        'transient_backoff',
+    ),
+  ).toEqual(
+    [5_000, 10_000, 15_000].map((delay) => ({
+      sessionId: 'parity-session',
+      report: {
+        kind: 'transient_backoff',
+        account_id: 'parity-identity',
+        credential_id: 'parity-credential',
+        retry_at_ms: epoch + delay,
+      },
+    })),
+  )
+  const withoutAccessor = await runConversation({
+    ...options,
+    observeRouting: false,
+  })
+  expect(withoutAccessor.physicalSends).toHaveLength(3)
+  expect(withoutAccessor.reports).toEqual([])
 })

@@ -118,6 +118,15 @@
         {
           "sessionId": "parity-session",
           "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721605000
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
             "kind": "wait",
             "phase": "start",
             "wait_id": "00000000-0000-4000-8000-000000002714",
@@ -162,6 +171,15 @@
         {
           "sessionId": "parity-session",
           "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721610000
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
             "kind": "wait",
             "phase": "start",
             "wait_id": "00000000-0000-4000-8000-000000002716",
@@ -201,6 +219,15 @@
             "cache": {
               "implicit": true
             }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721615000
           }
         }
       ],
@@ -300,6 +327,15 @@
         {
           "sessionId": "parity-session",
           "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721605000
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
             "kind": "wait",
             "phase": "start",
             "wait_id": "00000000-0000-4000-8000-000000002713",
@@ -344,6 +380,15 @@
         {
           "sessionId": "parity-session",
           "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721610000
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
             "kind": "wait",
             "phase": "start",
             "wait_id": "00000000-0000-4000-8000-000000002715",
@@ -383,6 +428,15 @@
             "cache": {
               "implicit": true
             }
+          }
+        },
+        {
+          "sessionId": "parity-session",
+          "report": {
+            "kind": "transient_backoff",
+            "account_id": "parity-identity",
+            "credential_id": "parity-credential",
+            "retry_at_ms": 1784721615000
           }
         }
       ],
@@ -1726,7 +1780,7 @@
     },
     "piHooks": [
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 400,
@@ -1736,7 +1790,7 @@
         }
       },
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 200,
@@ -1833,7 +1887,7 @@
     },
     "piHooks": [
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 400,
@@ -1843,7 +1897,7 @@
         }
       },
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 200,
@@ -1940,7 +1994,7 @@
     },
     "piHooks": [
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 400,
@@ -1950,7 +2004,7 @@
         }
       },
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 200,
@@ -1999,7 +2053,7 @@
     },
     "piHooks": [
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 400,
@@ -2009,7 +2063,7 @@
         }
       },
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 400,
@@ -2097,7 +2151,7 @@
     },
     "piHooks": [
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 400,
@@ -2107,7 +2161,7 @@
         }
       },
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 400,
@@ -2195,7 +2249,7 @@
     },
     "piHooks": [
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 400,
@@ -2205,7 +2259,7 @@
         }
       },
       {
-        "payload": "ef7201b97a6eb5dccbbb825e7cb9f1663eaddaeee9564f8a9c75cf1ff6a9ba49"
+        "payload": "1eb4084964d3bd8ba0cf0cb9b9c2a94e01c6cdd0aba9586a27643effb9f87097"
       },
       {
         "response": 400,

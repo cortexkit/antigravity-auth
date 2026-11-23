@@ -79,6 +79,7 @@ describe('buildGeminiRequest', () => {
       expect(request.contents[2]?.parts).toEqual([
         {
           functionResponse: {
+            id: 'c1',
             name: 'read',
             response: { name: 'read', content: phrase },
           },
@@ -139,7 +140,7 @@ describe('buildGeminiRequest', () => {
         role: 'model',
         parts: [
           { text: 'thinking out loud' },
-          { functionCall: { name: 'read', args: { path: 'a.ts' } } },
+          { functionCall: { id: 'c1', name: 'read', args: { path: 'a.ts' } } },
         ],
       },
     ])
@@ -168,12 +169,12 @@ describe('buildGeminiRequest', () => {
       }),
     )
     expect(request.contents[0]?.parts[0]).toEqual({
-      functionCall: { name: 'read', args: { path: 'a.ts' } },
+      functionCall: { id: 'c1', name: 'read', args: { path: 'a.ts' } },
       thoughtSignature: 'SIG123',
     })
   })
 
-  it('omits unsigned thinking and replays same-model signed text', () => {
+  it('preserves same-model unsigned thinking and signed text for the engine', () => {
     const request = buildGeminiRequest(
       ctx({
         messages: [
@@ -181,6 +182,7 @@ describe('buildGeminiRequest', () => {
             content: [
               { type: 'thinking', thinking: 'reasoning' },
               { type: 'text', text: 'answer', textSignature: 'SIG123' },
+              { type: 'text', text: '', textSignature: 'SIG456' },
             ],
             api: 'google-generative-ai',
             provider: 'google',
@@ -198,7 +200,11 @@ describe('buildGeminiRequest', () => {
     expect(request.contents).toEqual([
       {
         role: 'model',
-        parts: [{ text: 'answer', thoughtSignature: 'SIG123' }],
+        parts: [
+          { text: 'reasoning', thought: true },
+          { text: 'answer', thoughtSignature: 'SIG123' },
+          { text: '', thoughtSignature: 'SIG456' },
+        ],
       },
     ])
   })
@@ -245,7 +251,7 @@ describe('buildGeminiRequest', () => {
         role: 'model',
         parts: [
           { text: 'before tool' },
-          { functionCall: { name: 'read', args: { path: 'a.ts' } } },
+          { functionCall: { id: 'c1', name: 'read', args: { path: 'a.ts' } } },
         ],
       },
       {
@@ -253,6 +259,7 @@ describe('buildGeminiRequest', () => {
         parts: [
           {
             functionResponse: {
+              id: 'c1',
               name: 'read',
               response: { name: 'read', content: 'file A' },
             },
@@ -291,12 +298,14 @@ describe('buildGeminiRequest', () => {
         parts: [
           {
             functionResponse: {
+              id: 'c1',
               name: 'read',
               response: { name: 'read', content: 'file A' },
             },
           },
           {
             functionResponse: {
+              id: 'c2',
               name: 'grep',
               response: { name: 'grep', content: 'match' },
             },
@@ -354,9 +363,9 @@ describe('buildGeminiRequest', () => {
       {
         role: 'model',
         parts: [
-          { functionCall: { name: 'read', args: { path: 'a.ts' } } },
+          { functionCall: { id: 'c1', name: 'read', args: { path: 'a.ts' } } },
           {
-            functionCall: { name: 'grep', args: { pattern: 'TODO' } },
+            functionCall: { id: 'c2', name: 'grep', args: { pattern: 'TODO' } },
           },
         ],
       },
@@ -365,12 +374,14 @@ describe('buildGeminiRequest', () => {
         parts: [
           {
             functionResponse: {
+              id: 'c1',
               name: 'read',
               response: { name: 'read', content: 'file A' },
             },
           },
           {
             functionResponse: {
+              id: 'c2',
               name: 'grep',
               response: { name: 'grep', content: 'match' },
             },
@@ -396,8 +407,54 @@ describe('buildGeminiRequest', () => {
       }),
     )
     expect(request.contents[0]?.parts[0]).toEqual({
-      functionResponse: { name: 'bash', response: { error: 'boom' } },
+      functionResponse: { id: 'c1', name: 'bash', response: { error: 'boom' } },
     })
+  })
+
+  it('keeps both image-only and mixed tool output underneath its result ID', () => {
+    const item = {
+      type: 'image',
+      mimeType: 'image/png',
+      data: 'aGVsbG8=',
+    } as const
+    const request = buildGeminiRequest(
+      ctx({
+        messages: [
+          {
+            role: 'toolResult',
+            toolCallId: 'one',
+            toolName: 'capture',
+            content: [item],
+            isError: false,
+            timestamp: 1,
+          },
+          {
+            role: 'toolResult',
+            toolCallId: 'two',
+            toolName: 'capture',
+            content: [{ type: 'text', text: 'detail' }, item],
+            isError: false,
+            timestamp: 1,
+          },
+        ],
+      }),
+      { model: 'antigravity-gemini-3.8-flash' },
+    )
+    expect(request.contents).toEqual([
+      {
+        role: 'user',
+        parts: ['one', 'two'].map((id, index) => ({
+          functionResponse: {
+            id,
+            name: 'capture',
+            response: { name: 'capture', content: index === 0 ? '' : 'detail' },
+            parts: [
+              { inlineData: { mimeType: 'image/png', data: 'aGVsbG8=' } },
+            ],
+          },
+        })),
+      },
+    ])
   })
 
   it('emits systemInstruction and tool declarations', () => {
@@ -428,6 +485,26 @@ describe('buildGeminiRequest', () => {
       type: 'object',
       properties: { path: { type: 'string' } },
     })
+  })
+
+  it('orders Gemini object properties before the required list on the wire', () => {
+    const request = buildGeminiRequest(
+      ctx({
+        tools: [
+          {
+            name: 'read',
+            description: '',
+            parameters: Type.Object({ path: Type.String() }),
+          },
+        ],
+      }),
+      { model: 'antigravity-gemini-3.8-flash' },
+    )
+    expect(
+      Object.keys(
+        request.tools![0]!.functionDeclarations[0]!.parameters as object,
+      ),
+    ).toEqual(['type', 'properties', 'required'])
   })
 
   it('converts image content into inlineData', () => {

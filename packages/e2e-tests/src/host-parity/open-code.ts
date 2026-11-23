@@ -252,6 +252,14 @@ function repository(): AccountRepository {
     updateMetadata: async () => ({ ref: row.ref }),
     writeQuota: async () => ({ ref: row.ref }),
     recordFingerprint: async () => ({ ref: row.ref }),
+    recordAccessVerdict: async (
+      _ref: AccountRow['ref'],
+      verdict: Parameters<AccountRepository['recordAccessVerdict']>[1],
+    ) => {
+      if (verdict.kind !== 'cleared') row.enabled = false
+      else if (verdict.enable) row.enabled = true
+      return { ref: row.ref }
+    },
     recordUsage: async () => ({ ref: row.ref }),
     settled: async () => {},
     flush: async () => ({ failures: [] }),
@@ -331,7 +339,15 @@ export async function openCode2(
         }),
       } satisfies GaPluginOverrides,
       routes: createGaRouteBook(),
-    }
+      notify: (_scope, entry) => {
+        if (!('notify' in entry)) return null
+        const { message, kind } = entry.notify
+        return environment.notices.push({ message, variant: kind })
+      },
+    } satisfies Pick<
+      Parameters<typeof createGaVaultRequestPipeline>[0],
+      'runtime' | 'overrides' | 'routes' | 'notify'
+    >
     const accounts: Parameters<
       typeof createGaLocalRequestPipeline
     >[0]['accounts'] = {
@@ -374,7 +390,12 @@ export async function openCode2(
               model: {
                 id: conversation.model,
                 providerID: 'google',
-                variant: conversation.options.level,
+                // The budget case tests the explicit Google option, not a
+                // separate catalog selection that intentionally overrides it.
+                variant:
+                  conversation.options.budget === undefined
+                    ? conversation.options.level
+                    : undefined,
               },
               request,
             }

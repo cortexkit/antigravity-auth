@@ -163,8 +163,14 @@ export async function checkCorpus() {
         known,
         mismatches: errors,
         ledger: caseLedger(input),
-        actual: { ...wireFields(result.wire, input), ...semantics.actual },
-        expected: { ...wireFields(oracleWire, input), ...semantics.expected },
+        actual: {
+          ...wireFields(result.wire, input, { host: subject }),
+          ...semantics.actual,
+        },
+        expected: {
+          ...wireFields(oracleWire, input, { host: subject, reference: true }),
+          ...semantics.expected,
+        },
       })
       if (input.replayText) {
         const [field, replay] = [

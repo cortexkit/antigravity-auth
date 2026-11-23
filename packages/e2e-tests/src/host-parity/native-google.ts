@@ -348,17 +348,15 @@ export async function google2(
           inputSchema: schema,
         })),
         generation: { temperature, topP, maxTokens },
-        providerOptions: {
-          google:
-            budget === undefined
-              ? {}
-              : {
-                  thinkingConfig: {
-                    thinkingBudget: budget,
-                    includeThoughts: true,
-                  },
+        providerOptions:
+          budget === undefined
+            ? undefined
+            : {
+                thinkingConfig: {
+                  thinkingBudget: budget,
+                  includeThoughts: true,
                 },
-        },
+              },
         http: { headerTimeout: false, chunkTimeout: false },
       },
       { signal },

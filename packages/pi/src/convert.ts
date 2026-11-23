@@ -18,11 +18,12 @@ type GeminiPart =
   | { text: string; thought?: boolean; thoughtSignature?: string }
   | InlineImage
   | {
-      functionCall: { name: string; args: Record<string, unknown> }
+      functionCall: { id?: string; name: string; args: Record<string, unknown> }
       thoughtSignature?: string
     }
   | {
       functionResponse: {
+        id?: string
         name: string
         response: Record<string, unknown>
         parts?: InlineImage[]
@@ -62,6 +63,13 @@ export interface BuildGeminiRequestOptions {
   generationConfig?: Record<string, unknown>
 }
 
+// Older Google models do not accept explicit function IDs. Newer models need
+// them to keep parallel results tied to the calls that produced them.
+function toolId(id: string, model?: string): { id?: string } {
+  const version = /^gemini(?:-live)?-(\d+)/i.exec(model ?? '')?.[1]
+  return version !== undefined && Number(version) < 3 ? {} : { id }
+}
+
 function convertAssistantParts(
   message: AssistantMessage,
   options?: BuildGeminiRequestOptions,
@@ -74,7 +82,7 @@ function convertAssistantParts(
   for (const block of message.content) {
     switch (block.type) {
       case 'thinking':
-        if (sameModel && block.thinking && block.thinkingSignature)
+        if (sameModel && block.thinking)
           parts.push({
             text: block.thinking,
             thought: true,
@@ -82,7 +90,7 @@ function convertAssistantParts(
           })
         break
       case 'text':
-        if (block.text.length > 0)
+        if (block.text.length > 0 || (sameModel && block.textSignature))
           parts.push({
             text: block.text,
             thoughtSignature: sameModel ? block.textSignature : undefined,
@@ -90,7 +98,11 @@ function convertAssistantParts(
         break
       case 'toolCall':
         parts.push({
-          functionCall: { name: block.name, args: block.arguments ?? {} },
+          functionCall: {
+            ...toolId(block.id, options?.model),
+            name: block.name,
+            args: block.arguments ?? {},
+          },
           thoughtSignature: sameModel ? block.thoughtSignature : undefined,
         })
         break
@@ -99,41 +111,42 @@ function convertAssistantParts(
   return parts
 }
 
-// @ai-sdk/google 3.0.73, src/convert-to-google-generative-ai-messages.ts:
-// model IDs outside its gemini-3 prefix carry tool-result images as sibling parts.
 function toolResultParts(
   message: ToolResultMessage,
   model?: string,
 ): GeminiPart[] {
   const name = message.toolName
+  const id = toolId(message.toolCallId, model)
   if (message.isError) {
     const error = message.content
       .flatMap((item) => (item.type === 'text' ? [item.text] : []))
       .join('\n')
     return [
-      { functionResponse: { name, response: { error: error || 'Error' } } },
+      {
+        functionResponse: {
+          ...id,
+          name,
+          response: { error: error || 'Error' },
+        },
+      },
     ]
   }
   const response = (content: string, parts?: InlineImage[]): GeminiPart => ({
     functionResponse: {
+      ...id,
       name,
       response: { name, content },
       ...(parts?.length && { parts }),
     },
   })
-  if (model?.startsWith('gemini-3')) {
+  if (!/gemini-2[.-]5(?:[.-]|$)/i.test(model ?? '')) {
     const texts = message.content.flatMap((item) =>
       item.type === 'text' ? [item.text] : [],
     )
     const images = message.content.flatMap((item) =>
       item.type === 'image' ? [inlineImage(item)] : [],
     )
-    return [
-      response(
-        texts.length ? texts.join('\n') : 'Tool executed successfully.',
-        images,
-      ),
-    ]
+    return [response(texts.join('\n'), images)]
   }
   return message.content.flatMap((item): GeminiPart[] =>
     item.type === 'text'

@@ -737,6 +737,14 @@ function sanitizeRequestPayloadForAntigravity(
       let foundFirstFunctionCall = false
 
       const sanitizedParts = rawParts
+        // Hosts can omit an unsigned empty assistant text part. Preserve
+        // signed empties and keep the turn itself when no parts remain.
+        .filter(
+          (part) =>
+            contentRecord.role !== 'model' ||
+            part?.text !== '' ||
+            Object.keys(part).length !== 1,
+        )
         .map((part: any) => {
           // Replace invalid parts with sentinel to preserve array indices for cache stability
           if (!isValidRequestPart(part)) {

@@ -19,6 +19,45 @@ export const exceptions = [
     reason:
       'The public stream drops the empty text delta carrying the Gemini text-reply signature.',
   },
+  {
+    host: 'opencode1',
+    field: 'wire.toolIds',
+    cases: [
+      'Gemini tool loop',
+      'parallel calls',
+      'unsigned call',
+      'Claude tool reply ending the history: raw',
+      'Claude tool reply ending the history: wrapped',
+      'tool-result image: image-only',
+      'tool-result image: mixed',
+      'object tool arguments with a thinking key',
+    ],
+    package: '@ai-sdk/google',
+    version: '3.0.73',
+    file: 'src/convert-to-google-generative-ai-messages.ts:132–141,316–322',
+    reason:
+      'The serialized function calls and legacy responses omit host tool IDs before the fetch interceptor sees them.',
+  },
+  {
+    host: 'opencode1',
+    field: 'wire.emptyTextSignature',
+    cases: ['empty and whitespace turns: signature-bearing empty part'],
+    package: '@ai-sdk/google',
+    version: '3.0.73',
+    file: 'src/convert-to-google-generative-ai-messages.ts:247–270',
+    reason:
+      'The SDK omits empty replayed assistant text before serialization, even when it carries a signature.',
+  },
+  {
+    host: 'opencode1',
+    field: 'wire.toolResultAttachmentLayout',
+    cases: ['tool-result image: image-only', 'tool-result image: mixed'],
+    package: '@ai-sdk/google',
+    version: '3.0.73',
+    file: 'src/google-generative-ai-language-model.ts:164–173; src/convert-to-google-generative-ai-messages.ts:122–158,406–411',
+    reason:
+      'Antigravity model IDs use legacy serialization, which emits the images as sibling parts and discards their tool-result association.',
+  },
 ] as const
 
 export function excepts(id: string, host: string, field: string) {

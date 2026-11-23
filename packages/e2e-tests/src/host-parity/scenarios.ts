@@ -175,12 +175,18 @@ export const responseScenarios: readonly Scenario[] = [
       ...refusal('quota_wait_exhausted'),
     },
   ),
-  scenario(
-    'structured QUOTA_EXHAUSTED',
-    'response-errors:D2',
-    [quota],
-    refusal('quota_exhausted'),
-  ),
+  scenario('structured QUOTA_EXHAUSTED', 'response-errors:D2', [quota], {
+    ...refusal('quota_exhausted'),
+    notices: {
+      openCode: [
+        {
+          message: 'Rate limited. Retrying in 1s (attempt 1)...',
+          variant: 'warning',
+        },
+      ],
+      pi: ['Rate limited. Retrying in 1s (attempt 1)...'],
+    },
+  }),
   scenario('503 then success', 'response-errors:D3', [capacity, success], {
     sends: 2,
     delays: [1000],

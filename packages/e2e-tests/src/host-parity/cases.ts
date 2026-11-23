@@ -178,6 +178,7 @@ const toolTurns = (
 export const requestCases: readonly Conversation[] = [
   conversation('plain chat'),
   conversation('Gemini tool loop', {
+    oracle: 'opencode2',
     tools: [tool],
     messages: toolTurns([call], [result]),
     sessions: ['parity-session', 'parity-session'],
@@ -185,6 +186,7 @@ export const requestCases: readonly Conversation[] = [
     replayText: true,
   }),
   conversation('parallel calls', {
+    oracle: 'opencode2',
     tools: [tool],
     messages: toolTurns(
       [call, { ...call, id: 'lookup-2' }],
@@ -192,6 +194,7 @@ export const requestCases: readonly Conversation[] = [
     ),
   }),
   conversation('unsigned call', {
+    oracle: 'opencode2',
     tools: [tool],
     messages: toolTurns([{ ...call, signature: undefined }], [result]),
   }),
@@ -265,6 +268,7 @@ export const requestCases: readonly Conversation[] = [
   ).map(([label, parts]) =>
     conversation(`empty and whitespace turns: ${label}`, {
       messages: [user, { role: 'assistant', parts }, followup],
+      ...(label === 'signature-bearing empty part' && { oracle: 'opencode2' }),
     }),
   ),
   ...[true, false].map((raw) =>
@@ -272,6 +276,7 @@ export const requestCases: readonly Conversation[] = [
       `Claude tool reply ending the history: ${raw ? 'raw' : 'wrapped'}`,
       {
         model: models.claude,
+        oracle: 'opencode2',
         tools: [tool],
         messages: toolTurns([call], [result], []),
         options: { raw },
@@ -288,10 +293,12 @@ export const requestCases: readonly Conversation[] = [
     messages: [{ role: 'user', parts: [...user.parts, image] }],
   }),
   conversation('tool-result image: image-only', {
+    oracle: 'opencode2',
     tools: [tool],
     messages: toolTurns([call], [{ ...result, content: [image] }]),
   }),
   conversation('tool-result image: mixed', {
+    oracle: 'opencode2',
     tools: [tool],
     messages: toolTurns(
       [call],
@@ -299,6 +306,7 @@ export const requestCases: readonly Conversation[] = [
     ),
   }),
   conversation('object tool arguments with a thinking key', {
+    oracle: 'opencode2',
     tools: [tool],
     messages: toolTurns(
       [{ ...call, args: { thinking: { effort: 'short' } } }],
@@ -316,7 +324,8 @@ export const requestCases: readonly Conversation[] = [
       budget: 2345,
       temperature: 0.3,
       topP: 0.8,
-      maxTokens: 123,
+      // Leave room for both thinking and output so the SDK passes the budget through.
+      maxTokens: 8192,
     },
   }),
   ...(['neon', 'hydrogen'] as const).flatMap((tier) =>

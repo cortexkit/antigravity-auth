@@ -91,13 +91,15 @@ function googleSchemaOrder(schema: unknown): unknown {
   if (!schema || typeof schema !== 'object') return schema
   const entries = new Map(Object.entries(schema))
   const ordered = new Map<string, unknown>()
+  // Keep Gemini's type and properties before its required list so the same
+  // tool declaration has the same bytes as the native Google request.
   for (const field of [
     'description',
-    'required',
     'format',
     'type',
     'enum',
     'properties',
+    'required',
     'items',
     'anyOf',
   ]) {

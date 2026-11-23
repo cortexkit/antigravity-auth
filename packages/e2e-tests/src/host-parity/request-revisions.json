@@ -105,7 +105,362 @@
           ["Content-Type", "application/json"],
           ["Accept-Encoding", "gzip"]
         ],
-        "bodyBase64": "NjRmDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi80IiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25DYWxsIjp7ImlkIjoibG9va3VwLTEiLCJuYW1lIjoibG9va3VwIiwiYXJncyI6eyJ0aGlua2luZyI6eyJlZmZvcnQiOiJzaG9ydCJ9fX0sInRob3VnaHRTaWduYXR1cmUiOiJ0ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS0ifV19LHsicm9sZSI6Im1vZGVsIiwicGFydHMiOlt7ImZ1bmN0aW9uUmVzcG9uc2UiOnsiaWQiOiJsb29rdXAtMSIsIm5hbWUiOiJsb29rdXAiLCJyZXNwb25zZSI6eyJuYW1lIjoibG9va3VwIiwiY29udGVudCI6IntcInRoaW5raW5nXCI6e1wiZWZmb3J0XCI6XCJzaG9ydFwifX0ifX19XX0seyJyb2xlIjoidXNlciIsInBhcnRzIjpbeyJ0ZXh0IjoiV2hhdCBkaWQgeW91IGZpbmQ/In1dfV0sInN5c3RlbUluc3RydWN0aW9uIjp7InBhcnRzIjpbeyJ0ZXh0IjoiQW5zd2VyIGJyaWVmbHkuIn1dfSwidG9vbHMiOlt7ImZ1bmN0aW9uRGVjbGFyYXRpb25zIjpbeyJuYW1lIjoibG9va3VwIiwiZGVzY3JpcHRpb24iOiJMb29rIHVwIGEgdmFsdWUuIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoiT0JKRUNUIiwicHJvcGVydGllcyI6eyJrZXkiOnsidHlwZSI6IlNUUklORyJ9fSwicmVxdWlyZWQiOlsia2V5Il19fV19XSwibGFiZWxzIjp7ImNhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJsYXN0X2V4ZWN1dGlvbl9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMjcxMyIsImxhc3Rfc3RlcF9pbmRleCI6IjMiLCJtb2RlbF9lbnVtIjoiTU9ERUxfUExBQ0VIT0xERVJfTTMxOSIsInJlcXVlc3RfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDItMCIsInJvb3RfY2FzY2FkZV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInRyYWplY3RvcnlfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIiLCJ1c2VkX2NsYXVkZSI6ImZhbHNlIiwidXNlZF9jbGF1ZGVfY29uc2VydmF0aXZlIjoiZmFsc2UiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJmYWxzZSJ9LCJnZW5lcmF0aW9uQ29uZmlnIjp7InRoaW5raW5nQ29uZmlnIjp7ImluY2x1ZGVUaG91Z2h0cyI6dHJ1ZSwidGhpbmtpbmdMZXZlbCI6Ik1FRElVTSJ9LCJtYXhPdXRwdXRUb2tlbnMiOjY1NTM2fSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJnZW1pbmktMy44LWZsYXNoLW1lZGl1bSIsInVzZXJBZ2VudCI6ImFudGlncmF2aXR5IiwicmVxdWVzdFR5cGUiOiJhZ2VudCJ9DQowDQoNCg=="
+        "bodyBase64": "NjRmDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi80IiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25DYWxsIjp7ImlkIjoibG9va3VwLTEiLCJuYW1lIjoibG9va3VwIiwiYXJncyI6eyJ0aGlua2luZyI6eyJlZmZvcnQiOiJzaG9ydCJ9fX0sInRob3VnaHRTaWduYXR1cmUiOiJ0ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS0ifV19LHsicm9sZSI6Im1vZGVsIiwicGFydHMiOlt7ImZ1bmN0aW9uUmVzcG9uc2UiOnsiaWQiOiJsb29rdXAtMSIsIm5hbWUiOiJsb29rdXAiLCJyZXNwb25zZSI6eyJuYW1lIjoibG9va3VwIiwiY29udGVudCI6IntcInRoaW5raW5nXCI6e1wiZWZmb3J0XCI6XCJzaG9ydFwifX0ifX19XX0seyJyb2xlIjoidXNlciIsInBhcnRzIjpbeyJ0ZXh0IjoiV2hhdCBkaWQgeW91IGZpbmQ/In1dfV0sInN5c3RlbUluc3RydWN0aW9uIjp7InBhcnRzIjpbeyJ0ZXh0IjoiQW5zd2VyIGJyaWVmbHkuIn1dfSwidG9vbHMiOlt7ImZ1bmN0aW9uRGVjbGFyYXRpb25zIjpbeyJuYW1lIjoibG9va3VwIiwiZGVzY3JpcHRpb24iOiJMb29rIHVwIGEgdmFsdWUuIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoiT0JKRUNUIiwicHJvcGVydGllcyI6eyJrZXkiOnsidHlwZSI6IlNUUklORyJ9fSwicmVxdWlyZWQiOlsia2V5Il19fV19XSwibGFiZWxzIjp7ImNhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJsYXN0X2V4ZWN1dGlvbl9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMjcxMiIsImxhc3Rfc3RlcF9pbmRleCI6IjMiLCJtb2RlbF9lbnVtIjoiTU9ERUxfUExBQ0VIT0xERVJfTTMxOSIsInJlcXVlc3RfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDItMCIsInJvb3RfY2FzY2FkZV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInRyYWplY3RvcnlfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIiLCJ1c2VkX2NsYXVkZSI6ImZhbHNlIiwidXNlZF9jbGF1ZGVfY29uc2VydmF0aXZlIjoiZmFsc2UiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJmYWxzZSJ9LCJnZW5lcmF0aW9uQ29uZmlnIjp7InRoaW5raW5nQ29uZmlnIjp7ImluY2x1ZGVUaG91Z2h0cyI6dHJ1ZSwidGhpbmtpbmdMZXZlbCI6Ik1FRElVTSJ9LCJtYXhPdXRwdXRUb2tlbnMiOjY1NTM2fSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJnZW1pbmktMy44LWZsYXNoLW1lZGl1bSIsInVzZXJBZ2VudCI6ImFudGlncmF2aXR5IiwicmVxdWVzdFR5cGUiOiJhZ2VudCJ9DQowDQoNCg=="
+      }
+    ]
+  },
+  "[\"Gemini tool loop\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D1",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NDI2DQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8xIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sInRvb2xzIjpbeyJmdW5jdGlvbkRlY2xhcmF0aW9ucyI6W3sibmFtZSI6Imxvb2t1cCIsImRlc2NyaXB0aW9uIjoiTG9vayB1cCBhIHZhbHVlLiIsInBhcmFtZXRlcnMiOnsidHlwZSI6Ik9CSkVDVCIsInByb3BlcnRpZXMiOnsia2V5Ijp7InR5cGUiOiJTVFJJTkcifX0sInJlcXVpcmVkIjpbImtleSJdfX1dfV0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9zdGVwX2luZGV4IjoiMCIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NMzE5IiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0wIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoiZmFsc2UiLCJ1c2VkX2NsYXVkZV9jb25zZXJ2YXRpdmUiOiJmYWxzZSIsInVzZWRfbm9uX2dlbWluaV9tb2RlbCI6ImZhbHNlIn0sImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlLCJ0aGlua2luZ0xldmVsIjoiTUVESVVNIn0sIm1heE91dHB1dFRva2VucyI6NjU1MzZ9LCJzZXNzaW9uSWQiOiItMzc1MDc2MzAzNDM2Mjg5NTU3OSJ9LCJtb2RlbCI6ImdlbWluaS0zLjgtZmxhc2gtbWVkaXVtIiwidXNlckFnZW50IjoiYW50aWdyYXZpdHkiLCJyZXF1ZXN0VHlwZSI6ImFnZW50In0NCjANCg0K"
+      },
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NzA3DQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAxLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi81IiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6IkZvdXIuIiwidGhvdWdodFNpZ25hdHVyZSI6InJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLSJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25DYWxsIjp7ImlkIjoibG9va3VwLTEiLCJuYW1lIjoibG9va3VwIiwiYXJncyI6eyJrZXkiOiJ2YWx1ZSJ9fSwidGhvdWdodFNpZ25hdHVyZSI6InRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLSJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25SZXNwb25zZSI6eyJpZCI6Imxvb2t1cC0xIiwibmFtZSI6Imxvb2t1cCIsInJlc3BvbnNlIjp7Im5hbWUiOiJsb29rdXAiLCJjb250ZW50IjoiRm91bmQgaXQuIn19fV19LHsicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6IldoYXQgZGlkIHlvdSBmaW5kPyJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sInRvb2xzIjpbeyJmdW5jdGlvbkRlY2xhcmF0aW9ucyI6W3sibmFtZSI6Imxvb2t1cCIsImRlc2NyaXB0aW9uIjoiTG9vayB1cCBhIHZhbHVlLiIsInBhcmFtZXRlcnMiOnsidHlwZSI6Ik9CSkVDVCIsInByb3BlcnRpZXMiOnsia2V5Ijp7InR5cGUiOiJTVFJJTkcifX0sInJlcXVpcmVkIjpbImtleSJdfX1dfV0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9leGVjdXRpb25faWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDI3MTIiLCJsYXN0X3N0ZXBfaW5kZXgiOiI0IiwibW9kZWxfZW51bSI6Ik1PREVMX1BMQUNFSE9MREVSX00zMTkiLCJyZXF1ZXN0X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyLTEiLCJyb290X2Nhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ0cmFqZWN0b3J5X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwidXNlZF9jbGF1ZGUiOiJmYWxzZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6ImZhbHNlIiwidXNlZF9ub25fZ2VtaW5pX21vZGVsIjoiZmFsc2UifSwiZ2VuZXJhdGlvbkNvbmZpZyI6eyJ0aGlua2luZ0NvbmZpZyI6eyJpbmNsdWRlVGhvdWdodHMiOnRydWUsInRoaW5raW5nTGV2ZWwiOiJNRURJVU0ifSwibWF4T3V0cHV0VG9rZW5zIjo2NTUzNn0sInNlc3Npb25JZCI6Ii0zNzUwNzYzMDM0MzYyODk1NTc5In0sIm1vZGVsIjoiZ2VtaW5pLTMuOC1mbGFzaC1tZWRpdW0iLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      }
+    ]
+  },
+  "[\"parallel calls\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D1",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NmQ3DQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi80IiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25DYWxsIjp7ImlkIjoibG9va3VwLTEiLCJuYW1lIjoibG9va3VwIiwiYXJncyI6eyJrZXkiOiJ2YWx1ZSJ9fSwidGhvdWdodFNpZ25hdHVyZSI6InRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLSJ9LHsiZnVuY3Rpb25DYWxsIjp7ImlkIjoibG9va3VwLTIiLCJuYW1lIjoibG9va3VwIiwiYXJncyI6eyJrZXkiOiJ2YWx1ZSJ9fX1dfSx7InJvbGUiOiJtb2RlbCIsInBhcnRzIjpbeyJmdW5jdGlvblJlc3BvbnNlIjp7ImlkIjoibG9va3VwLTEiLCJuYW1lIjoibG9va3VwIiwicmVzcG9uc2UiOnsibmFtZSI6Imxvb2t1cCIsImNvbnRlbnQiOiJGb3VuZCBpdC4ifX19LHsiZnVuY3Rpb25SZXNwb25zZSI6eyJpZCI6Imxvb2t1cC0yIiwibmFtZSI6Imxvb2t1cCIsInJlc3BvbnNlIjp7Im5hbWUiOiJsb29rdXAiLCJjb250ZW50IjoiRm91bmQgaXQuIn19fV19LHsicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6IldoYXQgZGlkIHlvdSBmaW5kPyJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sInRvb2xzIjpbeyJmdW5jdGlvbkRlY2xhcmF0aW9ucyI6W3sibmFtZSI6Imxvb2t1cCIsImRlc2NyaXB0aW9uIjoiTG9vayB1cCBhIHZhbHVlLiIsInBhcmFtZXRlcnMiOnsidHlwZSI6Ik9CSkVDVCIsInByb3BlcnRpZXMiOnsia2V5Ijp7InR5cGUiOiJTVFJJTkcifX0sInJlcXVpcmVkIjpbImtleSJdfX1dfV0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9leGVjdXRpb25faWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDI3MTIiLCJsYXN0X3N0ZXBfaW5kZXgiOiIzIiwibW9kZWxfZW51bSI6Ik1PREVMX1BMQUNFSE9MREVSX00zMTkiLCJyZXF1ZXN0X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyLTAiLCJyb290X2Nhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ0cmFqZWN0b3J5X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwidXNlZF9jbGF1ZGUiOiJmYWxzZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6ImZhbHNlIiwidXNlZF9ub25fZ2VtaW5pX21vZGVsIjoiZmFsc2UifSwiZ2VuZXJhdGlvbkNvbmZpZyI6eyJ0aGlua2luZ0NvbmZpZyI6eyJpbmNsdWRlVGhvdWdodHMiOnRydWUsInRoaW5raW5nTGV2ZWwiOiJNRURJVU0ifSwibWF4T3V0cHV0VG9rZW5zIjo2NTUzNn0sInNlc3Npb25JZCI6Ii0zNzUwNzYzMDM0MzYyODk1NTc5In0sIm1vZGVsIjoiZ2VtaW5pLTMuOC1mbGFzaC1tZWRpdW0iLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      }
+    ]
+  },
+  "[\"unsigned call\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D1",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NWI4DQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi80IiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25DYWxsIjp7ImlkIjoibG9va3VwLTEiLCJuYW1lIjoibG9va3VwIiwiYXJncyI6eyJrZXkiOiJ2YWx1ZSJ9fSwidGhvdWdodFNpZ25hdHVyZSI6InNraXBfdGhvdWdodF9zaWduYXR1cmVfdmFsaWRhdG9yIn1dfSx7InJvbGUiOiJ1c2VyIiwicGFydHMiOlt7ImZ1bmN0aW9uUmVzcG9uc2UiOnsiaWQiOiJsb29rdXAtMSIsIm5hbWUiOiJsb29rdXAiLCJyZXNwb25zZSI6eyJuYW1lIjoibG9va3VwIiwiY29udGVudCI6IkZvdW5kIGl0LiJ9fX1dfSx7InJvbGUiOiJ1c2VyIiwicGFydHMiOlt7InRleHQiOiJXaGF0IGRpZCB5b3UgZmluZD8ifV19XSwic3lzdGVtSW5zdHJ1Y3Rpb24iOnsicGFydHMiOlt7InRleHQiOiJBbnN3ZXIgYnJpZWZseS4ifV19LCJ0b29scyI6W3siZnVuY3Rpb25EZWNsYXJhdGlvbnMiOlt7Im5hbWUiOiJsb29rdXAiLCJkZXNjcmlwdGlvbiI6Ikxvb2sgdXAgYSB2YWx1ZS4iLCJwYXJhbWV0ZXJzIjp7InR5cGUiOiJPQkpFQ1QiLCJwcm9wZXJ0aWVzIjp7ImtleSI6eyJ0eXBlIjoiU1RSSU5HIn19LCJyZXF1aXJlZCI6WyJrZXkiXX19XX1dLCJsYWJlbHMiOnsiY2FzY2FkZV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImxhc3RfZXhlY3V0aW9uX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAyNzEyIiwibGFzdF9zdGVwX2luZGV4IjoiMyIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NMzE5IiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0wIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoiZmFsc2UiLCJ1c2VkX2NsYXVkZV9jb25zZXJ2YXRpdmUiOiJmYWxzZSIsInVzZWRfbm9uX2dlbWluaV9tb2RlbCI6ImZhbHNlIn0sImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlLCJ0aGlua2luZ0xldmVsIjoiTUVESVVNIn0sIm1heE91dHB1dFRva2VucyI6NjU1MzZ9LCJzZXNzaW9uSWQiOiItMzc1MDc2MzAzNDM2Mjg5NTU3OSJ9LCJtb2RlbCI6ImdlbWluaS0zLjgtZmxhc2gtbWVkaXVtIiwidXNlckFnZW50IjoiYW50aWdyYXZpdHkiLCJyZXF1ZXN0VHlwZSI6ImFnZW50In0NCjANCg0K"
+      }
+    ]
+  },
+  "[\"Gemini → Claude → Gemini\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D2",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "Mzc1DQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8xIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9zdGVwX2luZGV4IjoiMCIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NMzE5IiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0wIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoiZmFsc2UiLCJ1c2VkX2NsYXVkZV9jb25zZXJ2YXRpdmUiOiJmYWxzZSIsInVzZWRfbm9uX2dlbWluaV9tb2RlbCI6ImZhbHNlIn0sImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlLCJ0aGlua2luZ0xldmVsIjoiTUVESVVNIn0sIm1heE91dHB1dFRva2VucyI6NjU1MzZ9LCJzZXNzaW9uSWQiOiItMzc1MDc2MzAzNDM2Mjg5NTU3OSJ9LCJtb2RlbCI6ImdlbWluaS0zLjgtZmxhc2gtbWVkaXVtIiwidXNlckFnZW50IjoiYW50aWdyYXZpdHkiLCJyZXF1ZXN0VHlwZSI6ImFnZW50In0NCjANCg0K"
+      },
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NDBkDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAxLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8zIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6IkZvdXIuIn1dfSx7InJvbGUiOiJ1c2VyIiwicGFydHMiOlt7InRleHQiOiJXaGF0IGRpZCB5b3UgZmluZD8ifV19XSwic3lzdGVtSW5zdHJ1Y3Rpb24iOnsicGFydHMiOlt7InRleHQiOiJBbnN3ZXIgYnJpZWZseS4ifV19LCJsYWJlbHMiOnsiY2FzY2FkZV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImxhc3RfZXhlY3V0aW9uX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAyNzEyIiwibGFzdF9zdGVwX2luZGV4IjoiMiIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NNDAzIiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0xIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoidHJ1ZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6InRydWUiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJ0cnVlIn0sImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlLCJ0aGlua2luZ0xldmVsIjoiTE9XIn0sIm1heE91dHB1dFRva2VucyI6MTI4MDAwfSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJjbGF1ZGUtc29ubmV0LTUtNS1sb3ciLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      },
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NmZmDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAyLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi82IiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6IkZvdXIuIiwidGhvdWdodFNpZ25hdHVyZSI6InJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLXJlc3BvbnNlLXRob3VnaHQtc2lnbmF0dXJlLSJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6IkNoZWNrIHRoZSB2YWx1ZS4iLCJ0aG91Z2h0Ijp0cnVlLCJ0aG91Z2h0U2lnbmF0dXJlIjoidGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtIn0seyJ0ZXh0IjoiR2VtaW5pIHJlcGx5LiIsInRob3VnaHRTaWduYXR1cmUiOiJ0ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS0ifV19LHsicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6IldoYXQgZGlkIHlvdSBmaW5kPyJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6IkNoZWNrIHRoZSB2YWx1ZS4iLCJ0aG91Z2h0Ijp0cnVlfSx7InRleHQiOiJDbGF1ZGUgcmVwbHkuIn1dfSx7InJvbGUiOiJ1c2VyIiwicGFydHMiOlt7InRleHQiOiJXaGF0IGRpZCB5b3UgZmluZD8ifV19XSwic3lzdGVtSW5zdHJ1Y3Rpb24iOnsicGFydHMiOlt7InRleHQiOiJBbnN3ZXIgYnJpZWZseS4ifV19LCJsYWJlbHMiOnsiY2FzY2FkZV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImxhc3RfZXhlY3V0aW9uX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAyNzEzIiwibGFzdF9zdGVwX2luZGV4IjoiNSIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NMzE5IiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0yIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoidHJ1ZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6InRydWUiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJ0cnVlIn0sImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlLCJ0aGlua2luZ0xldmVsIjoiTUVESVVNIn0sIm1heE91dHB1dFRva2VucyI6NjU1MzZ9LCJzZXNzaW9uSWQiOiItMzc1MDc2MzAzNDM2Mjg5NTU3OSJ9LCJtb2RlbCI6ImdlbWluaS0zLjgtZmxhc2gtbWVkaXVtIiwidXNlckFnZW50IjoiYW50aWdyYXZpdHkiLCJyZXF1ZXN0VHlwZSI6ImFnZW50In0NCjANCg0K"
+      }
+    ]
+  },
+  "[\"Claude thinking on\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D2",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "MzZlDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8xIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9zdGVwX2luZGV4IjoiMCIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NNDAzIiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0wIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoidHJ1ZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6InRydWUiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJ0cnVlIn0sImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlLCJ0aGlua2luZ0xldmVsIjoiTE9XIn0sIm1heE91dHB1dFRva2VucyI6MTI4MDAwfSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJjbGF1ZGUtc29ubmV0LTUtNS1sb3ciLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      },
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NDIyDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAxLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8zIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6Ii4ifSx7InRleHQiOiJDbGF1ZGUgcmVwbHkuIn1dfSx7InJvbGUiOiJ1c2VyIiwicGFydHMiOlt7InRleHQiOiJXaGF0IGRpZCB5b3UgZmluZD8ifV19XSwic3lzdGVtSW5zdHJ1Y3Rpb24iOnsicGFydHMiOlt7InRleHQiOiJBbnN3ZXIgYnJpZWZseS4ifV19LCJsYWJlbHMiOnsiY2FzY2FkZV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImxhc3RfZXhlY3V0aW9uX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAyNzEyIiwibGFzdF9zdGVwX2luZGV4IjoiMiIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NNDAzIiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0xIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoidHJ1ZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6InRydWUiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJ0cnVlIn0sImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlLCJ0aGlua2luZ0xldmVsIjoiTE9XIn0sIm1heE91dHB1dFRva2VucyI6MTI4MDAwfSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJjbGF1ZGUtc29ubmV0LTUtNS1sb3ciLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      }
+    ]
+  },
+  "[\"Claude thinking off\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D2",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "MzZlDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8xIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9zdGVwX2luZGV4IjoiMCIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NNDAzIiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0wIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoidHJ1ZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6InRydWUiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJ0cnVlIn0sImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlLCJ0aGlua2luZ0xldmVsIjoiTE9XIn0sIm1heE91dHB1dFRva2VucyI6MTI4MDAwfSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJjbGF1ZGUtc29ubmV0LTUtNS1sb3ciLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      },
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NDIyDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAxLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8zIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6Ii4ifSx7InRleHQiOiJDbGF1ZGUgcmVwbHkuIn1dfSx7InJvbGUiOiJ1c2VyIiwicGFydHMiOlt7InRleHQiOiJXaGF0IGRpZCB5b3UgZmluZD8ifV19XSwic3lzdGVtSW5zdHJ1Y3Rpb24iOnsicGFydHMiOlt7InRleHQiOiJBbnN3ZXIgYnJpZWZseS4ifV19LCJsYWJlbHMiOnsiY2FzY2FkZV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsImxhc3RfZXhlY3V0aW9uX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAyNzEyIiwibGFzdF9zdGVwX2luZGV4IjoiMiIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NNDAzIiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0xIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoidHJ1ZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6InRydWUiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJ0cnVlIn0sImdlbmVyYXRpb25Db25maWciOnsidGhpbmtpbmdDb25maWciOnsiaW5jbHVkZVRob3VnaHRzIjp0cnVlLCJ0aGlua2luZ0xldmVsIjoiTE9XIn0sIm1heE91dHB1dFRva2VucyI6MTI4MDAwfSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJjbGF1ZGUtc29ubmV0LTUtNS1sb3ciLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      }
+    ]
+  },
+  "[\"empty and whitespace turns: empty parts array\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D4",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NDEwDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8zIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6Ii4ifV19LHsicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6IldoYXQgZGlkIHlvdSBmaW5kPyJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9leGVjdXRpb25faWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDI3MTIiLCJsYXN0X3N0ZXBfaW5kZXgiOiIyIiwibW9kZWxfZW51bSI6Ik1PREVMX1BMQUNFSE9MREVSX00zMTkiLCJyZXF1ZXN0X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyLTAiLCJyb290X2Nhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ0cmFqZWN0b3J5X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwidXNlZF9jbGF1ZGUiOiJmYWxzZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6ImZhbHNlIiwidXNlZF9ub25fZ2VtaW5pX21vZGVsIjoiZmFsc2UifSwiZ2VuZXJhdGlvbkNvbmZpZyI6eyJ0aGlua2luZ0NvbmZpZyI6eyJpbmNsdWRlVGhvdWdodHMiOnRydWUsInRoaW5raW5nTGV2ZWwiOiJNRURJVU0ifSwibWF4T3V0cHV0VG9rZW5zIjo2NTUzNn0sInNlc3Npb25JZCI6Ii0zNzUwNzYzMDM0MzYyODk1NTc5In0sIm1vZGVsIjoiZ2VtaW5pLTMuOC1mbGFzaC1tZWRpdW0iLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      }
+    ]
+  },
+  "[\"empty and whitespace turns: explicit empty text\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D4",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NDEwDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8zIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6Ii4ifV19LHsicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6IldoYXQgZGlkIHlvdSBmaW5kPyJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9leGVjdXRpb25faWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDI3MTIiLCJsYXN0X3N0ZXBfaW5kZXgiOiIyIiwibW9kZWxfZW51bSI6Ik1PREVMX1BMQUNFSE9MREVSX00zMTkiLCJyZXF1ZXN0X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyLTAiLCJyb290X2Nhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ0cmFqZWN0b3J5X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwidXNlZF9jbGF1ZGUiOiJmYWxzZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6ImZhbHNlIiwidXNlZF9ub25fZ2VtaW5pX21vZGVsIjoiZmFsc2UifSwiZ2VuZXJhdGlvbkNvbmZpZyI6eyJ0aGlua2luZ0NvbmZpZyI6eyJpbmNsdWRlVGhvdWdodHMiOnRydWUsInRoaW5raW5nTGV2ZWwiOiJNRURJVU0ifSwibWF4T3V0cHV0VG9rZW5zIjo2NTUzNn0sInNlc3Npb25JZCI6Ii0zNzUwNzYzMDM0MzYyODk1NTc5In0sIm1vZGVsIjoiZ2VtaW5pLTMuOC1mbGFzaC1tZWRpdW0iLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      }
+    ]
+  },
+  "[\"empty and whitespace turns: whitespace\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D4",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NDEzDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8zIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6IiBcdCAifV19LHsicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6IldoYXQgZGlkIHlvdSBmaW5kPyJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9leGVjdXRpb25faWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDI3MTIiLCJsYXN0X3N0ZXBfaW5kZXgiOiIyIiwibW9kZWxfZW51bSI6Ik1PREVMX1BMQUNFSE9MREVSX00zMTkiLCJyZXF1ZXN0X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyLTAiLCJyb290X2Nhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ0cmFqZWN0b3J5X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwidXNlZF9jbGF1ZGUiOiJmYWxzZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6ImZhbHNlIiwidXNlZF9ub25fZ2VtaW5pX21vZGVsIjoiZmFsc2UifSwiZ2VuZXJhdGlvbkNvbmZpZyI6eyJ0aGlua2luZ0NvbmZpZyI6eyJpbmNsdWRlVGhvdWdodHMiOnRydWUsInRoaW5raW5nTGV2ZWwiOiJNRURJVU0ifSwibWF4T3V0cHV0VG9rZW5zIjo2NTUzNn0sInNlc3Npb25JZCI6Ii0zNzUwNzYzMDM0MzYyODk1NTc5In0sIm1vZGVsIjoiZ2VtaW5pLTMuOC1mbGFzaC1tZWRpdW0iLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      }
+    ]
+  },
+  "[\"empty and whitespace turns: signature-bearing empty part\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D4",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NGFmDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8zIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3sidGV4dCI6IiIsInRob3VnaHRTaWduYXR1cmUiOiJ0ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS0ifV19LHsicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6IldoYXQgZGlkIHlvdSBmaW5kPyJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9leGVjdXRpb25faWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDI3MTIiLCJsYXN0X3N0ZXBfaW5kZXgiOiIyIiwibW9kZWxfZW51bSI6Ik1PREVMX1BMQUNFSE9MREVSX00zMTkiLCJyZXF1ZXN0X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyLTAiLCJyb290X2Nhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJ0cmFqZWN0b3J5X2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAyIiwidXNlZF9jbGF1ZGUiOiJmYWxzZSIsInVzZWRfY2xhdWRlX2NvbnNlcnZhdGl2ZSI6ImZhbHNlIiwidXNlZF9ub25fZ2VtaW5pX21vZGVsIjoiZmFsc2UifSwiZ2VuZXJhdGlvbkNvbmZpZyI6eyJ0aGlua2luZ0NvbmZpZyI6eyJpbmNsdWRlVGhvdWdodHMiOnRydWUsInRoaW5raW5nTGV2ZWwiOiJNRURJVU0ifSwibWF4T3V0cHV0VG9rZW5zIjo2NTUzNn0sInNlc3Npb25JZCI6Ii0zNzUwNzYzMDM0MzYyODk1NTc5In0sIm1vZGVsIjoiZ2VtaW5pLTMuOC1mbGFzaC1tZWRpdW0iLCJ1c2VyQWdlbnQiOiJhbnRpZ3Jhdml0eSIsInJlcXVlc3RUeXBlIjoiYWdlbnQifQ0KMA0KDQo="
+      }
+    ]
+  },
+  "[\"tool-result image: image-only\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D8",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NmIyDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi80IiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25DYWxsIjp7ImlkIjoibG9va3VwLTEiLCJuYW1lIjoibG9va3VwIiwiYXJncyI6eyJrZXkiOiJ2YWx1ZSJ9fSwidGhvdWdodFNpZ25hdHVyZSI6InRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLSJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25SZXNwb25zZSI6eyJpZCI6Imxvb2t1cC0xIiwibmFtZSI6Imxvb2t1cCIsInJlc3BvbnNlIjp7Im5hbWUiOiJsb29rdXAiLCJjb250ZW50IjoiIn0sInBhcnRzIjpbeyJpbmxpbmVEYXRhIjp7Im1pbWVUeXBlIjoiaW1hZ2UvcG5nIiwiZGF0YSI6ImlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFBRUFBQUFCQ0FRQUFBQzFIQXdDQUFBQUMwbEVRVlI0Mm1QOC94OEFBdXNCOVdsNlhFQUFBQUFBU1VWT1JLNUNZSUk9In19XX19XX0seyJyb2xlIjoidXNlciIsInBhcnRzIjpbeyJ0ZXh0IjoiV2hhdCBkaWQgeW91IGZpbmQ/In1dfV0sInN5c3RlbUluc3RydWN0aW9uIjp7InBhcnRzIjpbeyJ0ZXh0IjoiQW5zd2VyIGJyaWVmbHkuIn1dfSwidG9vbHMiOlt7ImZ1bmN0aW9uRGVjbGFyYXRpb25zIjpbeyJuYW1lIjoibG9va3VwIiwiZGVzY3JpcHRpb24iOiJMb29rIHVwIGEgdmFsdWUuIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoiT0JKRUNUIiwicHJvcGVydGllcyI6eyJrZXkiOnsidHlwZSI6IlNUUklORyJ9fSwicmVxdWlyZWQiOlsia2V5Il19fV19XSwibGFiZWxzIjp7ImNhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJsYXN0X2V4ZWN1dGlvbl9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMjcxMiIsImxhc3Rfc3RlcF9pbmRleCI6IjMiLCJtb2RlbF9lbnVtIjoiTU9ERUxfUExBQ0VIT0xERVJfTTMxOSIsInJlcXVlc3RfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDItMCIsInJvb3RfY2FzY2FkZV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInRyYWplY3RvcnlfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIiLCJ1c2VkX2NsYXVkZSI6ImZhbHNlIiwidXNlZF9jbGF1ZGVfY29uc2VydmF0aXZlIjoiZmFsc2UiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJmYWxzZSJ9LCJnZW5lcmF0aW9uQ29uZmlnIjp7InRoaW5raW5nQ29uZmlnIjp7ImluY2x1ZGVUaG91Z2h0cyI6dHJ1ZSwidGhpbmtpbmdMZXZlbCI6Ik1FRElVTSJ9LCJtYXhPdXRwdXRUb2tlbnMiOjY1NTM2fSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJnZW1pbmktMy44LWZsYXNoLW1lZGl1bSIsInVzZXJBZ2VudCI6ImFudGlncmF2aXR5IiwicmVxdWVzdFR5cGUiOiJhZ2VudCJ9DQowDQoNCg=="
+      }
+    ]
+  },
+  "[\"tool-result image: mixed\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D8",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "NmJiDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi80IiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6Ikxvb2sgdXAgdGhlIHZhbHVlLiJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25DYWxsIjp7ImlkIjoibG9va3VwLTEiLCJuYW1lIjoibG9va3VwIiwiYXJncyI6eyJrZXkiOiJ2YWx1ZSJ9fSwidGhvdWdodFNpZ25hdHVyZSI6InRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLXRlc3QtdGhvdWdodC1zaWduYXR1cmUtdGVzdC10aG91Z2h0LXNpZ25hdHVyZS10ZXN0LXRob3VnaHQtc2lnbmF0dXJlLSJ9XX0seyJyb2xlIjoibW9kZWwiLCJwYXJ0cyI6W3siZnVuY3Rpb25SZXNwb25zZSI6eyJpZCI6Imxvb2t1cC0xIiwibmFtZSI6Imxvb2t1cCIsInJlc3BvbnNlIjp7Im5hbWUiOiJsb29rdXAiLCJjb250ZW50IjoiRm91bmQgaXQuIn0sInBhcnRzIjpbeyJpbmxpbmVEYXRhIjp7Im1pbWVUeXBlIjoiaW1hZ2UvcG5nIiwiZGF0YSI6ImlWQk9SdzBLR2dvQUFBQU5TVWhFVWdBQUFBRUFBQUFCQ0FRQUFBQzFIQXdDQUFBQUMwbEVRVlI0Mm1QOC94OEFBdXNCOVdsNlhFQUFBQUFBU1VWT1JLNUNZSUk9In19XX19XX0seyJyb2xlIjoidXNlciIsInBhcnRzIjpbeyJ0ZXh0IjoiV2hhdCBkaWQgeW91IGZpbmQ/In1dfV0sInN5c3RlbUluc3RydWN0aW9uIjp7InBhcnRzIjpbeyJ0ZXh0IjoiQW5zd2VyIGJyaWVmbHkuIn1dfSwidG9vbHMiOlt7ImZ1bmN0aW9uRGVjbGFyYXRpb25zIjpbeyJuYW1lIjoibG9va3VwIiwiZGVzY3JpcHRpb24iOiJMb29rIHVwIGEgdmFsdWUuIiwicGFyYW1ldGVycyI6eyJ0eXBlIjoiT0JKRUNUIiwicHJvcGVydGllcyI6eyJrZXkiOnsidHlwZSI6IlNUUklORyJ9fSwicmVxdWlyZWQiOlsia2V5Il19fV19XSwibGFiZWxzIjp7ImNhc2NhZGVfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJsYXN0X2V4ZWN1dGlvbl9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMjcxMiIsImxhc3Rfc3RlcF9pbmRleCI6IjMiLCJtb2RlbF9lbnVtIjoiTU9ERUxfUExBQ0VIT0xERVJfTTMxOSIsInJlcXVlc3RfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDItMCIsInJvb3RfY2FzY2FkZV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMSIsInRyYWplY3RvcnlfaWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDIiLCJ1c2VkX2NsYXVkZSI6ImZhbHNlIiwidXNlZF9jbGF1ZGVfY29uc2VydmF0aXZlIjoiZmFsc2UiLCJ1c2VkX25vbl9nZW1pbmlfbW9kZWwiOiJmYWxzZSJ9LCJnZW5lcmF0aW9uQ29uZmlnIjp7InRoaW5raW5nQ29uZmlnIjp7ImluY2x1ZGVUaG91Z2h0cyI6dHJ1ZSwidGhpbmtpbmdMZXZlbCI6Ik1FRElVTSJ9LCJtYXhPdXRwdXRUb2tlbnMiOjY1NTM2fSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJnZW1pbmktMy44LWZsYXNoLW1lZGl1bSIsInVzZXJBZ2VudCI6ImFudGlncmF2aXR5IiwicmVxdWVzdFR5cGUiOiJhZ2VudCJ9DQowDQoNCg=="
+      }
+    ]
+  },
+  "[\"custom thinking budgets and temperature\",\"opencode2\",\"local\"]": {
+    "ledger": "request-wire:D5",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "MzkxDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8xIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6IldoYXQgaXMgdHdvIHBsdXMgdHdvPyJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9zdGVwX2luZGV4IjoiMCIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NMzE5IiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0wIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoiZmFsc2UiLCJ1c2VkX2NsYXVkZV9jb25zZXJ2YXRpdmUiOiJmYWxzZSIsInVzZWRfbm9uX2dlbWluaV9tb2RlbCI6ImZhbHNlIn0sImdlbmVyYXRpb25Db25maWciOnsibWF4T3V0cHV0VG9rZW5zIjo4MTkyLCJ0ZW1wZXJhdHVyZSI6MC4zLCJ0b3BQIjowLjgsInRoaW5raW5nQ29uZmlnIjp7ImluY2x1ZGVUaG91Z2h0cyI6dHJ1ZSwidGhpbmtpbmdCdWRnZXQiOjIzNDV9fSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJnZW1pbmktMy44LWZsYXNoLW1lZGl1bSIsInVzZXJBZ2VudCI6ImFudGlncmF2aXR5IiwicmVxdWVzdFR5cGUiOiJhZ2VudCJ9DQowDQoNCg=="
+      }
+    ]
+  },
+  "[\"custom thinking budgets and temperature\",\"opencode1\",\"local\"]": {
+    "ledger": "request-wire:D5",
+    "wire": [
+      {
+        "target": "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse",
+        "headers": [
+          ["Host", "daily-cloudcode-pa.googleapis.com"],
+          [
+            "User-Agent",
+            "antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)"
+          ],
+          ["Transfer-Encoding", "chunked"],
+          ["Authorization", "Bearer parity-token"],
+          ["Content-Type", "application/json"],
+          ["Accept-Encoding", "gzip"]
+        ],
+        "bodyBase64": "MzkxDQp7InByb2plY3QiOiJwYXJpdHktcHJvamVjdCIsInJlcXVlc3RJZCI6ImFnZW50LzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMS8xNzg0NzIxNjAwMDAwLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi8xIiwicmVxdWVzdCI6eyJjb250ZW50cyI6W3sicm9sZSI6InVzZXIiLCJwYXJ0cyI6W3sidGV4dCI6IldoYXQgaXMgdHdvIHBsdXMgdHdvPyJ9XX1dLCJzeXN0ZW1JbnN0cnVjdGlvbiI6eyJwYXJ0cyI6W3sidGV4dCI6IkFuc3dlciBicmllZmx5LiJ9XX0sImxhYmVscyI6eyJjYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwibGFzdF9zdGVwX2luZGV4IjoiMCIsIm1vZGVsX2VudW0iOiJNT0RFTF9QTEFDRUhPTERFUl9NMzE5IiwicmVxdWVzdF9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMi0wIiwicm9vdF9jYXNjYWRlX2lkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMDAxIiwidHJhamVjdG9yeV9pZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDAwMiIsInVzZWRfY2xhdWRlIjoiZmFsc2UiLCJ1c2VkX2NsYXVkZV9jb25zZXJ2YXRpdmUiOiJmYWxzZSIsInVzZWRfbm9uX2dlbWluaV9tb2RlbCI6ImZhbHNlIn0sImdlbmVyYXRpb25Db25maWciOnsibWF4T3V0cHV0VG9rZW5zIjo4MTkyLCJ0ZW1wZXJhdHVyZSI6MC4zLCJ0b3BQIjowLjgsInRoaW5raW5nQ29uZmlnIjp7ImluY2x1ZGVUaG91Z2h0cyI6dHJ1ZSwidGhpbmtpbmdCdWRnZXQiOjIzNDV9fSwic2Vzc2lvbklkIjoiLTM3NTA3NjMwMzQzNjI4OTU1NzkifSwibW9kZWwiOiJnZW1pbmktMy44LWZsYXNoLW1lZGl1bSIsInVzZXJBZ2VudCI6ImFudGlncmF2aXR5IiwicmVxdWVzdFR5cGUiOiJhZ2VudCJ9DQowDQoNCg=="
       }
     ]
   }
