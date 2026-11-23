@@ -2663,6 +2663,7 @@ async function transformAntigravityResponseIn(
   toolDebugSummary?: string,
   debugLines?: string[],
   dumpContext?: GeminiDumpContext | null,
+  displayedThinkingScope?: string,
 ): Promise<Response> {
   const contentType = response.headers.get('content-type') ?? ''
   const isJsonResponse = contentType.includes('application/json')
@@ -2710,6 +2711,10 @@ async function transformAntigravityResponseIn(
     const streamingTransformer = createStreamingTransformer(
       wire.signatures.signatureStore,
       {
+        ...(displayedThinkingScope && {
+          onMalformedFrame: () =>
+            wire.logger.warn('Skipping malformed Antigravity stream frame'),
+        }),
         onCacheSignature: wire.signatures.cacheSignature,
         onInjectDebug: injectDebugThinking,
         onUsageMetadata: (usage) => {
@@ -2745,7 +2750,9 @@ async function transformAntigravityResponseIn(
         cacheSignatures,
         displayedThinkingHashes:
           effectiveModel && isGemini3Model(effectiveModel)
-            ? wire.displayedThinking.forSession(sessionId)
+            ? wire.displayedThinking.forSession(
+                displayedThinkingScope ?? sessionId,
+              )
             : undefined,
         // injectSyntheticThinking removed - keep_thinking now unified with debug via debugText
       },

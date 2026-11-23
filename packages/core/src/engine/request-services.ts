@@ -586,6 +586,8 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
   readonly credentials: RequestCredentials<A>
   /** This location's AGY conversation/trajectory session metadata. */
   readonly sessions: RequestSessions
+  /** De-duplicate displayed thoughts by allocated conversation, not by the signature cache's model and prompt fingerprint. */
+  readonly scopeDisplayedThinking?: boolean
   /** Legacy session headers and request-kind markers are interpreted by the adapter. */
   readonly readSession: (headers?: HeadersInit) => RequestSessionIdentity
   readonly isTitleRoutingRequest: (
@@ -2532,6 +2534,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           retryState.resetAccountFailureState(account.index)
         } catch (error) {
           checkAborted()
+          if (deps.reauthorize) throw error
           const { failures, shouldCooldown, cooldownMs } =
             retryState.trackAccountFailure(account.index)
           trackers.health.recordFailure(account.index)
@@ -3115,10 +3118,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     credentialId: sendAdmission.credentialId,
                   }
                 : undefined
-            const routedIdentity =
-              routedPlacement || vaultCredentials?.boundRoute
-                ? routingIdentity
-                : undefined
+            const routedIdentity = routedPlacement ? routingIdentity : undefined
             if (sessionKey) {
               const routingEntry: RequestRoutingEntry = {
                 accountId: `acct-${account.index}`,
@@ -3657,7 +3657,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               const reportCondition = (
                 reason: VaultConditionInput['reason'],
               ) => {
-                if (credentials.domain !== 'vault' || !served?.reportCondition)
+                if (
+                  credentials.domain !== 'vault' ||
+                  !served?.reportCondition ||
+                  (credentials.boundRoute && !routing.hasAccessor())
+                )
                   return
                 const actionUrl = extracted?.structuredVerifyUrl
                 waitPolicy.vaultConditions.push(() =>
@@ -3916,6 +3920,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 prepared.toolDebugSummary,
                 debugLines,
                 dumpContext,
+                ...(deps.scopeDisplayedThinking
+                  ? ([agyRequestSession.conversationId] as const)
+                  : []),
               ),
             )
 
@@ -3999,7 +4006,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               credentials.domain === 'vault' &&
               response.ok &&
               transformedResponse.ok &&
-              served?.clearCondition
+              served?.clearCondition &&
+              (!credentials.boundRoute || routing.hasAccessor())
             )
               waitPolicy.vaultConditions.push(() => served.clearCondition?.())
             return routingObservation &&

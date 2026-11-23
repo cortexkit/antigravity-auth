@@ -1,6 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { loadCommonAuthClaustrum } from '@cortexkit/antigravity-auth-core'
+import {
+  AgyRequestSessionStore,
+  loadCommonAuthClaustrum,
+} from '@cortexkit/antigravity-auth-core'
 import type { ClaustrumScopedClient } from '@cortexkit/antigravity-auth-core/common-auth/claustrum'
 import {
   type Api,
@@ -9,7 +12,6 @@ import {
   type Model,
   type SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
-import type { ProviderConfig } from '@earendil-works/pi-coding-agent'
 import {
   CUSTODY_PROVIDER_KEY_MARKER,
   registerCortexKitPiAntigravity,
@@ -27,6 +29,9 @@ import {
   surface,
   terminal,
 } from './native-google.ts'
+
+type Registry = Parameters<typeof registerCortexKitPiAntigravity>[0]
+type ProviderConfig = Parameters<Registry['registerProvider']>[1]
 
 function content(part: Part): Record<string, unknown> {
   switch (part.type) {
@@ -110,6 +115,7 @@ export async function piAdapter(
   environment: Environment,
   custody: Custody,
   transcript: boolean,
+  settings: Readonly<Record<string, unknown>> = {},
 ) {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
   if (!root) throw new Error('Host parity requires the root test preload')
@@ -160,7 +166,7 @@ export async function piAdapter(
       accountId: 'parity-identity',
       credentialId: 'parity-credential',
       recordVersion: 1,
-      expiresAtMs: null,
+      expiresAtMs: epoch + 86_400_000,
     }),
     reportAuthFailureScoped: async () => {},
     reportCondition: async ({ reason, providerStatus, actionUrl }) => {
@@ -179,10 +185,19 @@ export async function piAdapter(
     })
   let provider: ProviderConfig | undefined
   let stop: (() => Promise<void>) | undefined
+  let executionId = 10_001
+  const sessionStore = new AgyRequestSessionStore({
+    now: () => Date.now(),
+    // Generate execution IDs separately so native-slot locking and settings
+    // writes do not affect the frozen request metadata.
+    createExecutionId: () =>
+      `00000000-0000-4000-8000-${(++executionId).toString(16).padStart(12, '0')}`,
+  })
+  let anonymous = 0
   const initialize = async (keepThinking = false) => {
     await Bun.write(
       settingsFile,
-      JSON.stringify({ keep_thinking: keepThinking }),
+      JSON.stringify({ keep_thinking: keepThinking, ...settings }),
     )
     if (custody === 'local')
       await Bun.write(nativeAuthPath, JSON.stringify({ google: native }))
@@ -200,14 +215,14 @@ export async function piAdapter(
     }
     await registerCortexKitPiAntigravity(
       {
-        registerProvider(_name, config) {
+        registerProvider(_name: string, config: ProviderConfig) {
           provider = config
         },
         registerCommand() {},
         on(event: string, handler: () => Promise<void>) {
           if (event === 'session_shutdown') stop = handler
         },
-      } as Parameters<typeof registerCortexKitPiAntigravity>[0],
+      } as unknown as Registry,
       {
         vaultDir: dir,
         modeFile,
@@ -219,17 +234,34 @@ export async function piAdapter(
         connectEnrollment,
         requestEngine: {
           notify: (message) => environment.notices.push(message),
+          sessions: {
+            beginRequest: ({ sessionId }) =>
+              sessionStore.beginRequest(sessionId ?? `fresh:${++anonymous}`),
+          },
         },
       },
     )
   }
   return {
+    get nativeAuthPath() {
+      return nativeAuthPath
+    },
+    async activate(keepThinking = false) {
+      if (!provider) await initialize(keepThinking)
+      if (!provider?.streamSimple)
+        throw new Error('Pi did not register its stream')
+      return provider
+    },
     async run(input: Conversation, session?: string, signal?: AbortSignal) {
       if (!provider) await initialize(input.options.keepThinking)
       if (!provider?.streamSimple)
         throw new Error('Pi did not register its stream')
       const stream = provider.streamSimple
-      const output = surface()
+      const output = {
+        ...surface(),
+        responseId: undefined as string | undefined,
+        rawStopReason: undefined as string | undefined,
+      }
       const model = {
         id: input.model,
         name: input.model,
@@ -241,10 +273,14 @@ export async function piAdapter(
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
       } as Model<Api>
       const { level, budget, temperature, topP, maxTokens } = input.options
+      const auth =
+        custody === 'local'
+          ? (await Bun.file(nativeAuthPath).json()).google
+          : null
       const options = {
         apiKey:
           custody === 'local'
-            ? provider.oauth?.getApiKey(native)
+            ? provider.oauth?.getApiKey(auth)
             : CUSTODY_PROVIDER_KEY_MARKER,
         sessionId: session,
         signal,
@@ -288,6 +324,8 @@ export async function piAdapter(
             case 'error': {
               const message =
                 event.type === 'done' ? event.message : event.error
+              output.responseId = message.responseId
+              output.rawStopReason = message.rawStopReason
               const { usage } = message
               output.usage = {
                 input: usage.input,

@@ -37,7 +37,7 @@ function assistant(
 }
 
 describe('buildGeminiRequest', () => {
-  it('rewrites harness identity only in systemInstruction for flat and transcript contexts', () => {
+  it('preserves Google SDK ingress text for flat and transcript contexts', () => {
     const phrase = stockPiPrompt.input.join('\n')
     const context = ctx({
       systemPrompt: phrase,
@@ -71,7 +71,7 @@ describe('buildGeminiRequest', () => {
       const request = buildGeminiRequest(input)
       expect(request.systemInstruction?.parts).toEqual([
         {
-          text: stockPiPrompt.output.join('\n'),
+          text: phrase,
         },
       ])
       expect(request.contents[0]?.parts).toEqual([{ text: phrase }])
@@ -80,8 +80,7 @@ describe('buildGeminiRequest', () => {
         {
           functionResponse: {
             name: 'read',
-            response: { output: phrase },
-            id: 'c1',
+            response: { name: 'read', content: phrase },
           },
         },
       ])
@@ -104,11 +103,13 @@ describe('buildGeminiRequest', () => {
     ])
   })
 
-  it('drops empty user messages', () => {
+  it('keeps whitespace turns for wire normalization', () => {
     const request = buildGeminiRequest(
       ctx({ messages: [{ role: 'user', content: '   ', timestamp: 0 }] }),
     )
-    expect(request.contents).toEqual([])
+    expect(request.contents).toEqual([
+      { role: 'user', parts: [{ text: '   ' }] },
+    ])
   })
 
   it('converts assistant text and tool calls into a model content', () => {
@@ -138,7 +139,7 @@ describe('buildGeminiRequest', () => {
         role: 'model',
         parts: [
           { text: 'thinking out loud' },
-          { functionCall: { name: 'read', args: { path: 'a.ts' }, id: 'c1' } },
+          { functionCall: { name: 'read', args: { path: 'a.ts' } } },
         ],
       },
     ])
@@ -167,12 +168,12 @@ describe('buildGeminiRequest', () => {
       }),
     )
     expect(request.contents[0]?.parts[0]).toEqual({
-      functionCall: { name: 'read', args: { path: 'a.ts' }, id: 'c1' },
+      functionCall: { name: 'read', args: { path: 'a.ts' } },
       thoughtSignature: 'SIG123',
     })
   })
 
-  it('replays same-model thinking and signed text', () => {
+  it('omits unsigned thinking and replays same-model signed text', () => {
     const request = buildGeminiRequest(
       ctx({
         messages: [
@@ -197,10 +198,7 @@ describe('buildGeminiRequest', () => {
     expect(request.contents).toEqual([
       {
         role: 'model',
-        parts: [
-          { text: 'reasoning', thought: true },
-          { text: 'answer', thoughtSignature: 'SIG123' },
-        ],
+        parts: [{ text: 'answer', thoughtSignature: 'SIG123' }],
       },
     ])
   })
@@ -247,7 +245,7 @@ describe('buildGeminiRequest', () => {
         role: 'model',
         parts: [
           { text: 'before tool' },
-          { functionCall: { name: 'read', args: { path: 'a.ts' }, id: 'c1' } },
+          { functionCall: { name: 'read', args: { path: 'a.ts' } } },
         ],
       },
       {
@@ -256,8 +254,7 @@ describe('buildGeminiRequest', () => {
           {
             functionResponse: {
               name: 'read',
-              response: { output: 'file A' },
-              id: 'c1',
+              response: { name: 'read', content: 'file A' },
             },
           },
         ],
@@ -295,15 +292,13 @@ describe('buildGeminiRequest', () => {
           {
             functionResponse: {
               name: 'read',
-              response: { output: 'file A' },
-              id: 'c1',
+              response: { name: 'read', content: 'file A' },
             },
           },
           {
             functionResponse: {
               name: 'grep',
-              response: { output: 'match' },
-              id: 'c2',
+              response: { name: 'grep', content: 'match' },
             },
           },
         ],
@@ -311,7 +306,7 @@ describe('buildGeminiRequest', () => {
     ])
   })
 
-  it('preserves matching IDs across parallel tool calls and results', () => {
+  it('preserves parallel call and result order for the engine to pair', () => {
     const request = buildGeminiRequest(
       ctx({
         messages: [
@@ -359,27 +354,25 @@ describe('buildGeminiRequest', () => {
       {
         role: 'model',
         parts: [
-          { functionCall: { name: 'read', args: { path: 'a.ts' }, id: 'c1' } },
+          { functionCall: { name: 'read', args: { path: 'a.ts' } } },
           {
-            functionCall: { name: 'grep', args: { pattern: 'TODO' }, id: 'c2' },
+            functionCall: { name: 'grep', args: { pattern: 'TODO' } },
           },
         ],
       },
       {
-        role: 'model',
+        role: 'user',
         parts: [
           {
             functionResponse: {
               name: 'read',
-              response: { output: 'file A' },
-              id: 'c1',
+              response: { name: 'read', content: 'file A' },
             },
           },
           {
             functionResponse: {
               name: 'grep',
-              response: { output: 'match' },
-              id: 'c2',
+              response: { name: 'grep', content: 'match' },
             },
           },
         ],
@@ -403,7 +396,7 @@ describe('buildGeminiRequest', () => {
       }),
     )
     expect(request.contents[0]?.parts[0]).toEqual({
-      functionResponse: { name: 'bash', response: { error: 'boom' }, id: 'c1' },
+      functionResponse: { name: 'bash', response: { error: 'boom' } },
     })
   })
 
@@ -425,18 +418,15 @@ describe('buildGeminiRequest', () => {
       }),
     )
     expect(request.systemInstruction).toEqual({
-      // agy 1.5.8 includes the system role on the instruction.
-      role: 'system',
       parts: [{ text: 'be terse' }],
     })
     const decl = request.tools?.[0]?.functionDeclarations[0]
     expect(decl?.name).toBe('read')
-    // Must match the agy wire format: field name `parameters`, sanitized to
-    // Gemini shape with UPPERCASE types (not raw `parametersJsonSchema`).
+    // Google's SDK uses `parameters`; the engine normalizes the types.
     expect(decl).not.toHaveProperty('parametersJsonSchema')
     expect(decl?.parameters).toEqual({
-      type: 'OBJECT',
-      properties: { path: { type: 'STRING' } },
+      type: 'object',
+      properties: { path: { type: 'string' } },
     })
   })
 
@@ -502,8 +492,6 @@ describe('buildGeminiRequest with Pi transcript system messages', () => {
     )
 
     expect(request.systemInstruction).toEqual({
-      // agy 1.5.8 includes the system role on the instruction.
-      role: 'system',
       parts: [
         {
           text: 'base prompt\n\nextra instruction\n\nfirst block\nsecond block',
@@ -536,8 +524,6 @@ describe('buildGeminiRequest with Pi transcript system messages', () => {
     )
 
     expect(request.systemInstruction).toEqual({
-      // agy 1.5.8 includes the system role on the instruction.
-      role: 'system',
       parts: [{ text: 'base\n\n<rules>new</rules>' }],
     })
   })
@@ -565,8 +551,8 @@ describe('buildGeminiRequest with Pi transcript system messages', () => {
 
     expect(declarationNames(request)).toEqual(['read', 'grep'])
     expect(request.tools?.[0]?.functionDeclarations[0]?.parameters).toEqual({
-      type: 'OBJECT',
-      properties: { file: { type: 'NUMBER' } },
+      type: 'object',
+      properties: { file: { type: 'number' } },
       required: ['file'],
     })
   })
@@ -605,8 +591,6 @@ describe('buildGeminiRequest with Pi transcript system messages', () => {
 
     const fromFlat = buildGeminiRequest(flat)
     expect(fromFlat.systemInstruction).toEqual({
-      // agy 1.5.8 includes the system role on the instruction.
-      role: 'system',
       parts: [{ text: 'be terse' }],
     })
     expect(declarationNames(fromFlat)).toEqual(['read'])

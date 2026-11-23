@@ -103,6 +103,14 @@ function toolResultParts(
   model?: string,
 ): GeminiPart[] {
   const name = message.toolName
+  if (message.isError) {
+    const error = message.content
+      .flatMap((item) => (item.type === 'text' ? [item.text] : []))
+      .join('\n')
+    return [
+      { functionResponse: { name, response: { error: error || 'Error' } } },
+    ]
+  }
   const response = (content: string, parts?: InlineImage[]): GeminiPart => ({
     functionResponse: {
       name,
@@ -223,19 +231,23 @@ export function buildGeminiRequest(
   return {
     generationConfig: options?.generationConfig ?? {},
     contents: convertMessages(context.messages, options),
-    systemInstruction: systemPrompt
-      ? { parts: [{ text: systemPrompt }] }
-      : undefined,
-    tools: tools.length
-      ? [
-          {
-            functionDeclarations: tools.map((tool) => ({
-              name: tool.name,
-              description: tool.description ?? '',
-              parameters: googleToolParameters(tool.parameters),
-            })),
-          },
-        ]
-      : undefined,
+    ...(systemPrompt && {
+      systemInstruction: { parts: [{ text: systemPrompt }] },
+    }),
+    ...(tools.length && {
+      tools: [
+        {
+          functionDeclarations: tools.map((tool) => ({
+            name: tool.name,
+            description: tool.description ?? '',
+            parameters: googleToolParameters(
+              tool.parameters,
+              true,
+              !options?.model?.includes('claude'),
+            ),
+          })),
+        },
+      ],
+    }),
   }
 }

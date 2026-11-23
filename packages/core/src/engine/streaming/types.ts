@@ -20,6 +20,7 @@ export interface StreamingUsageMetadata {
 }
 
 export interface StreamingCallbacks {
+  onMalformedFrame?: () => void
   processImageData?: SaveResponseImage
   onCacheSignature?: (
     sessionKey: string,

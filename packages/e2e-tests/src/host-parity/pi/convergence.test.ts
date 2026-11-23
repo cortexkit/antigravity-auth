@@ -71,7 +71,13 @@ for (const scenario of responseScenarios) {
         'thinking',
         'reports',
       ] as const)
-        expect(fields[field]).toEqual(oracle.record[field])
+        expect({
+          [field]: fields[field],
+          errors: actual.turns.flatMap((turn) => turn.errors),
+        }).toEqual({
+          [field]: oracle.record[field],
+          errors: actual.turns.flatMap((turn) => turn.errors),
+        })
       expect(fields.hooks).toEqual(oracle.piHooks)
     })
   }

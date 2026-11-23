@@ -314,7 +314,10 @@ function transformSseLineWithMetadata(
   }
 
   try {
-    const parsed = JSON.parse(json) as { response?: unknown }
+    const parsed = JSON.parse(json) as {
+      response?: unknown
+      responseId?: unknown
+    }
     if (parsed.response !== undefined) {
       const hasToolCall = responseHasToolCall(parsed.response)
       const hasFinishReason = responseHasFinishReason(parsed.response)
@@ -372,9 +375,16 @@ function transformSseLineWithMetadata(
       }
       // Note: onInjectSyntheticThinking removed - keep_thinking now uses debugText path
 
-      const transformed = callbacks.transformThinkingParts
+      let transformed = callbacks.transformThinkingParts
         ? callbacks.transformThinkingParts(response)
         : response
+      if (
+        typeof parsed.responseId === 'string' &&
+        transformed &&
+        typeof transformed === 'object' &&
+        !('responseId' in transformed)
+      )
+        transformed = { ...transformed, responseId: parsed.responseId }
       return {
         line: `data: ${JSON.stringify(transformed)}`,
         hasToolCall,
@@ -382,10 +392,12 @@ function transformSseLineWithMetadata(
       }
     }
   } catch (_) {
-    console.warn(
-      '[antigravity] Malformed SSE chunk in streaming transform, passing through untransformed:',
-      json.slice(0, 200),
-    )
+    if (callbacks.onMalformedFrame) callbacks.onMalformedFrame()
+    else
+      console.warn(
+        '[antigravity] Malformed SSE chunk in streaming transform, passing through untransformed:',
+        json.slice(0, 200),
+      )
   }
   return { line, hasToolCall: false, hasFinishReason: false }
 }

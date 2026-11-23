@@ -152,13 +152,13 @@ export function createPiRequestEngine(options: PiRequestEngineOptions = {}) {
     admit?: PiVaultSelection['admit']
   }>()
   let bound: { key: string; executor: AntigravityRequestExecutor } | undefined
-  const retired = new Set<Promise<void>>()
+  const retired = new Set<AntigravityRequestExecutor>()
   const resetAccount = () => {
     if (!bound) return
-    const pending = bound.executor.retire()
+    const executor = bound.executor
     bound = undefined
-    retired.add(pending)
-    void pending.finally(() => retired.delete(pending))
+    retired.add(executor)
+    void executor.retire().then(() => retired.delete(executor))
   }
 
   function bind(
@@ -176,6 +176,7 @@ export function createPiRequestEngine(options: PiRequestEngineOptions = {}) {
           accounts: createPiRequestPool(row),
           credentials,
           sessions,
+          scopeDisplayedThinking: true,
           assertAdmission: async (signal) => {
             signal.throwIfAborted()
             await current.getStore()?.assertAdmission?.()
@@ -217,7 +218,10 @@ export function createPiRequestEngine(options: PiRequestEngineOptions = {}) {
     async dispose() {
       const executor = bound?.executor
       bound = undefined
-      await Promise.all([executor?.dispose(), ...retired])
+      await Promise.all([
+        executor?.dispose(),
+        ...[...retired].map((item) => item.dispose()),
+      ])
       requestSessions.clear()
       signatures.clear()
     },

@@ -57,7 +57,7 @@ export async function readPiRequestSettings(
       )
     )
       return
-    next[key] = await handle.get(key, { host: 'pi' })
+    next[key] = (await handle.get(key, { host: 'pi' })) as PiRequestSettings[K]
   }
   await Promise.all(keys.map(read))
   return next

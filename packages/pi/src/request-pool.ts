@@ -73,8 +73,9 @@ export function createPiRequestPool(
       Date.now(),
     markRateLimited,
     markRateLimitedWithReason: (account, family, model, _reason, delay) => {
-      markRateLimited(account, delay, family, model)
-      return delay
+      const wait = delay ?? 0
+      markRateLimited(account, wait, family, model)
+      return wait
     },
     markAccountCoolingDown: (account, wait) => {
       account.coolingDownUntil = Math.max(

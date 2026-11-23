@@ -25,6 +25,7 @@ export interface AgyRequestSessionContext {
   lastExecutionId?: string
   requestCount?: number
   lastMetadataTimestamp?: number
+  createExecutionId?: () => string
 }
 
 interface StoredAgyRequestSession {
@@ -37,6 +38,7 @@ export interface AgyRequestSessionStoreOptions {
   ttlMs?: number
   maxEntries?: number
   now?: () => number
+  createExecutionId?: () => string
 }
 
 export interface AgyRequestScope {
@@ -89,11 +91,13 @@ export class AgyRequestSessionStore {
   private readonly ttlMs: number
   private readonly maxEntries: number
   private readonly now: () => number
+  private readonly createExecutionId: (() => string) | undefined
 
   constructor(options: AgyRequestSessionStoreOptions = {}) {
     this.ttlMs = options.ttlMs ?? DEFAULT_SESSION_STATE_TTL_MS
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_SESSION_STATES
     this.now = options.now ?? Date.now
+    this.createExecutionId = options.createExecutionId
   }
 
   getOrCreate(key: string): AgyRequestSessionContext {
@@ -107,6 +111,8 @@ export class AgyRequestSessionStore {
     }
 
     const context = createAgyRequestSessionContext()
+    if (this.createExecutionId)
+      context.createExecutionId = this.createExecutionId
     this.entries.set(key, {
       context,
       lastAccessedAt: timestamp,
@@ -285,7 +291,7 @@ export function buildAgyAgentRequestMetadata(
     session.requestCount = (session.requestCount ?? 0) + 1
     session.lastMetadataTimestamp = requestTimestamp
     if (session.lastExecutionId || hasSecondUserTurn(payload)) {
-      session.lastExecutionId = randomUUID()
+      session.lastExecutionId = (session.createExecutionId ?? randomUUID)()
     }
   }
   const isClaude = model.toLowerCase().startsWith('claude-')

@@ -20,6 +20,7 @@ import {
   type Model,
   type SimpleStreamOptions,
   type ThinkingLevel,
+  type ToolCall,
 } from '@earendil-works/pi-ai'
 import { buildGeminiRequest } from './convert.ts'
 import {
@@ -27,6 +28,8 @@ import {
   type PiRequestEngine,
   type PiVaultSelection,
 } from './request-engine.ts'
+
+type PiGenerationOptions = SimpleStreamOptions & { topP?: number }
 
 export function resolvePiAntigravityModel(
   model: Model<Api>,
@@ -59,10 +62,11 @@ export function resolvePiAntigravityModel(
 function googleRequest(
   model: Model<Api>,
   context: Context,
-  options?: SimpleStreamOptions,
+  options?: PiGenerationOptions,
 ) {
   const reasoning = options?.reasoning
-  const budget = reasoning && options.thinkingBudgets?.[reasoning]
+  const budgets = options?.thinkingBudgets
+  const budget = reasoning && budgets?.[reasoning as keyof typeof budgets]
   const level =
     reasoning === 'xhigh' && !supportsGeminiXHigh(model.id) ? 'high' : reasoning
   return buildGeminiRequest(context, {
@@ -263,7 +267,7 @@ function run(
               type: 'toolCall' as const,
               id: event.id,
               name: event.name,
-              arguments: event.arguments,
+              arguments: event.arguments as ToolCall['arguments'],
               thoughtSignature: event.signature,
             }
             const contentIndex = output.content.push(toolCall) - 1
