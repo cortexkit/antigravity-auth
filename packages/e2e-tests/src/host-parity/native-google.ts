@@ -71,7 +71,9 @@ export function recordFailure(output: Surface, error: unknown) {
       ? 'context_overflow'
       : /pre.response deadline|timed out waiting|deadline/i.test(message)
         ? 'deadline'
-        : /thinking.signature|thought.signature/i.test(message)
+        : /thinking.signature|thought.signature|could not repair .*thinking/i.test(
+              message,
+            )
           ? 'signature_recovery_failed'
           : /reauthoriz|verification/i.test(message)
             ? 'account_reauthorize'

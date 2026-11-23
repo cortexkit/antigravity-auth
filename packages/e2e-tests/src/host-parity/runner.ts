@@ -1,4 +1,9 @@
-import type { Conversation, Custody, Subject } from './cases.ts'
+import {
+  type Conversation,
+  type Custody,
+  historySignature,
+  type Subject,
+} from './cases.ts'
 import { Environment } from './environment.ts'
 import { candidate, type Reply, sse, type Wire } from './fixtures.ts'
 import { openCode1, openCode2 } from './open-code.ts'
@@ -20,16 +25,35 @@ export async function runConversation({
 }) {
   const environment = new Environment(
     reply ??
-      (input.replayText
+      (input.primeThought
         ? () => ({
             body: sse(
               candidate(
-                [{ text: 'Four.' }, { text: '', thoughtSignature: signature }],
+                [
+                  {
+                    text: 'Check the value.',
+                    thought: true,
+                    thoughtSignature: historySignature,
+                  },
+                  { text: 'Four.' },
+                ],
                 'STOP',
               ),
             ),
           })
-        : undefined),
+        : input.replayText
+          ? () => ({
+              body: sse(
+                candidate(
+                  [
+                    { text: 'Four.' },
+                    { text: '', thoughtSignature: signature },
+                  ],
+                  'STOP',
+                ),
+              ),
+            })
+          : undefined),
   )
   const scope = `${encodeURIComponent(input.id)}:${subject}:${custody}:`
   const priorHost = process.env.CORTEXKIT_VAULT_HOST
@@ -111,7 +135,7 @@ export async function runConversation({
     else process.env.CORTEXKIT_VAULT_HOST = priorHost
     if (prior) Reflect.defineProperty(globalThis, accessor, prior)
     else Reflect.deleteProperty(globalThis, accessor)
-    environment.dispose()
+    await environment.dispose()
   }
 }
 

@@ -8,7 +8,7 @@ import {
 } from './cases.ts'
 import { caseKey as key } from './gate-data.ts'
 import { type Observation, runConversation } from './runner.ts'
-import { responseScenarios } from './scenarios.ts'
+import { responseScenarios, scenarioUsesClock } from './scenarios.ts'
 
 export async function recordCorpus(
   sourceCommit: string,
@@ -50,10 +50,7 @@ export async function recordCorpus(
             custody,
             input: scenario.input,
             reply,
-            timed: scenario.replies.some(
-              ({ stall, status }) =>
-                stall !== undefined || (status !== undefined && status >= 400),
-            ),
+            timed: scenarioUsesClock(scenario),
           })
       }
     }

@@ -25,7 +25,7 @@ import {
   wireSemantics,
 } from './gate-data.ts'
 import { runConversation } from './runner.ts'
-import { responseScenarios } from './scenarios.ts'
+import { responseScenarios, scenarioUsesClock } from './scenarios.ts'
 
 const baselineDigest =
   'f61ce7ed4b922f2a638149a7fb1a2a4990537a663cec94c5e70e41b9e40c47ee'
@@ -193,12 +193,9 @@ export async function checkCorpus() {
           input: scenario.input,
           reply: (_wire, index) =>
             scenario.replies[Math.min(index, scenario.replies.length - 1)]!,
-          timed: scenario.replies.some(
-            ({ stall, status }) =>
-              stall !== undefined || (status !== undefined && status >= 400),
-          ),
+          timed: scenarioUsesClock(scenario),
         })
-        const actual = outcomeFields(result)
+        const actual = outcomeFields(result, scenario.input.id)
         if (
           digest(Object.keys(expected).sort()) !==
           digest(Object.keys(actual).sort())

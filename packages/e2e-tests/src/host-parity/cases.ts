@@ -65,6 +65,7 @@ export type Conversation = {
   sessions: (string | undefined)[]
   steps?: Partial<Pick<Conversation, 'model' | 'messages' | 'options'>>[]
   replayText?: boolean
+  primeThought?: boolean
   oracle: 'opencode1' | 'opencode2'
 }
 
@@ -121,7 +122,8 @@ export function nativeOptions({ options }: Conversation, host: Host) {
   }
 }
 
-const signature = 'test-thought-signature-'.repeat(6)
+export const historySignature = 'test-thought-signature-'.repeat(6)
+const signature = historySignature
 const image: Image = {
   type: 'image',
   mediaType: 'image/png',
@@ -221,6 +223,9 @@ export const requestCases: readonly Conversation[] = [
   ...[true, false].map((keepThinking) =>
     conversation(`Claude thinking ${keepThinking ? 'on' : 'off'}`, {
       model: models.claude,
+      sessions: ['parity-session', 'parity-session'],
+      steps: [{ messages: [user] }, {}],
+      primeThought: true,
       messages: [
         user,
         {

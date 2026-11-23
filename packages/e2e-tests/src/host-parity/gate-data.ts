@@ -137,7 +137,7 @@ export function wireSemantics(
   return { actual, expected }
 }
 
-export function outcomeFields(result: Observation): Fields {
+export function outcomeFields(result: Observation, scenarioId: string): Fields {
   return {
     physicalSends: result.physicalSends,
     delays: result.delays,
@@ -154,6 +154,19 @@ export function outcomeFields(result: Observation): Fields {
     ),
     terminal: result.turns.map(({ terminal }) => terminal),
     notices: result.notices,
+    ...(scenarioId === 'unlisted finish code'
+      ? {
+          finishCode: result.turns.map(({ errors }) => {
+            if (
+              errors.some((message) => message.includes('PRIVATE_FIXTURE_CODE'))
+            )
+              return 'PRIVATE_FIXTURE_CODE'
+            return errors.some((message) => /\bunknown\b/i.test(message))
+              ? 'unknown'
+              : null
+          }),
+        }
+      : {}),
     compaction: result.turns.some(({ compaction }) => compaction),
     hooks: result.hooks.map((item) => {
       const hook = item as {
@@ -185,7 +198,7 @@ export function expectedOutcome(
   baseline: Observation,
   subject: Subject,
 ): Fields {
-  const record = outcomeFields(baseline)
+  const record = outcomeFields(baseline, scenario.input.id)
   const expected = scenario.expected
   const tool = expected.tool
   const sends =
@@ -200,6 +213,9 @@ export function expectedOutcome(
     physicalSends: sends,
     delays: expected.delays,
     terminal: expected.terminal,
+    ...(scenario.input.id === 'unlisted finish code'
+      ? { finishCode: ['unknown'] }
+      : {}),
     text: expected.text,
     thinking: expected.thinking ?? expected.text.map(() => ''),
     compaction: expected.compaction ?? false,

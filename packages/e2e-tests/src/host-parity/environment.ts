@@ -3,14 +3,7 @@ import { Buffer } from 'node:buffer'
 import * as crypto from 'node:crypto'
 import { Duplex } from 'node:stream'
 import * as tls from 'node:tls'
-import {
-  bodyOf,
-  credential,
-  epoch,
-  type Reply,
-  success,
-  type Wire,
-} from './fixtures.ts'
+import { bodyOf, epoch, type Reply, success, type Wire } from './fixtures.ts'
 
 export function decodeWrite(host: string, bytes: Buffer): Wire {
   const boundary = bytes.indexOf('\r\n\r\n')
@@ -175,7 +168,7 @@ export class Environment {
           this.physicalSends.push({
             endpoint: new URL(wire.target).origin,
             model: envelope.model,
-            route: credential.projectId,
+            route: String(envelope.project),
           })
           if (this.instant > this.latestSend)
             this.delays.push(this.instant - this.latestSend)
@@ -286,8 +279,17 @@ export class Environment {
     }
   }
 
-  dispose() {
-    for (const socket of this.sockets) socket.destroy()
+  async dispose() {
+    await Promise.all(
+      Array.from(
+        this.sockets,
+        (socket) =>
+          new Promise<void>((resolve) => {
+            socket.once('close', resolve)
+            socket.destroy()
+          }),
+      ),
+    )
     for (const restore of this.restore.reverse()) restore()
     active = undefined
   }

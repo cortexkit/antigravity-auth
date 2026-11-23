@@ -154,7 +154,10 @@ async function main(baselinePath: string, observedPath: string) {
         const expected = expectedOutcome(scenario, oracle, subject)
         collect(
           key,
-          outcomeFields(requireEntry(current.responses, key)),
+          outcomeFields(
+            requireEntry(current.responses, key),
+            scenario.input.id,
+          ),
           expected,
           scenario.ledger,
         )

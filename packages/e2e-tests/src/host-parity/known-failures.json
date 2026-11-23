@@ -2095,12 +2095,12 @@
   ],
   [
     "[\"unlisted finish code\",\"opencode1\",\"local\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
     "[\"unlisted finish code\",\"opencode2\",\"local\",\"terminal\"]",
-    "c205bb08cd72f7312e3a6f1d2528ec8234d9487cd94dcb8d30be8fa7c73bfb40",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2125,7 +2125,7 @@
   ],
   [
     "[\"unlisted finish code\",\"opencode1\",\"vault\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2135,7 +2135,7 @@
   ],
   [
     "[\"unlisted finish code\",\"opencode2\",\"vault\",\"terminal\"]",
-    "c205bb08cd72f7312e3a6f1d2528ec8234d9487cd94dcb8d30be8fa7c73bfb40",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2170,7 +2170,7 @@
   ],
   [
     "[\"unlisted finish code\",\"opencode1\",\"host\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2180,7 +2180,7 @@
   ],
   [
     "[\"unlisted finish code\",\"opencode2\",\"host\",\"terminal\"]",
-    "c205bb08cd72f7312e3a6f1d2528ec8234d9487cd94dcb8d30be8fa7c73bfb40",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2500,7 +2500,7 @@
   ],
   [
     "[\"embedded error before content\",\"opencode1\",\"local\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2515,7 +2515,7 @@
   ],
   [
     "[\"embedded error before content\",\"opencode1\",\"vault\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2545,7 +2545,7 @@
   ],
   [
     "[\"embedded error before content\",\"opencode1\",\"host\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2575,7 +2575,7 @@
   ],
   [
     "[\"embedded error after content\",\"opencode1\",\"local\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2590,7 +2590,7 @@
   ],
   [
     "[\"embedded error after content\",\"opencode1\",\"vault\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2620,7 +2620,7 @@
   ],
   [
     "[\"embedded error after content\",\"opencode1\",\"host\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2650,7 +2650,7 @@
   ],
   [
     "[\"[DONE] without finish\",\"opencode1\",\"local\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2680,7 +2680,7 @@
   ],
   [
     "[\"[DONE] without finish\",\"opencode1\",\"vault\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2725,7 +2725,7 @@
   ],
   [
     "[\"[DONE] without finish\",\"opencode1\",\"host\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2770,7 +2770,7 @@
   ],
   [
     "[\"empty response\",\"opencode1\",\"local\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2810,7 +2810,7 @@
   ],
   [
     "[\"empty response\",\"opencode1\",\"vault\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [
@@ -2865,7 +2865,7 @@
   ],
   [
     "[\"empty response\",\"opencode1\",\"host\",\"terminal\"]",
-    "d21476837ac62867b1e39d5db5d1e8d708a42227dbe6aebbb009e059c552c2c2",
+    "512a457b145bd694ac3d7f753b53699a83621d48474d5bcf927c184cbcf64087",
     "response-errors:D5"
   ],
   [

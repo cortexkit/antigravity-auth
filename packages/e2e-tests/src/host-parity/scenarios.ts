@@ -29,6 +29,13 @@ export type Scenario = {
   ledger: `response-errors:D${number}` | 'request-wire:D7'
 }
 
+export function scenarioUsesClock(scenario: Scenario) {
+  return (
+    scenario.expected.delays.length > 0 ||
+    scenario.replies.some(({ stall }) => stall !== undefined)
+  )
+}
+
 export const signature = 'response-thought-signature-'.repeat(6)
 const text = { text: 'Four.' }
 const thought = {
@@ -93,7 +100,7 @@ const notFound = jsonError(404, 'NOT_FOUND', 'Fixture model not found')
 const signatureError = jsonError(
   400,
   'INVALID_ARGUMENT',
-  'Function call is missing a thought_signature',
+  'Expected thinking in the first block but found text (invalid thought signature)',
 )
 const recoveryHistory = requestCases.find(
   ({ id }) => id === 'Gemini tool loop',
@@ -355,6 +362,6 @@ export const responseScenarios: readonly Scenario[] = [
     'pre-response deadline',
     'response-errors:D1',
     [{ stall: 'before-headers' }],
-    refusal('deadline'),
+    { ...refusal('deadline'), sends: 2, delays: [180_000] },
   ),
 ]
