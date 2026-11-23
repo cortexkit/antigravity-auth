@@ -5,7 +5,7 @@ test('Pi resets the confirmed quota backoff ladder after the configured failure 
   for (const [ttl, expectedWait] of [
     [60_000, 60_000],
     [120_000, 300_000],
-  ]) {
+  ] as const) {
     let now = 1_000_000
     const clock = spyOn(Date, 'now').mockImplementation(() => now)
     try {

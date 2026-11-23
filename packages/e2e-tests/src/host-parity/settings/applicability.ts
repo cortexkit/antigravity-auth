@@ -19,8 +19,11 @@ type Proof =
       file: string
       reason: string
     }
-  | { status: 'single account by design' | 'not applicable'; reason: string }
-  | { status: null; reason: string }
+  | {
+      status: 'single account by design' | 'not applicable'
+      reason: string
+      binding: string
+    }
 
 const applied = (
   file: string,
@@ -28,27 +31,33 @@ const applied = (
   binding?: string,
   titleFragment?: string,
 ): Proof => ({ status: 'applied', file, test, binding, titleFragment })
-const pending = (reason: string): Proof => ({ status: null, reason })
-const notApplicable = (reason: string): Proof => ({
+const notApplicable = (reason: string, binding: string): Proof => ({
   status: 'not applicable',
   reason,
+  binding,
 })
 const single: Proof = {
   status: 'single account by design',
   reason:
-    'Host parity specification, non-goals: no account rotation, pool health, killswitch or soft quota on Pi.',
+    'Pi binds one account and has no account rotation, pool health, killswitch or soft quota.',
+  binding:
+    'packages/pi/src/request-pool.ts:48; packages/pi/src/request-settings.ts:93',
 }
 const hostedCredentials = notApplicable(
-  'accounts-features:D5: custody never opens or refreshes the local login.',
+  'Vault custody admits the selected route for a send; it does not refresh a local login.',
+  'packages/opencode/src/plugin/shared/vault-request-credentials.ts; packages/pi/src/request-engine.ts:245',
 )
 const v1Only = notApplicable(
-  'Pi uses its own extension lifecycle, not packages/opencode/src/plugin/index.ts (OpenCode 1 recovery or updater).',
+  'Pi uses its own extension lifecycle, not the OpenCode 1 recovery and update hooks.',
+  'packages/pi/src/index.ts; packages/opencode/src/plugin/index.ts:588',
 )
 const piStreamOnly = notApplicable(
-  'packages/pi/src/stream.ts uses streamGenerateContent, not buffered generation.',
+  'Pi uses streamGenerateContent, not buffered generation.',
+  'packages/pi/src/stream.ts',
 )
 const noOp = notApplicable(
-  'request-wire:D9: retained for settings compatibility; no wire effect.',
+  'Accepted for settings compatibility only; no request engine path reads it.',
+  'packages/core/src/settings/definition.ts; packages/core/src/engine/ports.ts',
 )
 const gaRecovery: Proof = {
   status: 'host-limited',
@@ -74,9 +83,19 @@ const engine = `${oc}shared/request-services.test.ts`
 const event = `${oc}event-handler.test.ts`
 const ga = `${oc}ga-location-services.ts`
 const v1 = `${oc}index.ts`
-const piEngine = `${pi}request-engine.ts`
+const piEngine = `${pi}request-engine.ts:169`
+const piWire = `${pi}request-engine.ts:99; ${piEngine}`
 const ocLocal = `${oc}fetch-interceptor.ts:323; ${ga}:1676`
 const ocExecutor = `${ocLocal}; ${oc}fetch-interceptor.ts:507; ${ga}:1768`
+const ocWire = `${oc}fetch-interceptor.ts:257; ${ga}:1644; ${ga}:1676; ${ga}:1768`
+const oc1Wire = `${oc}fetch-interceptor.ts:257; ${oc}request.ts:58`
+const runtime = `${oc}shared/runtime.ts`
+const selector = 'packages/core/src/account-selector.test.ts'
+const selectorBinding = `${ocExecutor}; packages/core/src/account-manager.ts:481; ${oc}shared/vault-request-credentials.ts:903`
+const executorProof = (test: string, binding = ocExecutor) =>
+  applied(`${e2e}settings/executor-settings.test.ts`, test, binding)
+const requestProof = (test: string, binding: string) =>
+  applied(`${e2e}settings/request-settings.test.ts`, test, binding)
 const v1Debug = (test: string) =>
   applied(`${oc}debug.test.ts`, test, `${v1}:225`)
 const v1Event = (test: string) => applied(event, test, `${v1}:596`)
@@ -88,7 +107,7 @@ const piDiagnostic = (custody: 'local' | 'vault') =>
     custody === 'local'
       ? 'keeps credentials out of Pi transport refusals and masks the plugin diagnostic'
       : 'uses the genuinely served opaque vault token at the Pi transport boundary',
-    `${piEngine}:194`,
+    `${pi}request-engine.ts:194`,
     custody === 'local'
       ? 'refusals and masks the plugin diagnostic'
       : 'uses the genuinely served opaque vault token at the Pi',
@@ -117,11 +136,12 @@ const piVaultModels = applied(
   'refuses a model the vault account does not list before anything is sent, and serves a listed one',
   `${pi}vault-source.ts`,
 )
-const defaultRetry = pending(
-  'The existing fallback-delay proof uses the default of 60 seconds.',
+const defaultRetry = executorProof(
+  'a configured retry fallback sets the next eligible time when Google supplies no delay',
 )
-const failureTtl = pending(
-  'No non-default failure-count reset proof for the account manager.',
+const failureTtl = executorProof(
+  'confirmed failures on both account stores expire on the configured TTL',
+  selectorBinding,
 )
 const kinds = (local: Proof, vault: Proof = local, host: Proof = vault) => ({
   local,
@@ -141,7 +161,8 @@ const localRefresh = (oc1: Proof, oc2: Proof) =>
     kinds(oc2, hostedCredentials),
     kinds(
       notApplicable(
-        'packages/pi/src/index.ts uses native OAuth on-demand refresh rather than a proactive queue.',
+        'Pi uses the native Google login and has no proactive token queue.',
+        `${pi}index.ts; ${pi}request-engine.ts:290`,
       ),
       hostedCredentials,
     ),
@@ -160,88 +181,136 @@ const wait = applied(
   'a long individual quota reset does not extend the caller wait budget',
   ocExecutor,
 )
-const rateWait = pending(
-  'Needs a non-default cumulative wait with the Pi fixed-account port.',
+const rateWait = requestProof(
+  'Pi uses the configured wait budget and fallback when a quota reply lacks timing',
+  piEngine,
 )
-const backgroundEnabled = pending(
-  'Needs a test of starting or suppressing the background quota producer for this source.',
+const ocNotices = executorProof(
+  'quiet mode and root-only scope suppress shared engine notices',
+  `${ocExecutor}; ${oc}fetch-interceptor.ts:269; ${ga}:1722`,
 )
-const backgroundInterval = pending(
-  'Needs a non-default polling cadence proof for this source.',
+const oc1Thinking = executorProof(
+  'the OpenCode 1 wire obeys thinking warmup and Claude tool hardening settings',
+  oc1Wire,
+)
+const warmup =
+  'emits a thinking warmup only when preservation and warmup are both enabled'
+const oc2Debug = requestProof(
+  'OpenCode 2 writes request diagnostics only when enabled and in the location log directory',
+  `${runtime}:467; ${ga}:1645`,
+)
+const oc2Thinking = applied(
+  `${e2e}opencode2/location.test.ts`,
+  'OpenCode 2 shows thinking once in each location even when host session ids collide',
+  `${runtime}:477; ${ga}:1644`,
+)
+const piDebug = requestProof(
+  'Pi settings independently gate the debug file and debug-level request records',
+  `${pi}request-engine.ts:79; ${pi}request-engine.ts:194`,
+)
+const queueTiming = applied(
+  `${oc}refresh-queue.test.ts`,
+  'uses the configured refresh buffer and schedules checks at the configured interval',
+  `${oc}auth-loader.ts:418; ${runtime}:594`,
+)
+const scheduling = executorProof(
+  'first classified limit switches or retries according to the scheduling settings',
+)
+const switchBudget = executorProof(
+  'the configured account-switch cap and delay control sends after confirmed limits',
+)
+const quotaThreshold = executorProof(
+  'the soft quota threshold and automatic or explicit TTL determine which account sends',
+  selectorBinding,
+)
+const localQuotaCadence = executorProof(
+  'the local quota refresh interval enables or skips an advisory refresh after a send',
+  `${oc}fetch-interceptor.ts:317; ${ga}:1690`,
+)
+const oc1Poller = (test: string, titleFragment?: string) =>
+  applied(
+    `${oc}background-quota-refresh.test.ts`,
+    test,
+    `${v1}:519; ${v1}:550`,
+    titleFragment,
+  )
+const oc2Runtime = (test: string, binding: string) =>
+  applied(`${oc}shared/runtime.test.ts`, test, binding)
+const vaultTrackers = executorProof(
+  'vault routes use configured tracker scores and token balances on a successful dispatch',
+  `${v1}:338; ${oc}fetch-interceptor.ts:502; ${ga}:2010; ${ga}:1781`,
 )
 const poller = (test: string) =>
   applied(`${oc}ga-shared-vault-custody.test.ts`, test, `${ga}:2404`)
 
 const matrix = {
   quiet_mode: each(
-    pending('Needs a test suppressing a request notice on OpenCode 1.'),
+    ocNotices,
     kinds(
-      pending('The notice proof runs on the vault pipeline.'),
+      ocNotices,
       gaNotice(
         'OpenCode 2 quiet_mode suppresses the engine verification notice in its session queue',
       ),
     ),
-    pending('Needs a non-default setting test on the Pi request notice sink.'),
+    requestProof(
+      'Pi quiet mode suppresses the rate-limit notice without changing the refusal',
+      `${pi}request-engine.ts:205`,
+    ),
   ),
   toast_scope: each(
     v1Event('suppresses recovery toasts for child sessions in root-only scope'),
     kinds(
-      pending('The notice proof runs on the vault pipeline.'),
+      ocNotices,
       gaNotice(
         'OpenCode 2 toast_scope root_only suppresses the engine notice for a host child session',
       ),
     ),
     notApplicable(
-      'packages/pi/src/request-engine.ts binds readSession to noSession, so notices have no child-session classification.',
+      'Pi does not supply a parent session for request notices.',
+      `${pi}request-engine.ts:180; ${pi}stream.ts:200`,
     ),
   ),
   debug: each(
     v1Debug('keeps file debug enabled without TUI when only debug is true'),
-    pending('Needs a non-default location debug test.'),
-    pending('Needs a test of enabling pi-antigravity-debug.log.'),
+    oc2Debug,
+    piDebug,
   ),
   debug_tui: each(
     v1Debug('keeps debug_tui independent from debug in config'),
-    pending('Needs a non-default location TUI diagnostic test.'),
+    oc2Thinking,
     notApplicable(
-      'packages/pi/src/request-diagnostics.ts does not inject TUI debug text.',
+      'Pi disables injection of TUI debug text into the response.',
+      `${pi}request-engine.ts:128`,
     ),
   ),
   log_dir: each(
     v1Debug('the config log_dir wins over the default folder'),
-    pending('Needs a test of non-default location log output.'),
+    oc2Debug,
     kinds(piDiagnostic('local'), piDiagnostic('vault')),
   ),
   keep_thinking: each(
-    pending(
-      'Needs a test showing configured Claude thinking or a warmup on OpenCode 1.',
-    ),
-    pending(
-      'Needs a test showing configured Claude thinking or a warmup on OpenCode 2.',
-    ),
+    oc1Thinking,
+    requestSettings('opencode2', warmup, ocWire),
     applied(
       `${e2e}pi/ports.test.ts`,
       'keep_thinking enables Claude warmup bytes without calling the Pi hooks for the warmup',
-      piEngine,
+      piWire,
     ),
   ),
   thinking_warmup: each(
-    pending('Needs a test toggling the optional warmup on OpenCode 1.'),
-    pending('Needs a test toggling the optional warmup on OpenCode 2.'),
-    applied(
-      `${e2e}engine/warmup.test.ts`,
-      'Pi does not count an auxiliary HTTP 422 without a terminal as a successful warmup',
-      piEngine,
-      'without a terminal as a successful warmup',
-    ),
+    oc1Thinking,
+    requestSettings('opencode2', warmup, ocWire),
+    requestSettings('pi', warmup, piWire),
   ),
   cache_warmup_on_switch: pool(
-    pending(
-      'Needs a test suppressing the cache probe despite a real account switch.',
+    executorProof(
+      'disabling cache warmup skips the probe without preventing account switching',
     ),
   ),
   session_recovery: each(
-    pending('Existing recovery tests do not exercise session_recovery=false.'),
+    v1Event(
+      'does not install the session recovery hook when session recovery is disabled',
+    ),
     gaRecovery,
     v1Only,
   ),
@@ -258,33 +327,40 @@ const matrix = {
     v1Only,
   ),
   signature_cache: each(
-    pending('Needs a non-default setting test of signature cache behavior.'),
-    pending('Needs a non-default setting test of the bound location cache.'),
-    pending('Needs a non-default setting test of the Pi signature cache.'),
+    applied(
+      `${oc}cache.test.ts`,
+      'returns no disk cache when the signature cache is disabled',
+      `${v1}:266; ${oc}request.ts:63`,
+    ),
+    oc2Thinking,
+    requestProof(
+      'Pi reuses a signed thought only while its signature cache is enabled',
+      piWire,
+    ),
   ),
   empty_response_max_attempts: each(buffered, buffered, piStreamOnly),
   empty_response_retry_delay_ms: each(buffered, buffered, piStreamOnly),
   claude_tool_hardening: each(
-    pending(
-      'Needs a non-default setting test on the raw OpenCode 1 request path.',
-    ),
-    requestSettings('opencode2', hardening, ocExecutor),
-    requestSettings('pi', hardening, piEngine),
+    oc1Thinking,
+    requestSettings('opencode2', hardening, ocWire),
+    requestSettings('pi', hardening, piWire),
   ),
   claude_prompt_auto_caching: each(noOp, noOp, noOp),
   proactive_token_refresh: localRefresh(
-    pending(
-      'Existing proactive refresh test uses the default enabled value; needs a non-default disable proof.',
+    applied(
+      `${oc}auth-loader.test.ts`,
+      'OpenCode 1 binds a repository without starting a disabled proactive refresh queue',
+      `${oc}auth-loader.ts:418`,
     ),
-    pending('Needs a non-default disable proof on the location refresh queue.'),
+    oc2Runtime(
+      'starts no refresh queue when proactive refresh is off',
+      `${runtime}:587; ${ga}:1675`,
+    ),
   ),
-  proactive_refresh_buffer_seconds: localRefresh(
-    pending('Needs a non-default refresh buffer proof.'),
-    pending('Needs a non-default refresh buffer proof.'),
-  ),
+  proactive_refresh_buffer_seconds: localRefresh(queueTiming, queueTiming),
   proactive_refresh_check_interval_seconds: localRefresh(
-    pending('Needs a non-default refresh check cadence proof.'),
-    pending('Needs a non-default refresh check cadence proof.'),
+    queueTiming,
+    queueTiming,
   ),
   max_rate_limit_wait_seconds: each(wait, wait, rateWait),
   account_selection_strategy: pool(
@@ -294,85 +370,59 @@ const matrix = {
         'rotates to next account on each call',
         ocLocal,
       ),
-      pending(
-        'The concurrent vault placement tests expect the same result for each strategy.',
+      applied(
+        selector,
+        'a bare selector over credential-free rows reproduces them too',
+        selectorBinding,
       ),
     ),
   ),
   pid_offset_enabled: pool(
-    pending(
-      'Needs a test of the enabled PID offset on the selected OpenCode pool.',
+    kinds(
+      applied(
+        selector,
+        'the pool-file manager reproduces the recorded outputs',
+        selectorBinding,
+      ),
+      applied(
+        selector,
+        'a bare selector over credential-free rows reproduces them too',
+        selectorBinding,
+      ),
     ),
   ),
-  switch_on_first_rate_limit: pool(
-    pending(
-      'Needs a non-default setting proof with a second eligible account.',
-    ),
-  ),
-  max_account_switches: pool(
-    pending('Needs a non-default account-switch cap proof.'),
-  ),
-  scheduling_mode: pool(
-    pending(
-      'Needs to isolate the non-default scheduling mode from the wait reason.',
-    ),
-  ),
-  max_cache_first_wait_seconds: pool(
-    pending('Needs to isolate a changed cache-first wait cap.'),
-  ),
+  switch_on_first_rate_limit: pool(scheduling),
+  max_account_switches: pool(switchBudget),
+  scheduling_mode: pool(scheduling),
+  max_cache_first_wait_seconds: pool(scheduling),
   failure_ttl_seconds: each(
     failureTtl,
     failureTtl,
-    pending(
-      'packages/pi/src/request-settings.ts passes the TTL to the engine, but packages/pi/src/request-pool.ts:75-79 ignores the TTL argument.',
+    applied(
+      `${pi}request-pool.test.ts`,
+      'Pi resets the confirmed quota backoff ladder after the configured failure TTL',
+      `${piEngine}; ${pi}request-engine.ts:172; ${pi}request-settings.ts:90`,
     ),
   ),
-  default_retry_after_seconds: each(defaultRetry, defaultRetry, defaultRetry),
+  default_retry_after_seconds: each(defaultRetry, defaultRetry, rateWait),
   request_jitter_max_ms: each(
     requestSettings('opencode2', jitter, ocExecutor),
     requestSettings('opencode2', jitter, ocExecutor),
     requestSettings('pi', jitter, piEngine),
   ),
-  switch_account_delay_ms: pool(
-    pending(
-      'Needs a test observing a non-default delay during an account switch.',
-    ),
-  ),
-  soft_quota_threshold_percent: pool(
-    pending('Needs a non-default threshold proof for the OpenCode selector.'),
-  ),
+  switch_account_delay_ms: pool(switchBudget),
+  soft_quota_threshold_percent: pool(quotaThreshold),
   quota_refresh_interval_minutes: each(
-    kinds(
-      pending(
-        'Needs a test where changing the refresh interval changes whether quota is fetched.',
-      ),
-      pending(
-        'App-level quota polling and the engine cadence are separate; needs a custody selector proof.',
-      ),
-    ),
-    kinds(
-      pending(
-        'Needs a test where changing the refresh interval changes whether quota is fetched.',
-      ),
-      pending(
-        'App-level quota polling and the engine cadence are separate; needs a custody selector proof.',
-      ),
-    ),
+    kinds(localQuotaCadence, quotaThreshold),
+    kinds(localQuotaCadence, quotaThreshold),
     single,
   ),
-  soft_quota_cache_ttl: pool(
-    pending(
-      'Needs to observe fresh vs stale eligibility after switching TTL mode.',
-    ),
-  ),
-  soft_quota_cache_ttl_minutes: pool(
-    pending(
-      'Needs a proof that an explicit TTL changes fresh vs stale eligibility.',
-    ),
-  ),
+  soft_quota_cache_ttl: pool(quotaThreshold),
+  soft_quota_cache_ttl_minutes: pool(quotaThreshold),
   proactive_rotation_threshold_percent: pool(
-    pending(
-      'Needs a non-default rotation threshold proof with an eligible alternative.',
+    executorProof(
+      'a non-default proactive rotation threshold changes the account on the next turn',
+      selectorBinding,
     ),
   ),
   health_score: each(
@@ -381,14 +431,14 @@ const matrix = {
         `${oc}auth-loader.test.ts`,
         'OpenCode 1 applies tracker settings to repository managers on load and reload',
       ),
-      pending('Needs a non-default vault selector tracker test.'),
+      vaultTrackers,
     ),
     kinds(
       applied(
         `${e2e}opencode2/location.test.ts`,
         'OpenCode 2 repository account manager uses configured health scores and token buckets',
       ),
-      pending('Needs a non-default vault selector tracker test.'),
+      vaultTrackers,
     ),
     single,
   ),
@@ -398,21 +448,31 @@ const matrix = {
         `${oc}auth-loader.test.ts`,
         'OpenCode 1 applies tracker settings to repository managers on load and reload',
       ),
-      pending('Needs a non-default vault selector tracker test.'),
+      vaultTrackers,
     ),
     kinds(
       applied(
         `${e2e}opencode2/location.test.ts`,
         'OpenCode 2 repository account manager uses configured health scores and token buckets',
       ),
-      pending('Needs a non-default vault selector tracker test.'),
+      vaultTrackers,
     ),
     single,
   ),
   background_quota_refresh: each(
-    backgroundEnabled,
     kinds(
-      backgroundEnabled,
+      oc1Poller(
+        'background_quota_refresh: false → NO poller instance is constructed',
+      ),
+      oc1Poller(
+        'composes a vault producer under the same config flag and awaits disposal',
+      ),
+    ),
+    kinds(
+      oc2Runtime(
+        'builds each location from its own configuration and fresh defaults',
+        `${runtime}:539`,
+      ),
       poller(
         'starts no producer while every location has background refresh off, and still checks on demand',
       ),
@@ -420,9 +480,19 @@ const matrix = {
     single,
   ),
   background_quota_refresh_interval_minutes: each(
-    backgroundInterval,
     kinds(
-      backgroundInterval,
+      oc1Poller(
+        'background_quota_refresh: true → exactly one poller is constructed and its dispose is registered',
+      ),
+      oc1Poller(
+        'composes a vault producer under the same config flag and awaits disposal',
+      ),
+    ),
+    kinds(
+      oc2Runtime(
+        'schedules local quota checks at the configured non-default interval',
+        `${runtime}:539`,
+      ),
       poller(
         'runs at the shortest enabled interval and stops when no enabled location remains',
       ),
@@ -466,18 +536,23 @@ const matrix = {
     single,
   ),
   log_level: each(
-    pending('Needs a non-default logging filter proof on OpenCode 1.'),
-    pending('Needs a non-default logging filter proof on OpenCode 2.'),
-    pending(
-      'Needs to show a record admitted by debug level that info would suppress.',
+    requestProof(
+      'OpenCode 1 log level filters the host log without losing warnings',
+      `${v1}:577`,
     ),
+    oc2Runtime(
+      'location log level filters debug records without losing warnings',
+      `${runtime}:470`,
+    ),
+    piDebug,
   ),
   account_models: each(
     kinds(ocLocalModels, ocVaultModels),
     kinds(ocLocalModels, ocVaultModels),
     kinds(
       notApplicable(
-        'packages/pi/src/request-engine.ts uses the native Google slot without a vault route ID for the policy.',
+        'Pi uses the native Google slot without a vault route ID for the policy.',
+        `${pi}request-engine.ts:271; ${pi}vault-source.ts`,
       ),
       piVaultModels,
     ),
