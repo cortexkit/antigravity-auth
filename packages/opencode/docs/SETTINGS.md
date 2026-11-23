@@ -1,6 +1,6 @@
 # Settings by host and credential source
 
-This table covers plugin-owned Antigravity requests. OpenCode 2 requests using native Google credentials are not affected. **Local** is the OpenCode pool or Pi’s native Google login, **Vault** is an enrolled vault, and **Hosted** is a vault supplied by Thalamus.
+This table covers plugin-owned Antigravity requests. OpenCode 2 requests using native Google credentials are not affected. **OC1** and **OC2** mean OpenCode 1 and 2. **Local** is the OpenCode pool or Pi’s native Google login, **Vault** is an enrolled vault, and **Hosted** is a vault supplied by Thalamus.
 
 **Project** means that OpenCode allows an override from a project file. **User-only** settings can only come from the user file. Pi reads supported settings from the user file and never reads project overrides. See [Configuration](CONFIGURATION.md#plugin-configuration) for locations and defaults.
 
@@ -32,7 +32,7 @@ This table covers plugin-owned Antigravity requests. OpenCode 2 requests using n
 | `proactive_refresh_buffer_seconds` | user-only | Unverified | — | — | Unverified | — | — | — | — | — |
 | `proactive_refresh_check_interval_seconds` | user-only | Unverified | — | — | Unverified | — | — | — | — | — |
 | `max_rate_limit_wait_seconds` | user-only | Yes | Yes | Yes | Yes | Yes | Yes | Unverified | Unverified | Unverified |
-| `account_selection_strategy` | user-only | Yes | Yes | Yes | Yes | Yes | Yes | One account | One account | One account |
+| `account_selection_strategy` | user-only | Yes | Unverified | Unverified | Yes | Unverified | Unverified | One account | One account | One account |
 | `pid_offset_enabled` | user-only | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | One account | One account | One account |
 | `switch_on_first_rate_limit` | user-only | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | One account | One account | One account |
 | `max_account_switches` | user-only | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | One account | One account | One account |
@@ -43,7 +43,7 @@ This table covers plugin-owned Antigravity requests. OpenCode 2 requests using n
 | `request_jitter_max_ms` | user-only | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes | Yes |
 | `switch_account_delay_ms` | user-only | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | One account | One account | One account |
 | `soft_quota_threshold_percent` | user-only | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | One account | One account | One account |
-| `quota_refresh_interval_minutes` | user-only | Yes | Unverified | Unverified | Yes | Unverified | Unverified | One account | One account | One account |
+| `quota_refresh_interval_minutes` | user-only | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | One account | One account | One account |
 | `soft_quota_cache_ttl` | user-only | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | One account | One account | One account |
 | `soft_quota_cache_ttl_minutes` | user-only | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | One account | One account | One account |
 | `proactive_rotation_threshold_percent` | user-only | Unverified | Unverified | Unverified | Unverified | Unverified | Unverified | One account | One account | One account |

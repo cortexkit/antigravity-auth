@@ -128,12 +128,13 @@ const kinds = (local: Proof, vault: Proof = local, host: Proof = vault) => ({
   vault,
   host,
 })
-const each = (
-  opencode1: Proof | ReturnType<typeof kinds>,
-  opencode2: Proof | ReturnType<typeof kinds>,
-  pi: Proof | ReturnType<typeof kinds>,
-) => ({ opencode1, opencode2, pi })
-const pool = (oc1: Proof, oc2 = oc1) => each(oc1, oc2, single)
+type HostProof = Proof | ReturnType<typeof kinds>
+const each = (opencode1: HostProof, opencode2: HostProof, pi: HostProof) => ({
+  opencode1,
+  opencode2,
+  pi,
+})
+const pool = (oc1: HostProof, oc2 = oc1) => each(oc1, oc2, single)
 const localRefresh = (oc1: Proof, oc2: Proof) =>
   each(
     kinds(oc1, hostedCredentials),
@@ -287,11 +288,15 @@ const matrix = {
   ),
   max_rate_limit_wait_seconds: each(wait, wait, rateWait),
   account_selection_strategy: pool(
-    applied(
-      engine,
-      'concurrent cold round-robin sessions reserve the selector placement before slow advice',
-      ocExecutor,
-      'sessions reserve the selector placement before slow advice',
+    kinds(
+      applied(
+        `${oc}accounts.test.ts`,
+        'rotates to next account on each call',
+        ocLocal,
+      ),
+      pending(
+        'The concurrent vault placement tests expect the same result for each strategy.',
+      ),
     ),
   ),
   pid_offset_enabled: pool(
@@ -338,20 +343,16 @@ const matrix = {
   ),
   quota_refresh_interval_minutes: each(
     kinds(
-      applied(
-        engine,
-        'disposal drains successful-send quota after-work without delaying the reply',
-        ocLocal,
+      pending(
+        'Needs a test where changing the refresh interval changes whether quota is fetched.',
       ),
       pending(
         'App-level quota polling and the engine cadence are separate; needs a custody selector proof.',
       ),
     ),
     kinds(
-      applied(
-        engine,
-        'disposal drains successful-send quota after-work without delaying the reply',
-        ocLocal,
+      pending(
+        'Needs a test where changing the refresh interval changes whether quota is fetched.',
       ),
       pending(
         'App-level quota polling and the engine cadence are separate; needs a custody selector proof.',
