@@ -14,6 +14,8 @@ import {
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
 import {
+  EngineRefusalError,
+  engineRefusalResponse,
   isGenerativeLanguageRequest,
   publishResponse,
   type RegisterResponseHandoff,
@@ -443,7 +445,11 @@ export function createAuthLoader({
         refreshQueue = deps.createStoreRefreshQueue(
           {
             logger: log,
-            refreshToken: (_auth, account) => credentials.refresh(account),
+            refreshToken: (_auth, account) =>
+              credentials.refresh(account, async () => {
+                if (queueConfig.mayRun && !(await queueConfig.mayRun()))
+                  throw new EngineRefusalError('authority_changed')
+              }),
           },
           queueConfig,
         )
@@ -748,7 +754,7 @@ export function createAuthLoader({
               await localRequestReload
               assertOpen()
               if ((await readAuthority()) !== 'local')
-                throw new HostRefusalError(unavailableMessage)
+                throw new EngineRefusalError('authority_changed')
               assertOpen()
             }
             if (localUnavailable)
@@ -759,6 +765,8 @@ export function createAuthLoader({
               )
             return fetchRuntime.fetch(input, init, onResponseHandoff)
           } catch (error) {
+            if (error instanceof AccountStoreBusyError)
+              return engineRefusalResponse('busy_store')
             // Delegates own their async failures; this catch covers only
             // authority checks and runtime creation/reload before delegation.
             throw loaderFailure(error)

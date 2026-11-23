@@ -16,6 +16,7 @@ import {
 } from 'node:http'
 import type { AddressInfo, Socket } from 'node:net'
 import {
+  AccountStoreBusyError,
   type AgyTransportOptions,
   type authorizeAntigravity,
   buildAntigravityHarnessUserAgent,
@@ -33,16 +34,14 @@ import {
   type loadManagedProject,
   markUpstreamFailure,
   type OpencodeModelDefinition,
-  redactProjectIdText,
+  redactCredentialText,
   type refreshAntigravityToken,
 } from '@cortexkit/antigravity-auth-core'
 import {
   collectForwardedHeaders,
-  deriveRetryHeaderPairFromMs,
+  EngineRefusalError,
+  engineRefusalResponse,
   isCanonicalGoogleOrigin,
-  isQuotaError,
-  normalizeResetDuration,
-  resolveRetryMetadata,
 } from '@cortexkit/antigravity-auth-core/engine'
 import type { Model, Plugin } from '@opencode/plugin'
 import type { ProviderEditor } from '@opencode/plugin/promise/provider'
@@ -436,114 +435,16 @@ export function gaPreHeaderFailureResponse(
   report: (diagnostic: string) => void = (message) =>
     stderrLogSink({ service: 'bridge', level: 'warn', message }),
 ): Response {
-  const err = error as Record<string, unknown> | null
-
-  // Validate numeric status code: only accept finite safe integers in valid HTTP ranges
-  const rawStatusCode =
-    typeof err?.statusCode === 'number' && Number.isSafeInteger(err.statusCode)
-      ? err.statusCode
-      : undefined
-  const rawStatus =
-    typeof err?.status === 'number' && Number.isSafeInteger(err.status)
-      ? err.status
-      : undefined
-  const numericStatus = rawStatusCode ?? rawStatus
-
-  // Map known statuses to Google RPC status strings; all unknown/generic throw 502 UNAVAILABLE
-  let status = 502
-  let statusString = 'UNAVAILABLE'
-
-  if (numericStatus !== undefined) {
-    switch (numericStatus) {
-      case 400:
-        status = 400
-        statusString = 'INVALID_ARGUMENT'
-        break
-      case 401:
-        status = 401
-        statusString = 'UNAUTHENTICATED'
-        break
-      case 403:
-        status = 403
-        statusString = 'PERMISSION_DENIED'
-        break
-      case 404:
-        status = 404
-        statusString = 'NOT_FOUND'
-        break
-      case 412:
-        status = 412
-        statusString = 'FAILED_PRECONDITION'
-        break
-      case 429:
-        status = 429
-        statusString = 'RESOURCE_EXHAUSTED'
-        break
-      case 502:
-      case 503:
-      case 504:
-        status = numericStatus
-        statusString = 'UNAVAILABLE'
-        break
-      default:
-        // Any other arbitrary numeric code defaults to 502 UNAVAILABLE
-        status = 502
-        statusString = 'UNAVAILABLE'
-        break
-    }
-  }
-
-  const rawMessage =
-    error instanceof Error && error.message
-      ? error.message
-      : typeof err?.message === 'string' && err.message
-        ? err.message
-        : 'Antigravity request failed before a response arrived'
-
-  let message = gaHostFailure(error, report).message
-  if (isUpstreamFailure(error)) {
-    const redacted = redactProjectIdText(rawMessage)
-    message = isQuotaError(status, rawMessage, err?.details)
-      ? normalizeResetDuration(redacted)
-      : redacted
-  }
-
-  const headers = new Headers({ 'content-type': 'application/json' })
-
-  const metadata = resolveRetryMetadata({
-    details: err?.details,
-    message: rawMessage,
-    status,
-    headers:
-      (err?.headers as
-        | Headers
-        | Record<string, string | number | undefined>
-        | null
-        | undefined) ?? null,
-    retryAfterMs: err?.retryAfterMs,
-    resetAfterMs: err?.resetAfterMs,
-    retryAfterSeconds: err?.retryAfterSeconds,
-    // The bridge may pass on a truthful local wait of zero seconds.
-    allowZero: true,
-  })
-
-  if (metadata !== null) {
-    const pair = deriveRetryHeaderPairFromMs(metadata.delayMs)
-    headers.set('retry-after', pair['retry-after'])
-    headers.set('retry-after-ms', pair['retry-after-ms'])
-  }
-
-  // Keep the Google RPC code and status as protocol metadata. OpenCode 2
-  // uses the HTTP status and the bridge's x-should-retry veto, not this text.
-  return new Response(
-    JSON.stringify({
-      error: {
-        code: status,
-        message,
-        status: statusString,
-      },
-    }),
-    { status, headers },
+  if (error instanceof EngineRefusalError)
+    return engineRefusalResponse(error.id, {}, 'openCode2')
+  if (error instanceof AccountStoreBusyError)
+    return engineRefusalResponse('busy_store', {}, 'openCode2')
+  const diagnostic = error instanceof Error ? error.message : String(error)
+  report(redactCredentialText(diagnostic))
+  return engineRefusalResponse(
+    isUpstreamFailure(error) ? 'transport_error' : 'upstream_http',
+    {},
+    'openCode2',
   )
 }
 
@@ -686,7 +587,12 @@ export async function startGaLoopbackBridge(
           // An adapted body owns its error even while disposal drains its reader.
           // Unadapted jobs must not create retained failures after closing starts.
           if (!state.released && (state.claimed || !closing))
-            state.failure = error
+            state.failure =
+              error instanceof EngineRefusalError
+                ? error
+                : new EngineRefusalError('transport_error')
+          if (!(error instanceof EngineRefusalError))
+            report(redactCredentialText(error.message))
         },
         () => {
           if (!response.destroyed && !controller.signal.aborted && !closing) {

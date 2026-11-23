@@ -1,3 +1,5 @@
+import { EngineRefusalError } from './refusals.ts'
+
 export interface RequestCancellation {
   readonly signal: AbortSignal
   release(): void
@@ -29,12 +31,12 @@ export function createRequestCancellation(
   }
   for (const source of signals) {
     if (source.aborted) {
-      controller.abort(source.reason)
+      controller.abort(new EngineRefusalError('cancelled'))
       release()
       break
     }
     const forward = () => {
-      controller.abort(source.reason)
+      controller.abort(new EngineRefusalError('cancelled'))
       release()
     }
     remove.push(() => source.removeEventListener('abort', forward))

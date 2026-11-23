@@ -26,12 +26,7 @@ import {
   isGeminiArgonModel,
   isGeminiCarbonModel,
   isRetiredAgyModel,
-  markUpstreamFailure,
-  maskSensitiveIdentifier,
-  redactCredentialError,
-  redactCredentialResponse,
   redactCredentialText,
-  redactProjectIdText,
   rewriteSystemInstruction,
   supportsGeminiXHigh,
 } from '../index.ts'
@@ -49,7 +44,6 @@ import {
   type ThinkingTier,
 } from '../transform/index.ts'
 import type { GoogleSearchConfig } from '../transform/types.ts'
-import { ResponseBodyReadError } from './errors.ts'
 import { isCanonicalGoogleOrigin } from './google-origin.ts'
 import type {
   AntigravityDebugContext,
@@ -60,6 +54,7 @@ import type {
   SaveResponseImage,
 } from './ports.ts'
 import { detectErrorType } from './recovery-error.ts'
+import { engineRefusalResponse } from './refusals.ts'
 import { attachResponseCleanup } from './request-cancellation.ts'
 import {
   type AntigravityApiBody,
@@ -84,11 +79,7 @@ import {
   validateAndFixClaudeToolPairing,
 } from './request-helpers.ts'
 import {
-  collectForwardedHeaders,
-  deriveRetryHeaderPairFromMs,
   extractAntigravityError,
-  isQuotaError,
-  normalizeResetDuration,
   resolveRetryMetadata,
 } from './retry-metadata.ts'
 import {
@@ -101,6 +92,7 @@ import {
   transformSseLine,
   transformStreamingPayload,
 } from './streaming/index.ts'
+import { enforceStreamRefusals } from './streaming/refusal-stream.ts'
 import {
   analyzeConversationState,
   closeToolLoopForThinking,
@@ -2658,11 +2650,11 @@ async function transformAntigravityResponseIn(
   debugContext?: AntigravityDebugContext | null,
   requestedModel?: string,
   projectId?: string,
-  endpoint?: string,
+  _endpoint?: string,
   effectiveModel?: string,
   sessionId?: string,
-  toolDebugMissing?: number,
-  toolDebugSummary?: string,
+  _toolDebugMissing?: number,
+  _toolDebugSummary?: string,
   debugLines?: string[],
   dumpContext?: GeminiDumpContext | null,
   displayedThinkingScope?: string,
@@ -2700,7 +2692,7 @@ async function transformAntigravityResponseIn(
   // while maintaining real-time streaming (no buffering of entire response).
   // This enables thinking tokens to be displayed as they arrive, like the Codex plugin.
   if (streaming && response.ok && isEventStreamResponse && response.body) {
-    const headers = new Headers(response.headers)
+    const headers = new Headers({ 'content-type': 'text/event-stream' })
     if (!contentType) headers.set('Content-Type', 'text/event-stream')
 
     wire.debug.logAntigravityDebugResponse(debugContext, response, {
@@ -2713,10 +2705,8 @@ async function transformAntigravityResponseIn(
     const streamingTransformer = createStreamingTransformer(
       wire.signatures.signatureStore,
       {
-        ...(displayedThinkingScope && {
-          onMalformedFrame: () =>
-            wire.logger.warn('Skipping malformed Antigravity stream frame'),
-        }),
+        onMalformedFrame: () =>
+          wire.logger.warn('Skipping malformed Antigravity stream frame'),
         onCacheSignature: wire.signatures.cacheSignature,
         onInjectDebug: injectDebugThinking,
         onUsageMetadata: (usage) => {
@@ -2759,6 +2749,16 @@ async function transformAntigravityResponseIn(
         // injectSyntheticThinking removed - keep_thinking now unified with debug via debugText
       },
     )
+    const enforce = (stream: ReadableStream<Uint8Array>) =>
+      enforceStreamRefusals(stream, (diagnostic) =>
+        wire.logger.debug(
+          redactCredentialText(
+            diagnostic,
+            undefined,
+            projectId ? [projectId] : undefined,
+          ),
+        ),
+      )
     if (displayedThinkingScope) {
       // A typed consumer publishes done only after the sender finishes cancelling
       // the upstream body. pipeThrough would hide that completion promise.
@@ -2767,9 +2767,8 @@ async function transformAntigravityResponseIn(
         pipes.push(response.body.pipeTo(rawDumpTransformer.writable))
       const source = rawDumpTransformer?.readable ?? response.body
       pipes.push(source.pipeTo(streamingTransformer.writable))
-      const transformed = new Response(streamingTransformer.readable, {
+      const transformed = new Response(enforce(streamingTransformer.readable), {
         status: response.status,
-        statusText: response.statusText,
         headers,
       })
       attachResponseCleanup(
@@ -2781,300 +2780,96 @@ async function transformAntigravityResponseIn(
     const sourceBody = rawDumpTransformer
       ? response.body.pipeThrough(rawDumpTransformer)
       : response.body
-    return new Response(sourceBody.pipeThrough(streamingTransformer), {
+    return new Response(enforce(sourceBody.pipeThrough(streamingTransformer)), {
       status: response.status,
-      statusText: response.statusText,
       headers,
     })
   }
 
   if (!response.ok) {
-    const projectIds = projectId ? [projectId] : undefined
-    const headers = new Headers(response.headers)
-    const initialForwarded = collectForwardedHeaders(headers)
-    if (
-      initialForwarded['retry-after'] !== undefined &&
-      initialForwarded['retry-after-ms'] !== undefined
-    ) {
-      headers.set('Retry-After', initialForwarded['retry-after'])
-      headers.set('retry-after', initialForwarded['retry-after'])
-      headers.set('retry-after-ms', initialForwarded['retry-after-ms'])
-    } else {
-      headers.delete('Retry-After')
-      headers.delete('retry-after')
-      headers.delete('retry-after-ms')
-    }
-
     let text: string
     try {
       text = await response.text()
-    } catch (readError) {
-      const sanitizedCause =
-        readError instanceof Error ||
-        (readError !== null && typeof readError === 'object')
-          ? redactCredentialError(readError, undefined, projectIds)
-          : undefined
-      const safeMessage = sanitizedCause
-        ? sanitizedCause.message
-        : redactCredentialText(String(readError), undefined, projectIds)
-
-      const scrubbedStatusText = redactCredentialText(
-        response.statusText,
-        undefined,
-        projectIds,
-      )
-      const plainHeaders: Record<string, string> = {}
-      for (const [key, value] of headers.entries()) {
-        plainHeaders[key] = redactCredentialText(value, undefined, projectIds)
-      }
-      if (
-        initialForwarded['retry-after'] !== undefined &&
-        initialForwarded['retry-after-ms'] !== undefined
-      ) {
-        plainHeaders['retry-after'] = initialForwarded['retry-after']
-        plainHeaders['retry-after-ms'] = initialForwarded['retry-after-ms']
-        plainHeaders['Retry-After'] = initialForwarded['retry-after']
-      }
-
-      const freshError = new ResponseBodyReadError(
-        `Failed to read response body: ${safeMessage}`,
-        sanitizedCause ? { cause: sanitizedCause } : undefined,
-      )
-      Object.assign(freshError, {
-        statusCode: response.status,
-        status: response.status,
-        statusText: scrubbedStatusText,
-        headers: plainHeaders,
+    } catch (error) {
+      wire.logger.debug('Failed to read Antigravity refusal', {
+        error: redactCredentialText(
+          String(error),
+          undefined,
+          projectId ? [projectId] : undefined,
+        ),
       })
-      throw markUpstreamFailure(freshError)
+      return engineRefusalResponse('transport_error')
     }
-
     effects.dump.noteResponse(dumpContext, response)
     effects.dump.appendResponseText(dumpContext, text)
 
-    const createSafeFallback = (
-      bodyContent: string,
-      contentTypeOverride?: string,
-    ) => {
-      const fallbackHeaders = new Headers(headers)
-      fallbackHeaders.delete('content-length')
-      if (contentTypeOverride) {
-        fallbackHeaders.set('content-type', contentTypeOverride)
-      }
-      const safeText = redactProjectIdText(bodyContent, projectIds)
-      const fallbackResponse = new Response(safeText, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: fallbackHeaders,
-      })
-      return redactCredentialResponse(
-        fallbackResponse,
-        undefined,
-        safeText,
-        projectIds,
-      )
-    }
-
-    try {
-      let parsedBody: unknown = null
-      let isJson = false
-
-      // Try direct JSON parse first
+    let parsed: unknown
+    for (const candidate of [
+      text,
+      ...text
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5)),
+    ]) {
       try {
-        parsedBody = JSON.parse(text)
-        isJson = true
-      } catch {
-        isJson = false
-      }
+        parsed = JSON.parse(candidate)
+        break
+      } catch {}
+    }
+    const upstream = extractAntigravityError(parsed)
+    const message =
+      typeof upstream?.message === 'string' ? upstream.message : text
+    wire.logger.debug('Antigravity upstream refusal', {
+      status: response.status,
+      message: redactCredentialText(
+        text,
+        undefined,
+        projectId ? [projectId] : undefined,
+      ),
+    })
 
-      // If SSE failed body, parse JSON first then data: JSON payload
-      if (!isJson && (isEventStreamResponse || text.includes('data:'))) {
-        for (const line of text.split('\n')) {
-          const trimmed = line.trim()
-          if (trimmed.startsWith('data:')) {
-            const payload = trimmed.slice(5).trim()
-            if (payload.length > 0 && payload !== '[DONE]') {
-              try {
-                parsedBody = JSON.parse(payload)
-                isJson = true
-                break
-              } catch {}
-            }
-          }
-        }
-      }
-
-      // If malformed JSON on application/json, preserve original diagnostic behavior
-      if (!isJson && isJsonResponse) {
-        parsedBody = {
-          error: {
-            code: response.status,
-            message: text,
-            status: 'UNAVAILABLE',
-          },
-        }
-        isJson = true
-      }
-
-      const errorRecord = isJson ? extractAntigravityError(parsedBody) : null
-
-      // Resolve shared retry metadata
-      const retryMeta = resolveRetryMetadata({
-        details: errorRecord?.details,
-        message:
-          typeof errorRecord?.message === 'string'
-            ? errorRecord.message
-            : undefined,
+    if (detectErrorType(message) === 'thinking_block_order') {
+      // The executor can rebuild the history once; only the eventual refusal
+      // is public, so the recovery signal need not carry the upstream body.
+      throw new Error('THINKING_RECOVERY_NEEDED')
+    }
+    const lower = message.toLowerCase()
+    if (
+      response.status === 413 ||
+      /prompt is too long|prompt_too_long|context length exceeded|context_length_exceeded|maximum context length|input token count.*exceeds the maximum/.test(
+        lower,
+      )
+    ) {
+      const refusal = engineRefusalResponse('context_overflow')
+      refusal.headers.set('x-antigravity-context-error', 'prompt_too_long')
+      return refusal
+    }
+    if (response.status === 429) {
+      const retry = resolveRetryMetadata({
+        details: upstream?.details,
+        message,
         status: response.status,
-        headers,
-        // The transformer renders what the host sees, so it follows the
-        // executor's rule: an upstream zero delay falls through to the
-        // response's own header instead of becoming a zero wait here.
+        headers: response.headers,
         allowZero: false,
       })
-      if (retryMeta !== null) {
-        const pair = deriveRetryHeaderPairFromMs(retryMeta.delayMs)
-        headers.set('Retry-After', pair['retry-after'])
-        headers.set('retry-after', pair['retry-after'])
-        headers.set('retry-after-ms', pair['retry-after-ms'])
-      } else {
-        headers.delete('Retry-After')
-        headers.delete('retry-after')
-        headers.delete('retry-after-ms')
-      }
-
-      // Determine diagnostic error text for classification across ALL failure formats
-      let diagnosticErrorText = ''
-      if (errorRecord && typeof errorRecord.message === 'string') {
-        diagnosticErrorText = errorRecord.message
-      } else if (
-        parsedBody &&
-        typeof parsedBody === 'object' &&
-        !Array.isArray(parsedBody)
-      ) {
-        const errProp = (parsedBody as Record<string, unknown>).error
-        if (typeof errProp === 'string') {
-          diagnosticErrorText = errProp
-        } else {
-          diagnosticErrorText = text
-        }
-      } else {
-        diagnosticErrorText = text
-      }
-
-      const safeProjectId = maskSensitiveIdentifier(projectId) || 'Unknown'
-      const debugInfo = `\n\n[Debug Info]\nRequested Model: ${requestedModel || 'Unknown'}\nEffective Model: ${effectiveModel || 'Unknown'}\nProject: ${safeProjectId}\nEndpoint: ${endpoint || 'Unknown'}\nStatus: ${response.status}\nRequest ID: ${headers.get('x-request-id') || 'N/A'}${toolDebugMissing !== undefined ? `\nTool Debug Missing: ${toolDebugMissing}` : ''}${toolDebugSummary ? `\nTool Debug Summary: ${toolDebugSummary}` : ''}`
-      const injectedDebug = debugText ? `\n\n${debugText}` : ''
-
-      const safeDiagnosticText = redactProjectIdText(
-        diagnosticErrorText,
-        projectIds,
-      )
-      const errorType = detectErrorType(safeDiagnosticText)
-
-      if (errorType === 'thinking_block_order') {
-        const recoveryError = new Error('THINKING_RECOVERY_NEEDED')
-        ;(recoveryError as any).recoveryType = errorType
-        ;(recoveryError as any).originalError = parsedBody ?? safeDiagnosticText
-        ;(recoveryError as any).debugInfo = debugInfo
-        throw recoveryError
-      }
-
-      const errorMessageLower = safeDiagnosticText.toLowerCase()
-      if (
-        errorMessageLower.includes('prompt is too long') ||
-        errorMessageLower.includes('context length exceeded') ||
-        errorMessageLower.includes('context_length_exceeded') ||
-        errorMessageLower.includes('maximum context length')
-      ) {
-        headers.set('x-antigravity-context-error', 'prompt_too_long')
-      }
-
-      if (
-        errorMessageLower.includes('tool_use') &&
-        errorMessageLower.includes('tool_result') &&
-        (errorMessageLower.includes('without') ||
-          errorMessageLower.includes('immediately after'))
-      ) {
-        headers.set('x-antigravity-context-error', 'tool_pairing')
-      }
-
-      // Consumers of typed events receive the legacy refusal text without the debug
-      // context that the HTTP adapter attaches to its error envelope.
-      if (displayedThinkingScope) return await createSafeFallback(text)
-
-      // Early raw diagnostic branch only for non-JSON non-SSE
-      if (!isJson && !isEventStreamResponse) {
-        return await createSafeFallback(text)
-      }
-
-      if (!isJson) {
-        // SSE with non-JSON payload or malformed SSE frame
-        return await createSafeFallback(text)
-      }
-
-      if (errorRecord !== null) {
-        const upstreamErrorMessage =
-          typeof errorRecord.message === 'string' &&
-          errorRecord.message.length > 0
-            ? errorRecord.message
-            : 'Unknown error'
-        const rawErrorMessage = redactProjectIdText(
-          upstreamErrorMessage,
-          projectIds,
-        )
-        const isQuota = isQuotaError(
-          response.status,
-          upstreamErrorMessage,
-          errorRecord.details,
-        )
-        const normalizedErrorMessage = isQuota
-          ? normalizeResetDuration(rawErrorMessage)
-          : rawErrorMessage
-        errorRecord.message = normalizedErrorMessage + debugInfo + injectedDebug
-
-        const responseHeaders = new Headers(headers)
-        responseHeaders.delete('content-length')
-        responseHeaders.set('content-type', 'application/json')
-        const finalBody = JSON.stringify(parsedBody)
-        const finalResponse = new Response(finalBody, {
-          status: response.status,
-          statusText: response.statusText,
-          headers: responseHeaders,
-        })
-        return await redactCredentialResponse(
-          finalResponse,
-          undefined,
-          finalBody,
-          projectIds,
-        )
-      }
-
-      // JSON without unwrappable error record (e.g. primitive error, error array, non-error JSON on non-2xx)
-      const responseHeaders = new Headers(headers)
-      responseHeaders.delete('content-length')
-      responseHeaders.set('content-type', 'application/json')
-      const finalBody = JSON.stringify(parsedBody)
-      const finalResponse = new Response(finalBody, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: responseHeaders,
+      return engineRefusalResponse('quota_exhausted', {
+        resetAfterMs: retry?.delayMs,
       })
-      return await redactCredentialResponse(
-        finalResponse,
-        undefined,
-        finalBody,
-        projectIds,
-      )
-    } catch (transformError) {
-      if (
-        transformError instanceof Error &&
-        transformError.message === 'THINKING_RECOVERY_NEEDED'
-      ) {
-        throw transformError
-      }
-      return await createSafeFallback(text)
     }
+    const refusal = engineRefusalResponse(
+      response.status === 401 || response.status === 403
+        ? 'account_reauthorize'
+        : response.status === 404 && upstream?.status === 'NOT_FOUND'
+          ? 'model_not_found'
+          : 'upstream_http',
+    )
+    if (
+      lower.includes('tool_use') &&
+      lower.includes('tool_result') &&
+      /without|immediately after/.test(lower)
+    )
+      refusal.headers.set('x-antigravity-context-error', 'tool_pairing')
+    return refusal
   }
 
   const responseFallback = response.clone()

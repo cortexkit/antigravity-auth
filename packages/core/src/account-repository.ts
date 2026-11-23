@@ -2203,13 +2203,16 @@ class StoreAccountRepository implements AccountRepository {
     ref: RowRef,
     options: AccountRefreshOptions | undefined,
   ): Promise<AccountRefreshOutcome> {
+    await options?.admit?.()
     await this.admit('refresh', ref.id)
+    await options?.admit?.()
     const { index } = await this.accountRowFor('refresh', ref)
     let stale: string | undefined
     // The store calls this before taking its locks, on the locked re-read
     // and at commit. A row that no longer holds `ref` refuses the refresh
     // there, so no successor token is written to a replaced or re-added row.
     const refuse = async (row: StorePoolRow) => {
+      await options?.admit?.()
       const mismatch = refMismatchReason(row, ref)
       if (mismatch !== undefined) {
         stale = mismatch
@@ -2220,10 +2223,12 @@ class StoreAccountRepository implements AccountRepository {
     const outcome = await this.store.refresh(
       ref.id,
       async (credential, row) => {
+        await options?.admit?.()
         const result = await this.exchange({
           refreshToken: credential.refresh,
           row: toAccountRow(row, index),
         })
+        await options?.admit?.()
         const providerState =
           result.metadata === undefined
             ? undefined

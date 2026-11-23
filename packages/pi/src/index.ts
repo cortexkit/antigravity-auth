@@ -11,6 +11,7 @@ import {
   vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import type { PluginExtraSection } from '@cortexkit/antigravity-auth-core/common-auth/commands'
+import { EngineRefusalError } from '@cortexkit/antigravity-auth-core/engine'
 import type {
   OAuthCredentials,
   OAuthLoginCallbacks,
@@ -68,8 +69,10 @@ function textImageInput(): Array<'text' | 'image'> {
 
 async function loginAntigravity(
   callbacks: OAuthLoginCallbacks,
+  admit: () => Promise<void>,
 ): Promise<OAuthCredentials> {
   const auth = await authorizeAntigravity()
+  await admit()
   callbacks.onAuth({ url: auth.url })
   const code = await callbacks.onPrompt({
     message: 'Paste the Antigravity OAuth callback URL or code:',
@@ -92,7 +95,9 @@ async function loginAntigravity(
     // Not a URL — treat the input as a bare authorization code.
   }
 
-  const result = await exchangeAntigravity(rawCode, state)
+  await admit()
+  const result = await exchangeAntigravity(rawCode, state, { admit })
+  await admit()
   if (result.type !== 'success') {
     throw new Error(`Antigravity OAuth exchange failed: ${result.error}`)
   }
@@ -160,13 +165,17 @@ function localProviderConfig(
       name: 'Google Antigravity (CortexKit)',
       login: async (callbacks) => {
         await assertLocalAdmission()
-        return loginAntigravity(callbacks)
+        return loginAntigravity(callbacks, assertLocalAdmission)
       },
       refreshToken: async (credentials) => {
         await assertLocalAdmission()
         try {
-          return await refreshAntigravityCredentials(credentials)
+          const refreshed = await refreshAntigravityCredentials(credentials)
+          await assertLocalAdmission()
+          return refreshed
         } catch (error) {
+          if (error instanceof EngineRefusalError) throw error
+          await assertLocalAdmission()
           engine.logger.error('Native Google login refresh failed', {
             error: error instanceof Error ? error.name : 'unknown',
           })
@@ -348,10 +357,9 @@ export async function registerCortexKitPiAntigravity(
     return { version: 1, mode: 'local' }
   }
   const assertLocalAdmission = async () => {
-    if ((await currentMode()).mode !== 'local')
-      throw new PiVaultSetupError(
-        'Vault enrollment excludes local login, refresh and request execution.',
-      )
+    const mode = await currentMode().catch(() => undefined)
+    if (mode?.mode !== 'local')
+      throw new EngineRefusalError('authority_changed')
   }
   const synchronizeSlotOnce = async () => {
     let warning: PiVaultSetupError | undefined
@@ -402,8 +410,11 @@ export async function registerCortexKitPiAntigravity(
     })
     let warning: PiVaultSetupError | undefined
     if (mode.mode === 'custody') await slot.enterVault()
-    else if ((await slot.exitVault()) === 'cleared')
-      warning = new PiVaultSetupError(MISSING_GOOGLE_LOGIN_MESSAGE)
+    else {
+      await assertLocalAdmission()
+      if ((await slot.exitVault()) === 'cleared')
+        warning = new PiVaultSetupError(MISSING_GOOGLE_LOGIN_MESSAGE)
+    }
     const after = await currentMode()
     if (after.mode !== mode.mode)
       throw new PiVaultSetupError(

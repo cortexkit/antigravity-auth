@@ -738,6 +738,8 @@ export type AccountRefreshOutcome =
   | { status: 'refused'; ref: RowRef; reason: string }
 
 export interface AccountRefreshOptions {
+  /** Verify this location can still use local credentials before reading or returning them. */
+  admit?: () => Promise<void>
   /** Checked before locking, after the locked re-read and at commit. */
   refuse?: (row: AccountRow) => string | undefined | Promise<string | undefined>
 }

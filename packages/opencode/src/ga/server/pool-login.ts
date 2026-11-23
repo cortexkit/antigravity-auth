@@ -6,6 +6,7 @@ import {
   authorizeAntigravity,
   exchangeAntigravity,
 } from '@cortexkit/antigravity-auth-core'
+import { EngineRefusalError } from '@cortexkit/antigravity-auth-core/engine'
 
 import {
   GA_POOL_PASTE_PROMPT,
@@ -78,7 +79,8 @@ export function createGaPoolLogin(input: {
       if (!input.local) throw new Error(LOGIN_FAILED)
       await input.local.assertAdmission()
       shutdown.signal.throwIfAborted()
-    } catch {
+    } catch (error) {
+      if (error instanceof EngineRefusalError) throw error
       throw new Error(LOGIN_FAILED)
     }
   }
@@ -191,7 +193,8 @@ export function createGaPoolLogin(input: {
               await admitAttempt()
               if (result.type !== 'success') throw new Error(LOGIN_FAILED)
               return result
-            } catch {
+            } catch (error) {
+              if (error instanceof EngineRefusalError) throw error
               throw new Error(LOGIN_FAILED)
             } finally {
               claimed = true
@@ -304,6 +307,7 @@ export function createGaPoolLogin(input: {
             // A durable row is retained even when a later check refuses the host placeholder.
             if (error instanceof AccountStoreBusyError)
               throw new AccountStoreBusyError()
+            if (error instanceof EngineRefusalError) throw error
             throw new Error(LOGIN_FAILED)
           }
         })(),

@@ -68,6 +68,7 @@ import {
   type AntigravityRequestExecutor,
   createLocalQuotaRefresh,
   createRequestCancellation,
+  EngineRefusalError,
   type LocalRequestCredentials,
   type RequestRoutingEntry,
   retiredModelResponse,
@@ -1270,11 +1271,11 @@ export function createGaLocalCredentials(
     removeAccount: (account) => manager.removeAccount(account),
     saveToDisk: () => manager.saveToDisk(),
     saveToDiskReplace: () => manager.saveToDiskReplace(),
-    refresh: (account) => local.refresh(account),
+    refresh: local.refresh,
     // Checking and resolution use the captured row ID, epoch and identity,
     // never whichever replacement the account object might later refer to.
     captureGrant: (grant) => local.captureGrant(grant),
-    ensureProject: (auth) => local.ensureProject(auth),
+    ensureProject: local.ensureProject,
     isInvalidGrant: (error) => local.isInvalidGrant(error),
     // The GA host keeps no OAuth credential of its own for this provider;
     // accounts live only in the repository, so there is nothing to clear.
@@ -1683,6 +1684,7 @@ export async function createGaLocalRequestPipeline(
         manager,
         runtime.quotaManager,
         logger,
+        input.assertAdmission,
       ),
     }),
     // The trackers the manager selects with, so recorded outcomes steer
@@ -2179,7 +2181,8 @@ export function createGaLocationServicesFactory(
       if (closing) throw new Error('The location services are disposed')
       const selected = await authority()
       if (closing) throw new Error('The location services are disposed')
-      if (selected !== 'local') throw sourceRefusal()
+      if (selected !== 'local')
+        throw new EngineRefusalError('authority_changed')
     }
     let refreshVaultBinding: (() => Promise<void>) | undefined
     const refreshSelectedSource = async (): Promise<void> => {

@@ -5,7 +5,6 @@ import {
   createAgyRequestSessionContext,
   ensureProjectContext,
   fetchWithAgyCliTransport,
-  HostRefusalError,
   type OAuthAuthDetails,
   type PreResponseClock,
   PreResponseDeadline,
@@ -17,6 +16,7 @@ import {
   createRequestExecutor,
   createRequestWire,
   createRequestWireLocation,
+  EngineRefusalError,
   extractAccountAccessErrorDetails,
   type RequestCredentials,
   type RequestExecuteOptions,
@@ -36,10 +36,10 @@ import {
   piEngineConfig,
 } from './request-settings.ts'
 
-export class PiReauthorizeError extends HostRefusalError {
+export class PiReauthorizeError extends EngineRefusalError {
   readonly code = 'account_reauthorize'
   constructor() {
-    super('Reauthorize Antigravity with /login google.')
+    super('account_reauthorize')
   }
 }
 
@@ -272,8 +272,8 @@ export function createPiRequestEngine(options: PiRequestEngineOptions = {}) {
       }
 
       const { accessToken, assertAdmission } = selection
-      if (!accessToken)
-        throw new HostRefusalError('Missing Antigravity OAuth access token')
+      await assertAdmission?.()
+      if (!accessToken) throw new PiReauthorizeError()
       const refresh = getPackedRefresh(accessToken) ?? ''
       const key = createHash('sha256')
         .update(JSON.stringify(['local', refresh, accessToken]))

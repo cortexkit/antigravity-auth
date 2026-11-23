@@ -16,7 +16,10 @@ import { RuntimeLayoutRefusal } from '../runtime-layout.ts'
 /** The `/antigravity` menu, as the shared core factory builds it. */
 type CommandMenu = ReturnType<CommonAuthCommandsModule['createCommandMenu']>
 
-import type { RequestRoutingEntry } from '@cortexkit/antigravity-auth-core/engine'
+import {
+  EngineRefusalError,
+  type RequestRoutingEntry,
+} from '@cortexkit/antigravity-auth-core/engine'
 import { cliAccountOf } from '../cli'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
@@ -351,6 +354,10 @@ const createAntigravityPluginRuntime =
         : mode.record.mode === 'custody'
           ? ('vault' as const)
           : ('local' as const)
+    }
+    const assertLocalAuthority = async () => {
+      if ((await readAuthority()) !== 'local')
+        throw new EngineRefusalError('authority_changed')
     }
     const mayRunLocalAccounts = async () =>
       (await readAuthority()) === 'local' &&
@@ -922,10 +929,7 @@ const createAntigravityPluginRuntime =
       // request. Only a readable, unenrolled state permits a local runtime.
       createFetch: ({ accountManager, getAuth, source }) =>
         createFetchInterceptor({
-          assertAdmission: async () => {
-            if ((await readAuthority()) !== 'local')
-              throw new HostRefusalError(unavailableMessage)
-          },
+          assertAdmission: assertLocalAuthority,
           client,
           directory,
           providerId,
@@ -952,6 +956,7 @@ const createAntigravityPluginRuntime =
     }
     settingsLease.runtime.startMove()
     const accountOAuth = createAccountCommandOAuthService({
+      admit: assertLocalAuthority,
       // Wire the OAuth primitives through the dependency seam (rather
       // than the concrete imports above) so injected overrides from
       // `dependencies.oauth.*` reach this path — the same composition

@@ -6,12 +6,14 @@ import {
   isGeminiCarbonModel,
   isRetiredAgyModel,
   type PreResponseClock,
-  RETIRED_AGY_MODEL_MESSAGE,
-  redactCredentialText,
   resolveAntigravityModel,
   supportsGeminiXHigh,
 } from '@cortexkit/antigravity-auth-core'
-import { readRequestEvents } from '@cortexkit/antigravity-auth-core/engine'
+import {
+  ENGINE_REFUSALS,
+  EngineRefusalError,
+  readRequestEvents,
+} from '@cortexkit/antigravity-auth-core/engine'
 import {
   type Api,
   type AssistantMessage,
@@ -181,7 +183,7 @@ function run(
     try {
       requestAbort.signal.throwIfAborted()
       if (isRetiredAgyModel(model.id))
-        throw new HostRefusalError(RETIRED_AGY_MODEL_MESSAGE)
+        throw new EngineRefusalError('retired_model')
       const request = googleRequest(model, context, options)
       const response = await engine.execute(
         selection,
@@ -310,14 +312,18 @@ function run(
       }
     } catch (error) {
       closeBlock()
-      output.stopReason = options?.signal?.aborted ? 'aborted' : 'error'
-      output.errorMessage = options?.signal?.aborted
-        ? redactCredentialText(
-            error instanceof Error ? error.message : String(error),
-            options.apiKey,
-          )
-        : hostFailure(error, (diagnostic) => engine.logger.error(diagnostic))
-            .message
+      const failure = options?.signal?.aborted
+        ? new EngineRefusalError('cancelled')
+        : error instanceof EngineRefusalError
+          ? error
+          : hostFailure(error, (diagnostic) => engine.logger.error(diagnostic))
+      output.stopReason =
+        failure instanceof EngineRefusalError
+          ? ENGINE_REFUSALS[failure.id].pi.stopReason
+          : 'error'
+      if (failure instanceof EngineRefusalError && failure.rawStopReason)
+        output.rawStopReason = failure.rawStopReason
+      output.errorMessage = failure.message
       stream.push({ type: 'error', reason: output.stopReason, error: output })
     } finally {
       detach()

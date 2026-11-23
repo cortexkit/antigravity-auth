@@ -9,12 +9,11 @@ export function responseHasFinishReason(response: unknown): boolean {
   const resp = response as Record<string, unknown>
 
   if (Array.isArray(resp.candidates)) {
-    return resp.candidates.some((candidate) => {
-      const cand = candidate as Record<string, unknown> | null
-      return (
-        typeof cand?.finishReason === 'string' && cand.finishReason.length > 0
-      )
-    })
+    const candidate = resp.candidates[0] as Record<string, unknown> | undefined
+    return (
+      typeof candidate?.finishReason === 'string' &&
+      candidate.finishReason.length > 0
+    )
   }
 
   const stopReason = resp.stopReason ?? resp.stop_reason

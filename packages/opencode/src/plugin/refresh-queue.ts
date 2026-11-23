@@ -241,6 +241,8 @@ export class ProactiveRefreshQueue {
           const auth = this.accountManager.toAuthDetails(account)
           const refreshed = await this.refreshToken(auth, account)
 
+          if (this.config.mayRun && !(await this.config.mayRun())) break
+          if (!this.state.isRunning) break
           if (refreshed) {
             this.accountManager.updateFromAuth(account, refreshed)
             this.state.refreshCount++

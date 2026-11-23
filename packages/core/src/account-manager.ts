@@ -1313,6 +1313,7 @@ export class AccountManager {
       throw new Error('refreshAccount needs a repository-backed account')
     }
     const outcome = await repository.refresh(ref, options)
+    await options?.admit?.()
     if (outcome.status === 'rotated') {
       account.ref = outcome.ref
       account.access = outcome.accessToken

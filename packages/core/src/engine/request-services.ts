@@ -34,21 +34,18 @@ import {
   type ProjectContextResult,
   parseRateLimitReason,
   parseRefreshParts,
-  preResponseTimeoutResponse,
   preserveResponseMetadata,
   type QuotaGroup,
   type QuotaGroupSummary,
   type QuotaManager,
   quotaAccountIdentity,
   quotaExhaustedUntil,
-  RETIRED_AGY_MODEL_MESSAGE,
   redactCredentialError,
   redactCredentialResponse,
   redactCredentialText,
   resolveQuotaGroup,
   systemInstructionHasHarnessIdentity,
   type TokenBucketTracker,
-  UNCONFIRMED_RATE_LIMIT_MESSAGE,
   unconfirmedRateLimitDelayMs,
   VAULT_ACCOUNT_REMEDY,
   type VaultConditionInput,
@@ -59,7 +56,7 @@ import {
   createAfterHandoff,
   type RegisterResponseHandoff,
 } from './after-handoff.ts'
-import { AntigravityKillswitchError, ResponseBodyReadError } from './errors.ts'
+import { AntigravityKillswitchError } from './errors.ts'
 import {
   createRetryState,
   type RateLimitBackoffResult,
@@ -89,6 +86,12 @@ import type {
   RequestSessionIdentity,
   RequestSessions,
 } from './ports.ts'
+import {
+  EngineRefusalError,
+  engineRefusalResponse,
+  rememberResponseRefusal,
+  responseRefusal,
+} from './refusals.ts'
 import type { PrepareRequestOptions, RequestWire } from './request.ts'
 import {
   attachResponseCleanup,
@@ -409,9 +412,15 @@ export interface LocalRequestCredentials<A extends RequestAccountRow> {
    * that row, so later grant checks see the successor credential; undefined
    * means the refresh failed.
    */
-  refresh(account: A): Promise<OAuthAuthDetails | undefined>
+  refresh(
+    account: A,
+    admit?: () => Promise<void>,
+  ): Promise<OAuthAuthDetails | undefined>
   /** Resolve the project the request is sent under. */
-  ensureProject(auth: OAuthAuthDetails): Promise<ProjectContextResult>
+  ensureProject(
+    auth: OAuthAuthDetails,
+    admit?: () => Promise<void>,
+  ): Promise<ProjectContextResult>
   /** True when a refresh error means the refresh token was revoked. */
   isInvalidGrant(error: unknown): boolean
   /** Clear host-stored OAuth credentials once the last account is removed. */
@@ -709,16 +718,7 @@ export function routeTitleModel(url: string): string {
 export function retiredModelResponse(url: string): Response | undefined {
   const model = extractModelFromUrl(url)
   if (!model || !isRetiredAgyModel(model)) return undefined
-  return new Response(
-    JSON.stringify({
-      error: {
-        code: 412,
-        status: 'FAILED_PRECONDITION',
-        message: RETIRED_AGY_MODEL_MESSAGE,
-      },
-    }),
-    { status: 412, headers: { 'Content-Type': 'application/json' } },
-  )
+  return engineRefusalResponse('retired_model')
 }
 
 /**
@@ -790,16 +790,6 @@ function createNoAccountResponse(message: string, model: string): Response {
       'X-Antigravity-Requested-Model': model,
     },
   })
-}
-
-function terminalFetchError(
-  lastError: Error | null,
-  fallbackMessage: string,
-): Error {
-  // A synthetic HTTP 200 is parsed as successful assistant text, bypassing the
-  // host's retry and error pipeline. Preserve the original exception rather
-  // than replacing it with a message-only synthetic response.
-  return lastError ?? new Error(fallbackMessage)
 }
 
 /** Formats a millisecond duration for human-readable wait/status messages. */
@@ -934,6 +924,7 @@ export function createLocalQuotaRefresh(
   >,
   quotaManager: Pick<QuotaManager, 'refreshAccount' | 'hashedLogLabel'>,
   log: RequestLogger,
+  assertAdmission?: () => Promise<void>,
 ): (
   account: ManagedAccount,
   intervalMinutes: number,
@@ -945,6 +936,7 @@ export function createLocalQuotaRefresh(
     signal?: AbortSignal,
   ): Promise<void> {
     if (intervalMinutes <= 0) return
+    await assertAdmission?.()
 
     const accountIndex = accountManager.getAccounts().indexOf(account)
     if (accountIndex === -1 || account.enabled === false) return
@@ -976,6 +968,7 @@ export function createLocalQuotaRefresh(
       })
 
       if (signal?.aborted) return
+      await assertAdmission?.()
       if (
         result.status === 'ok' &&
         result.quota?.groups &&
@@ -1181,7 +1174,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
   const inFlight = new Set<Promise<unknown>>()
   const advisoryWork = new Set<Promise<void>>()
   let advisoryClosing = false
-  const bufferedOverflow = new WeakMap<Response, string>()
   let retired = false
   let drainPromise: Promise<void> | undefined
   let disposePromise: Promise<void> | undefined
@@ -1484,12 +1476,16 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             : []),
         )
       }
-      if (failure?.kind === 'transport' && deps.typedEvents)
-        throw markUpstreamFailure(failure.error)
-      throw terminalFetchError(
-        lastError ?? (failure?.kind === 'transport' ? failure.error : null),
-        fallbackMessage,
-      )
+      log.debug(fallbackMessage, {
+        error: redactCredentialText(
+          String(
+            lastError ?? (failure?.kind === 'transport' ? failure.error : null),
+          ),
+          [...selectedCredentials],
+          [...selectedProjectIds],
+        ),
+      })
+      return engineRefusalResponse('transport_error')
     }
     const abortSignal = init?.signal ?? undefined
     const routingSleep = (
@@ -1510,9 +1506,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     const checkAborted = () => {
       deadline.check()
       if (abortSignal?.aborted) {
-        throw abortSignal.reason instanceof Error
-          ? abortSignal.reason
-          : new Error('Aborted')
+        throw new EngineRefusalError('cancelled')
       }
     }
 
@@ -1627,16 +1621,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     }
 
     const unconfirmedRefusal = () =>
-      new Response(
-        JSON.stringify({
-          error: {
-            code: 412,
-            status: 'FAILED_PRECONDITION',
-            message: UNCONFIRMED_RATE_LIMIT_MESSAGE,
-          },
-        }),
-        { status: 412, headers: { 'Content-Type': 'application/json' } },
-      )
+      engineRefusalResponse('quota_wait_exhausted')
 
     const retryAfterRoutedBackoff = async (
       identity: RoutingIdentity,
@@ -1713,11 +1698,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             model,
             accounts: serviceable.length,
           })
-          return createNativeGoogleErrorResponse({
-            status: 412,
-            reason: 'model_unavailable',
-            setting: 'account_models',
-          })
+          return engineRefusalResponse('model_not_allowed')
         }
       }
       const permittedAccounts = allowlistExcluded
@@ -1881,10 +1862,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             model,
             accounts: candidates.length,
           })
-          return createNativeGoogleErrorResponse({
-            status: 412,
-            reason: 'model_unavailable',
-          })
+          return engineRefusalResponse('model_not_found')
         }
       }
 
@@ -2321,17 +2299,17 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         accountCount > 1 &&
         accountManager.shouldShowAccountToast(account.index)
       ) {
-        const accountLabel = account.email || `Account ${account.index + 1}`
         const enabledAccounts = accountManager.getEnabledAccounts()
         const enabledPosition =
           enabledAccounts.findIndex((a) => a.index === account.index) + 1
         await showToast(
-          `Using ${accountLabel} (${enabledPosition}/${accountCount})`,
+          `Using account ${enabledPosition} of ${accountCount}.`,
           'info',
         )
         accountManager.markToastShown(account.index)
       }
 
+      if (credentials.domain === 'local') await assertAdmission()
       accountManager.requestSaveToDisk()
 
       // Local credentials only: refresh the row's stored token when it has
@@ -2364,7 +2342,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           if (projectId) selectedProjectIds.add(projectId)
         }
         const context = await deadline
-          .wait(() => credentials.ensureProject(auth))
+          .wait(() => credentials.ensureProject(auth, assertAdmission))
           .catch((error: unknown) => {
             throw redactCredentialError(
               error,
@@ -2420,8 +2398,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           try {
             await assertAdmission()
             const refreshed = await deadline.wait(() =>
-              credentials.refresh(account),
+              credentials.refresh(account, assertAdmission),
             )
+            await assertAdmission()
             if (!refreshed) {
               const { failures, shouldCooldown, cooldownMs } =
                 retryState.trackAccountFailure(account.index)
@@ -2432,10 +2411,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               // the missing-token check below gives, rather than retrying
               // until the cooldown turns it into a pool-unavailable 412.
               if (accountCount <= 1) {
-                return createNativeGoogleErrorResponse({
-                  status: 401,
-                  reason: 'missing_access_token',
-                })
+                return engineRefusalResponse('account_reauthorize')
               }
               if (shouldCooldown) {
                 accountManager.markAccountCoolingDown(
@@ -2469,6 +2445,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             }
           } catch (error) {
             checkAborted()
+            if (error instanceof EngineRefusalError) throw error
+            await assertAdmission()
             if (deps.reauthorize) throw deps.reauthorize()
             if (credentials.isInvalidGrant(error)) {
               const removed = credentials.removeAccount(account)
@@ -2487,6 +2465,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               }
 
               if (accountManager.getAccountCount() === 0) {
+                await assertAdmission()
                 try {
                   await deadline.wait(() => credentials.clearStoredAuth())
                 } catch (storeError) {
@@ -2536,10 +2515,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         if (!accessToken || grantCheck === undefined) {
           lastError = new Error('Missing access token')
           if (accountCount <= 1) {
-            return createNativeGoogleErrorResponse({
-              status: 401,
-              reason: 'missing_access_token',
-            })
+            return engineRefusalResponse('account_reauthorize')
           }
           continue
         }
@@ -2549,6 +2525,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           retryState.resetAccountFailureState(account.index)
         } catch (error) {
           checkAborted()
+          if (error instanceof EngineRefusalError) throw error
+          await assertAdmission()
           if (deps.reauthorize) throw error
           const { failures, shouldCooldown, cooldownMs } =
             retryState.trackAccountFailure(account.index)
@@ -2581,6 +2559,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         requestKind: BillingRequestKind,
         onMainTransportFailure?: (error: unknown) => void,
       ): Promise<Response> => {
+        if (credentials.domain === 'local') await assertAdmission()
         const source =
           credentials.domain === 'local'
             ? 'local'
@@ -3016,15 +2995,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               await deadline.wait(() =>
                 observe(() => {
                   const headers = new Headers()
-                  for (const [key, value] of response.headers)
-                    headers.append(
-                      key,
-                      redactCredentialText(
-                        value,
-                        [...selectedCredentials],
-                        [...selectedProjectIds],
-                      ),
-                    )
+                  for (const key of ['retry-after', 'retry-after-ms']) {
+                    const value = response.headers.get(key)
+                    if (value && /^\d+(?:\.\d+)?$/.test(value))
+                      headers.set(key, value)
+                  }
                   return options.onResponse?.({
                     status: response.status,
                     headers,
@@ -3376,6 +3351,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     i -= 1
                     continue
                   }
+                  if (accountCount <= 1 || capacityExhaustedSelections >= 1) {
+                    void response.body?.cancel().catch(() => {})
+                    return engineRefusalResponse('capacity_exhausted')
+                  }
                   retainHttpFailure(response)
                   capacityExhaustedSelections++
                   if (capacityExhaustedSelections > 1) {
@@ -3408,7 +3387,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 )
 
                 await showToast(
-                  `⏳ Server busy (${response.status}). Retrying in ${waitSec}s...`,
+                  `Antigravity is waiting for capacity. Retrying in ${waitSec}s.`,
                   'warning',
                 )
 
@@ -3712,12 +3691,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   ineligibleReason,
                 )
 
-                const label = account.email || `Account ${account.index + 1}`
                 if (
                   accountManager.shouldShowAccountToast(account.index, 60000)
                 ) {
                   await showToast(
-                    `${label} is not eligible for Antigravity and has been disabled. ` +
+                    'An account is not eligible for Antigravity and has been disabled. ' +
                       `Recheck it from ${authCommand} > Verify accounts.`,
                     'warning',
                   )
@@ -3757,12 +3735,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   model,
                 )
 
-                const label = account.email || `Account ${account.index + 1}`
                 if (
                   accountManager.shouldShowAccountToast(account.index, 60000)
                 ) {
                   await showToast(
-                    `⚠ ${label} needs verification. Run '${authCommand}' and use Verify accounts.`,
+                    `An Antigravity account needs verification. Run '${authCommand}' and use Verify accounts.`,
                     'warning',
                   )
                   accountManager.markToastShown(account.index)
@@ -3876,8 +3853,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   )
                   // Classification reads only a clone. Retain the original
                   // response unless its buffered diagnostics need secret redaction.
-                  bufferedOverflow.set(response, bodyText)
-                  return response
+                  void response.body?.cancel().catch(() => {})
+                  return engineRefusalResponse('context_overflow')
                 }
               }
             }
@@ -3910,10 +3887,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   continue
                 }
 
-                return createNativeGoogleErrorResponse({
-                  status: 502,
-                  reason: 'empty_response',
-                })
+                return engineRefusalResponse('empty')
               }
             }
 
@@ -4050,11 +4024,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               : transformedResponse
           } catch (error) {
             if (error instanceof PreResponseTimeoutError) throw error
+            if (error instanceof EngineRefusalError) throw error
             if (deps.reauthorize && error instanceof HostRefusalError)
               throw error
             checkAborted()
-            if (deps.typedEvents && error instanceof ResponseBodyReadError)
-              throw markUpstreamFailure(error.cause ?? error)
             if (
               tokenConsumed &&
               (!isLocalGrantError(error) || !physicalAttemptStarted)
@@ -4121,30 +4094,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 continue
               }
 
-              const recoveryError = error as any
-              const originalError = recoveryError.originalError || {
-                error: { message: 'Thinking recovery triggered' },
-              }
-
-              // Upstream diagnostics can contain host retry hints even though
-              // this conversation needs a new session, not another attempt.
-              log.debug('thinking-recovery-failed', { error: originalError })
-              const recoveryMessage =
-                "Antigravity could not repair the conversation's thinking blocks. Start a new session."
-
-              return new Response(
-                JSON.stringify({
-                  type: 'error',
-                  error: {
-                    type: 'unrecoverable_error',
-                    message: recoveryMessage,
-                  },
-                }),
-                {
-                  status: 400,
-                  headers: { 'Content-Type': 'application/json' },
-                },
-              )
+              return engineRefusalResponse('signature_recovery_failed')
             }
 
             if (i < ANTIGRAVITY_ENDPOINT_FALLBACKS.length - 1) {
@@ -4313,10 +4263,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           ),
       )
         .catch((error: unknown) => {
-          cancellation.signal.throwIfAborted()
+          if (cancellation.signal.aborted)
+            throw new EngineRefusalError('cancelled')
           if (error instanceof PreResponseTimeoutError) {
             log.debug('pre-response-timeout', { reason: error.reason })
-            return waitPolicy.refusal?.() ?? preResponseTimeoutResponse()
+            return waitPolicy.refusal?.() ?? engineRefusalResponse('deadline')
           }
           throw error
         })
@@ -4325,19 +4276,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             // Retain caller cancellation over the accepted response body;
             // only the pre-response timer ends at accepted headers.
             deadline.acceptTerminalResponse()
-            // Overflow classification read a clone to EOF. Reuse that text
-            // for redaction; safe diagnostics retain the original unread response.
-            if (bufferedOverflow.has(response)) {
-              handoff.cancel()
-              deadline.dispose()
-              cancellation.release()
-              return redactCredentialResponse(
-                response,
-                [...selectedCredentials],
-                bufferedOverflow.get(response),
-                [...selectedProjectIds],
-              )
-            }
+            const refusal = responseRefusal(response)
             const retained = await retainResponseLifetime(
               response,
               cancellation,
@@ -4354,6 +4293,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               undefined,
               [...selectedProjectIds],
             )
+            if (refusal) rememberResponseRefusal(published, refusal)
             if (deps.typedEvents)
               attachResponseCleanup(published, retained.settled)
             if (

@@ -4,8 +4,8 @@ import {
   formatAntigravityQuota,
   type RowRef,
   sameRowRef,
-  VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import { EngineRefusalError } from '@cortexkit/antigravity-auth-core/engine'
 import type { AuthOAuthResult as V1AuthOAuthResult } from '@opencode-ai/plugin'
 import type { AntigravityTokenExchangeResult } from '../antigravity/oauth'
 import {
@@ -384,10 +384,25 @@ export function createOAuthMethods({
     lifecycle.register({ dispose: () => quotaManager.dispose() })
   }
   const cachedGetAuth = getAuth
-  const loadAccounts = () => accountAccess.loadAccounts()
-  const clearAccounts = () => accountAccess.clearAccounts()
-  const persistAccountPool =
-    accountAccess.persistAccountPool.bind(accountAccess)
+  const admit = async () => {
+    if (mayStartLocalWork && !(await mayStartLocalWork()))
+      throw new EngineRefusalError('authority_changed')
+  }
+  const loadAccounts = async () => {
+    await admit()
+    return accountAccess.loadAccounts()
+  }
+  const clearAccounts = async () => {
+    await admit()
+    return accountAccess.clearAccounts()
+  }
+  const persistAccountPool: typeof accountAccess.persistAccountPool = async (
+    ...args
+  ) => {
+    await admit()
+    await accountAccess.persistAccountPool(...args)
+    await admit()
+  }
   const mutateAccountByRefreshToken = async (
     refreshToken: string,
     mutate: (account: AccountMetadataV3) => boolean,
@@ -425,10 +440,31 @@ export function createOAuthMethods({
     )
     const params = parseOAuthCallbackInput(callbackInput, fallbackState)
     if ('error' in params) return { type: 'failed', error: params.error }
-    return deps.exchange(params.code, params.state)
+    return exchangeAntigravity(params.code, params.state)
   }
-  const authorizeAntigravity = deps.authorize
-  const exchangeAntigravity = deps.exchange
+  const authorizeAntigravity: typeof deps.authorize = async (...args) => {
+    await admit()
+    const authorization = await deps.authorize(...args)
+    await admit()
+    return authorization
+  }
+  const exchangeAntigravity = async (
+    code: string,
+    state: string,
+  ): Promise<AntigravityTokenExchangeResult> => {
+    try {
+      await admit()
+      const result = mayStartLocalWork
+        ? await deps.exchange(code, state, { admit })
+        : await deps.exchange(code, state)
+      await admit()
+      return result
+    } catch (error) {
+      if (error instanceof EngineRefusalError)
+        return { type: 'failed', error: error.message }
+      throw error
+    }
+  }
   const promptProjectId = deps.promptProjectId
   const promptAddAnotherAccount = deps.promptAddAnotherAccount
   const promptLoginMode = deps.promptLoginMode
@@ -438,8 +474,7 @@ export function createOAuthMethods({
       label: 'OAuth with Google (Antigravity)',
       type: 'oauth',
       authorize: async (inputs?: Record<string, string>) => {
-        if (mayStartLocalWork && !(await mayStartLocalWork()))
-          throw new Error(VAULT_ACCOUNT_REMEDY)
+        await admit()
         const isHeadless = deps.isHeadless()
 
         // CLI flow (`opencode auth login`) passes an inputs object.

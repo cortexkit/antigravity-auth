@@ -1,6 +1,4 @@
-import { HostRefusalError, markUpstreamFailure } from '../../host-failure.ts'
-import { PRE_RESPONSE_TIMEOUT_MESSAGE } from '../../pre-response-deadline.ts'
-import { UNCONFIRMED_RATE_LIMIT_MESSAGE } from '../../rotation.ts'
+import { EngineRefusalError, responseRefusal } from '../refusals.ts'
 import { getResponseCleanup } from '../request-cancellation.ts'
 
 export interface RequestUsage {
@@ -58,7 +56,7 @@ export type RequestEvent =
   | { type: 'usage'; usage: RequestUsage }
   | { type: 'metadata'; responseId?: string; rawStopReason?: string }
   | { type: 'terminal'; reason: RequestTerminal }
-  | { type: 'failure'; error: Error }
+  | { type: 'failure'; error: EngineRefusalError }
 
 function decodeFrame(line: string): Frame | undefined {
   if (!line.startsWith('data:')) return
@@ -111,8 +109,6 @@ export async function* parseGeminiSse(
         yield* decodeEvent(event)
       }
     }
-  } catch (error) {
-    throw markUpstreamFailure(error)
   } finally {
     reader.releaseLock()
   }
@@ -132,28 +128,6 @@ export function mapRequestUsage(metadata: UsageMetadata): RequestUsage {
     totalTokens: metadata.totalTokenCount ?? input + cacheRead + output,
   }
 }
-
-const knownStops = new Set([
-  'STOP',
-  'MAX_TOKENS',
-  'CONTINUATION',
-  'BLOCKLIST',
-  'PROHIBITED_CONTENT',
-  'SPII',
-  'SAFETY',
-  'IMAGE_SAFETY',
-  'IMAGE_PROHIBITED_CONTENT',
-  'IMAGE_RECITATION',
-  'IMAGE_OTHER',
-  'RECITATION',
-  'FINISH_REASON_UNSPECIFIED',
-  'OTHER',
-  'LANGUAGE',
-  'MALFORMED_FUNCTION_CALL',
-  'UNEXPECTED_TOOL_CALL',
-  'TOO_MANY_TOOL_CALLS',
-  'NO_IMAGE',
-])
 
 export interface GeminiToolCallState {
   pendingThoughtSignature?: string
@@ -187,16 +161,7 @@ export async function* readRequestEvents(
   }
   try {
     if (!response.ok) {
-      const body = await response.text()
-      if (body.includes(PRE_RESPONSE_TIMEOUT_MESSAGE))
-        throw new HostRefusalError(PRE_RESPONSE_TIMEOUT_MESSAGE)
-      if (body.includes(UNCONFIRMED_RATE_LIMIT_MESSAGE))
-        throw new HostRefusalError(UNCONFIRMED_RATE_LIMIT_MESSAGE)
-      throw markUpstreamFailure(
-        new Error(
-          `Antigravity request failed: HTTP ${response.status} ${body}`,
-        ),
-      )
+      throw responseRefusal(response) ?? new EngineRefusalError('upstream_http')
     }
     const toolState: GeminiToolCallState = {}
     let lastBlock: 'text' | 'thinking' | 'toolCall' | undefined
@@ -207,34 +172,12 @@ export async function* readRequestEvents(
       if (frame.responseId)
         yield { type: 'metadata', responseId: frame.responseId }
       if (frame.usageMetadata) usage = mapRequestUsage(frame.usageMetadata)
-      if (frame.error !== undefined) {
-        const error =
-          frame.error && typeof frame.error === 'object'
-            ? frame.error
-            : undefined
-        const detail =
-          error?.message ??
-          (typeof frame.error === 'string' ? frame.error : undefined)
-        const labels: string[] = []
-        if (typeof error?.status === 'string') labels.push(error.status)
-        if (typeof error?.code === 'number' || typeof error?.code === 'string')
-          labels.push(`code ${error.code}`)
-        if (Array.isArray(error?.details)) {
-          const reason = error.details.find(
-            (item) => item && typeof item.reason === 'string',
-          )?.reason
-          if (reason && !labels.includes(reason)) labels.push(reason)
-        }
-        throw new HostRefusalError(
-          `Antigravity stream error${labels.length ? ` (${labels.join(', ')})` : ''}${detail ? `: ${detail}` : ''}`,
-        )
-      }
-      if (frame.promptFeedback?.blockReason) {
-        const { blockReason, blockReasonMessage } = frame.promptFeedback
-        throw new HostRefusalError(
-          `Antigravity prompt blocked (${blockReason})${blockReasonMessage ? `: ${blockReasonMessage}` : ''}`,
-        )
-      }
+      if (frame.error !== undefined)
+        throw new EngineRefusalError('embedded_error')
+      if (frame.promptFeedback?.blockReason)
+        throw new EngineRefusalError('stopped_by_google', {
+          finishReason: frame.promptFeedback.blockReason,
+        })
       const candidate = frame.candidates?.[0]
       if (finish) continue
       for (const part of candidate?.content?.parts ?? []) {
@@ -275,21 +218,12 @@ export async function* readRequestEvents(
     }
     if (usage) yield { type: 'usage', usage }
     if (!finish)
-      throw new HostRefusalError(
-        'Antigravity stream ended without a terminal candidate response',
-      )
-    const rawStopReason = knownStops.has(finish) ? finish : 'unknown'
-    yield { type: 'metadata', rawStopReason }
-    if (
-      finish !== 'STOP' &&
-      finish !== 'MAX_TOKENS' &&
-      finish !== 'CONTINUATION'
-    )
-      throw new HostRefusalError(
-        `Google stopped the response: ${rawStopReason === 'unknown' ? 'unknown reason' : rawStopReason}.`,
-      )
-    if (!lastBlock)
-      throw new HostRefusalError('Antigravity returned an empty response')
+      throw new EngineRefusalError(lastBlock ? 'incomplete' : 'empty')
+    if (finish !== 'STOP' && finish !== 'MAX_TOKENS')
+      throw new EngineRefusalError('stopped_by_google', {
+        finishReason: finish,
+      })
+    yield { type: 'metadata', rawStopReason: finish }
     await close()
     yield {
       type: 'terminal',
@@ -299,7 +233,10 @@ export async function* readRequestEvents(
     await close()
     yield {
       type: 'failure',
-      error: error instanceof Error ? error : new Error(String(error)),
+      error:
+        error instanceof EngineRefusalError
+          ? error
+          : new EngineRefusalError('transport_error'),
     }
   } finally {
     await close()

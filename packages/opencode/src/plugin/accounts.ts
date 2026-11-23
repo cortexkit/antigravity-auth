@@ -178,9 +178,13 @@ export interface LocalAccountCredentials {
    */
   refresh(
     account: CoreManagedAccount,
+    admit?: () => Promise<void>,
   ): Promise<CoreOAuthAuthDetails | undefined>
   /** Resolves the Antigravity project a request is sent under, using the cached project context. */
-  ensureProject(auth: CoreOAuthAuthDetails): Promise<ProjectContextResult>
+  ensureProject(
+    auth: CoreOAuthAuthDetails,
+    admit?: () => Promise<void>,
+  ): Promise<ProjectContextResult>
   /** True when a refresh failure is `invalid_grant`: the refresh token is invalid or revoked. */
   isInvalidGrant(error: unknown): boolean
   /**
@@ -221,6 +225,7 @@ export function createLocalAccountCredentials(
     repository: Pick<AccountRepository, 'read'>
     ensureProject?: (
       auth: CoreOAuthAuthDetails,
+      admit?: () => Promise<void>,
     ) => Promise<ProjectContextResult>
   },
 ): LocalAccountCredentials {
@@ -269,8 +274,8 @@ export function createLocalAccountCredentials(
         },
       }
     },
-    async refresh(account) {
-      const outcome = await manager.refreshAccount(account)
+    async refresh(account, admit) {
+      const outcome = await manager.refreshAccount(account, { admit })
       if (outcome.status !== 'rotated') return undefined
       return manager.toAuthDetails(account)
     },

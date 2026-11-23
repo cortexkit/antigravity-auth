@@ -1,5 +1,6 @@
 import type {
   AntigravityAuthorization,
+  AntigravityExchangeOptions,
   AntigravityTokenExchangeResult,
 } from '../antigravity/oauth'
 import type { CommandAccountRow } from './command-data'
@@ -19,7 +20,9 @@ export interface AccountCommandOAuthServiceOptions {
   exchange: (
     code: string,
     state: string,
+    options?: AntigravityExchangeOptions,
   ) => Promise<AntigravityTokenExchangeResult>
+  admit?: () => Promise<void>
   persist: (result: OAuthSuccess) => Promise<void>
   listAccounts: () => Promise<CommandAccountRow[]>
   /**
@@ -87,6 +90,7 @@ export function createAccountCommandOAuthService(
   // branches below does not replace the real OAuth failure text with a
   // generic apply-error message. Mirrors the stage-4 guarded pattern.
   const safeListAccounts = async (): Promise<CommandAccountRow[]> => {
+    await options.admit?.()
     try {
       return await options.listAccounts()
     } catch {
@@ -96,7 +100,9 @@ export function createAccountCommandOAuthService(
 
   return {
     async start(sessionId) {
+      await options.admit?.()
       const authorization = await options.authorize()
+      await options.admit?.()
       const url = new URL(authorization.url)
       const state = url.searchParams.get('state')
       const redirectUri = url.searchParams.get('redirect_uri')
@@ -122,6 +128,7 @@ export function createAccountCommandOAuthService(
     },
 
     async finish(sessionId, callbackInput, label) {
+      await options.admit?.()
       const pending = takePending(sessionId)
       if (!pending) {
         return {
@@ -153,13 +160,18 @@ export function createAccountCommandOAuthService(
       // been persisted yet.
       let result: Awaited<ReturnType<typeof options.exchange>>
       try {
-        result = await options.exchange(callback.code, callback.state)
+        result = options.admit
+          ? await options.exchange(callback.code, callback.state, {
+              admit: options.admit,
+            })
+          : await options.exchange(callback.code, callback.state)
       } catch {
         return {
           text: 'OAuth exchange failed due to a network error. Please start a new OAuth flow.',
           accounts: await safeListAccounts(),
         }
       }
+      await options.admit?.()
       if (result.type === 'failed') {
         return {
           text: 'OAuth authentication failed. Please start a new OAuth flow and try again.',
@@ -182,6 +194,7 @@ export function createAccountCommandOAuthService(
           accounts: await safeListAccounts(),
         }
       }
+      await options.admit?.()
 
       // Refresh the live AccountManager so routing sees the new account
       // immediately instead of waiting for the next auth reload. Errors
@@ -196,6 +209,7 @@ export function createAccountCommandOAuthService(
       // fails for any reason (lock contention, I/O) we still report the
       // successful add — the dialog will refresh on its next open.
       let accounts: CommandAccountRow[]
+      await options.admit?.()
       try {
         accounts = await options.listAccounts()
       } catch {

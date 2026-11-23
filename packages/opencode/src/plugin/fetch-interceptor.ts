@@ -1,5 +1,6 @@
 import {
   type AccountRepository,
+  AccountStoreBusyError,
   createLogger as createCoreLogger,
   fetchWithAgyCliTransport,
   HostRefusalError,
@@ -8,6 +9,8 @@ import {
 import type { RegisterResponseHandoff } from '@cortexkit/antigravity-auth-core/engine'
 import {
   createLocalQuotaRefresh,
+  EngineRefusalError,
+  engineRefusalResponse,
   isGenerativeLanguageRequest,
   type LocalRequestCredentials,
   type RequestRoutingEntry,
@@ -62,7 +65,7 @@ function fetchFailure(
 ): unknown {
   const signal =
     init?.signal ?? (input instanceof Request ? input.signal : undefined)
-  if (signal?.aborted && error === signal.reason) return error
+  if (signal?.aborted) return new EngineRefusalError('cancelled')
   return hostFailure(error, (diagnostic) => failureLog.error(diagnostic))
 }
 
@@ -195,7 +198,7 @@ function poolFileCredentials(
         }
       },
     }),
-    ensureProject: (auth) => ensureProjectContext(auth),
+    ensureProject: ensureProjectContext,
     isInvalidGrant: (error) =>
       error instanceof AntigravityTokenRefreshError &&
       error.code === 'invalid_grant',
@@ -219,9 +222,9 @@ function storeCredentials(
     repository,
   })
   return {
-    refresh: (account) => credentials.refresh(account),
+    refresh: credentials.refresh,
     captureGrant: (grant) => credentials.captureGrant(grant),
-    ensureProject: (auth) => credentials.ensureProject(auth),
+    ensureProject: credentials.ensureProject,
     isInvalidGrant: (error) => credentials.isInvalidGrant(error),
   }
 }
@@ -317,6 +320,7 @@ export function createFetchInterceptor(
     accountManager,
     quotaManager,
     log,
+    context.assertAdmission,
   )
   const executor = createRequestExecutor<ManagedAccount>({
     assertAdmission: context.assertAdmission,
@@ -384,6 +388,7 @@ export function createFetchInterceptor(
         throw new HostRefusalError('The local request runtime is disposed')
       if (accountSource.kind === 'pool-file') {
         const latestAuth = await getAuth()
+        await context.assertAdmission?.()
         if (disposed)
           throw new HostRefusalError('The local request runtime is disposed')
         if (!isOAuthAuth(latestAuth)) return upstreamFetch(input, init)
@@ -391,6 +396,8 @@ export function createFetchInterceptor(
 
       return await executor.execute(input, init, { onResponseHandoff })
     } catch (error) {
+      if (error instanceof AccountStoreBusyError)
+        return engineRefusalResponse('busy_store')
       throw fetchFailure(error, input, init)
     }
   }
