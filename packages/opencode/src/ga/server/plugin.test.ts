@@ -82,7 +82,7 @@ mock.module('@cortexkit/antigravity-auth-core', () => ({
 
 const server = await import('./index.ts')
 const { createNativeGoogleErrorResponse } = await import(
-  '../../plugin/request-helpers.ts'
+  '../../plugin/request-helper-effects.ts'
 )
 const { createGaLocationServices } = await import(
   '../../plugin/ga-location-services.ts'

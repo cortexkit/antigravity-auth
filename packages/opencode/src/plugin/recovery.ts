@@ -12,6 +12,7 @@
 import {
   detectErrorType,
   getErrorMessage,
+  type RecoveryErrorType,
 } from '@cortexkit/antigravity-auth-core/engine'
 
 export { detectErrorType } from '@cortexkit/antigravity-auth-core/engine'
