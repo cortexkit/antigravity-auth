@@ -67,7 +67,9 @@ export class Environment {
   readonly reports: unknown[] = []
   readonly hooks: unknown[] = []
   private readonly sockets = new Set<Duplex>()
+  private readonly stalledSockets = new Set<Duplex>()
   private readonly timers = new Map<Timer, { at: number; call(): void }>()
+  private readonly deadlineTimers = new Set<Timer>()
   private clockHolds = 0
   private instant = epoch
   private randomIndex = 0
@@ -79,10 +81,17 @@ export class Environment {
 
   readonly preResponseClock: PreResponseClock = {
     now: () => this.instant - epoch,
-    schedule(callback, delay) {
-      const timer = setTimeout(callback, delay)
+    schedule: (callback, delay) => {
+      const timer = setTimeout(() => {
+        this.deadlineTimers.delete(timer)
+        callback()
+      }, delay)
       timer.unref()
-      return () => clearTimeout(timer)
+      this.deadlineTimers.add(timer)
+      return () => {
+        this.deadlineTimers.delete(timer)
+        clearTimeout(timer)
+      }
     },
   }
 
@@ -197,6 +206,7 @@ export class Environment {
           this.latestSend = this.instant
           const reply = this.reply(wire, this.wires.length - 1)
           stalled = reply.stall !== undefined
+          if (stalled) this.stalledSockets.add(socket)
           done()
           queueMicrotask(() => {
             if (socket.destroyed || reply.stall === 'before-headers') return
@@ -237,6 +247,7 @@ export class Environment {
     socket.on('close', () => {
       options.signal?.removeEventListener('abort', abort)
       this.sockets.delete(socket)
+      this.stalledSockets.delete(socket)
       if (stalled) this.cancellations.push(this.instant - epoch)
     })
     queueMicrotask(() => socket.emit('secureConnect'))
@@ -279,9 +290,15 @@ export class Environment {
         await new Promise<void>((resolve) => realSetTimeout(resolve, 3))
         if (finished) break
         if (this.wires.length === 0 || this.clockHolds > 0) continue
-        const next = Array.from(this.timers).sort(
-          (a, b) => a[1].at - b[1].at,
-        )[0]
+        const pending = Array.from(this.timers)
+        // A deadline on its own does not describe a simulated wait. Let real
+        // response processing publish the next retry timer before jumping ahead.
+        if (
+          !pending.some(([timer]) => !this.deadlineTimers.has(timer)) &&
+          ![...this.stalledSockets].some((socket) => !socket.destroyed)
+        )
+          continue
+        const next = pending.sort((a, b) => a[1].at - b[1].at)[0]
         if (next) {
           const [handle, timer] = next
           this.timers.delete(handle)
@@ -296,6 +313,7 @@ export class Environment {
     } finally {
       for (const handle of this.timers.keys()) realClearTimeout(handle)
       this.timers.clear()
+      this.deadlineTimers.clear()
       clear.mockRestore()
       set.mockRestore()
     }

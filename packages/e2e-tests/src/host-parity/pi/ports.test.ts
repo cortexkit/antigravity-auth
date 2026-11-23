@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test'
+import { fetchWithAgyCliTransport } from '@cortexkit/antigravity-auth-core'
 import { conversation, models } from '../cases.ts'
 import { Environment } from '../environment.ts'
 import { bodyOf, candidate, credential, sse, success } from '../fixtures.ts'
@@ -43,6 +44,30 @@ test('vault endpoint fallback waits for receipt I/O without advancing the fixtur
     expect(env.cancellations).toEqual([180_000, 360_000])
     expect(env.aborts).toEqual([])
     expect(result.terminal).toEqual(['failure:deadline'])
+  } finally {
+    await pi.dispose()
+    await env.dispose()
+  }
+})
+
+test('a delayed capacity response does not advance the logical deadline before retry scheduling', async () => {
+  const env = new Environment((_wire, index) =>
+    index === 0 ? { status: 503, body: 'Fixture capacity' } : success,
+  )
+  const pi = await piAdapter(env, 'local', false, {}, async (...args) => {
+    const response = await fetchWithAgyCliTransport(...args)
+    if (!response.ok) await Bun.sleep(15)
+    return response
+  })
+  try {
+    const result = await env.timed(() =>
+      pi.run(input, 'slow-capacity-response'),
+    )
+    expect(result.terminal).toEqual(['stop'])
+    expect(result.text).toBe('Four.')
+    expect(env.physicalSends).toHaveLength(2)
+    expect(env.delays).toEqual([1000])
+    expect(env.aborts).toEqual([])
   } finally {
     await pi.dispose()
     await env.dispose()
