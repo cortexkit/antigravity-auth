@@ -251,8 +251,8 @@ export class Environment {
     })
     void result.catch(() => {})
     try {
-      // Give the loopback bridge and stream readers a real turn before moving
-      // the fixture clock to the next requested deadline.
+      // Let the OpenCode 2 localhost HTTP request and response readers finish
+      // their I/O before advancing the fixture clock to a pending deadline.
       for (let turns = 0; !finished && turns < 160; turns++) {
         await new Promise<void>((resolve) => realSetTimeout(resolve, 3))
         if (finished) break
