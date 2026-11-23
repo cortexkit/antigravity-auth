@@ -4,6 +4,7 @@ import type {
 } from '@cortexkit/antigravity-auth-core'
 import { placeholderSecret } from '../../../opencode/src/common-auth-embedded/opencode2/index.js'
 import {
+  type GaPluginOverrides,
   GaRequestOwnership,
   rewriteGaHttpRequest,
   startGaLoopbackBridge,
@@ -275,12 +276,12 @@ export async function openCode2(
   const common = {
     runtime,
     overrides: {
-      ensureProjectContext: async () => ({
-        auth,
+      ensureProjectContext: async (resolvedAuth) => ({
+        auth: resolvedAuth,
         effectiveProjectId: credential.projectId,
       }),
       observeRawSenderSignal: () => log('GA raw send started'),
-    },
+    } satisfies GaPluginOverrides,
     routes: createGaRouteBook(),
   }
   const trace = (message: string) => {
