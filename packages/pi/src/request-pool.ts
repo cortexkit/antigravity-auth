@@ -1,4 +1,8 @@
-import { getQuotaKey } from '@cortexkit/antigravity-auth-core'
+import {
+  calculateBackoffMs,
+  getQuotaKey,
+  quotaRetryAfter,
+} from '@cortexkit/antigravity-auth-core'
 import type {
   RequestAccountPool,
   RequestAccountRow,
@@ -8,6 +12,7 @@ export interface PiRequestRow extends RequestAccountRow {
   accountIneligible?: boolean
   verificationRequired?: boolean
   coolingDownUntil?: number
+  lastFailureTime?: number
   rateLimitResetTimes: Record<string, number>
 }
 
@@ -72,9 +77,36 @@ export function createPiRequestPool(
       (account.rateLimitResetTimes[getQuotaKey(family, model)] ?? 0) >
       Date.now(),
     markRateLimited,
-    markRateLimitedWithReason: (account, family, model, _reason, delay) => {
-      const wait = delay ?? 0
-      markRateLimited(account, wait, family, model)
+    markRateLimitedWithReason: (
+      account,
+      family,
+      model,
+      reason,
+      delay,
+      failureTtlMs = 3_600_000,
+    ) => {
+      // A refusal without a structured reason cools the model briefly but
+      // must not advance the confirmed quota failure ladder.
+      if (reason === 'UNKNOWN') {
+        const wait = calculateBackoffMs(reason, 0, delay)
+        markRateLimited(account, wait, family, model)
+        return wait
+      }
+
+      const now = Date.now()
+      const failures =
+        account.lastFailureTime !== undefined &&
+        now - account.lastFailureTime > failureTtlMs
+          ? 0
+          : (account.consecutiveFailures ?? 0)
+      account.lastFailureTime = now
+      account.consecutiveFailures = failures + 1
+      const wait = calculateBackoffMs(
+        reason,
+        failures,
+        quotaRetryAfter(account, family, model, reason, delay, now),
+      )
+      account.rateLimitResetTimes[getQuotaKey(family, model)] = now + wait
       return wait
     },
     markAccountCoolingDown: (account, wait) => {
