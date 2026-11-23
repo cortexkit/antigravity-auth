@@ -35,10 +35,6 @@ test('every applied setting names an existing test and every exception has evide
         sources.set(proof.file, await text(proof.file))
       const source = sources.get(proof.file)!
       expect(source).toContain(proof.titleFragment ?? proof.test)
-      for (const binding of proof.binding?.split('; ') ?? []) {
-        const path = binding.split(':')[0]!
-        expect(await Bun.file(new URL(path, root)).exists()).toBe(true)
-      }
     } else if (proof.status === 'host-limited') {
       expect(proof.package).toBe('@opencode/plugin')
       expect(proof.version).toBe('2.0.22')
@@ -49,10 +45,22 @@ test('every applied setting names an existing test and every exception has evide
     } else {
       expect(proof.reason.length).toBeGreaterThan(0)
     }
+    if ('binding' in proof) {
+      for (const binding of proof.binding?.split('; ') ?? []) {
+        const [path, line] = binding.split(':')
+        const file = Bun.file(new URL(path!, root))
+        expect(await file.exists()).toBe(true)
+        if (line)
+          expect((await file.text()).split('\n').length).toBeGreaterThanOrEqual(
+            Number(line.split('-').at(-1)),
+          )
+      }
+    }
   }
 })
 
 test('the published settings table agrees with the checked applicability rows', async () => {
+  expect(renderSettingsDoc()).not.toContain('Unverified')
   expect(await text('packages/opencode/docs/SETTINGS.md')).toBe(
     renderSettingsDoc(),
   )

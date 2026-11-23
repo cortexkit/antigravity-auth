@@ -2215,6 +2215,7 @@ describe('BackgroundQuotaRefresh wiring through createAntigravityPlugin', () => 
     )
     // Exactly one instance was constructed.
     expect(capturedPollers).toHaveLength(1)
+    expect(Reflect.get(capturedPollers[0]!, 'intervalMs')).toBe(60 * 60_000)
     // Replace dispose with a spy BEFORE plugin.dispose() is called so we can
     // confirm the plugin's producer plumbing reaches through to the instance.
     let pollerDisposeCalled = false

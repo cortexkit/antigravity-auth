@@ -1,6 +1,8 @@
 import { describe, expect, it, mock } from 'bun:test'
 
+import { DEFAULT_CONFIG } from './config'
 import { createEventHandler } from './event-handler'
+import { createSessionRecoveryHook } from './recovery'
 import type { PluginClient } from './types'
 
 function createHarness(
@@ -92,6 +94,17 @@ function createHarness(
 }
 
 describe('createEventHandler', () => {
+  it('does not install the session recovery hook when session recovery is disabled', () => {
+    const context = { client: {} as PluginClient, directory: '/project' }
+    expect(createSessionRecoveryHook(context, DEFAULT_CONFIG)).not.toBeNull()
+    expect(
+      createSessionRecoveryHook(context, {
+        ...DEFAULT_CONFIG,
+        session_recovery: false,
+      }),
+    ).toBeNull()
+  })
+
   it('forwards every event to the update checker', async () => {
     const harness = createHarness()
     const input = { event: { type: 'custom.event', properties: { value: 1 } } }
