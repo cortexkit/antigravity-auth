@@ -5,6 +5,7 @@ import {
   createAccountRepositoryFactory,
   createLogger as createCoreLogger,
   type EnrollmentAuthority,
+  getHealthTracker,
   HOST_STORE_READ_FAILURE,
   HostRefusalError,
   hostFailure,
@@ -521,7 +522,10 @@ export function createAuthLoader({
               enabled: entry.enabled,
               current: isAccountCurrent(entry.index, activeByFamily),
               coolingDownUntil: entry.coolingDownUntil,
-              healthScore: accountManager.healthTracker.getScore(entry.index),
+              healthScore: (source === 'store'
+                ? accountManager.healthTracker
+                : getHealthTracker()
+              ).getScore(entry.index),
               cachedQuota: entry.cachedQuota,
               cachedQuotaUpdatedAt: entry.cachedQuotaUpdatedAt,
               // Stamp the sidebar snapshot so the projection can detect a

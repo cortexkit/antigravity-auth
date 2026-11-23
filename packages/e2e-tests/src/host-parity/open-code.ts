@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type {
   AccountRepository,
@@ -259,6 +259,8 @@ function repository(): AccountRepository {
   } as unknown as AccountRepository
 }
 
+let locationSetupId = 0
+
 export async function openCode2(
   environment: Environment,
   custody: Custody,
@@ -269,6 +271,13 @@ export async function openCode2(
   const root = process.env.ANTIGRAVITY_TEST_ROOT
   if (!root) throw new Error('Host parity requires the root test preload')
   const directory = await mkdtemp(join(root, 'host-parity-ga-'))
+  const previousConfig = process.env.OPENCODE_CONFIG_DIR
+  const nextRequestId = environment.nextNodeId
+  const finishSetup = () => {
+    environment.nextNodeId = nextRequestId
+    if (previousConfig === undefined) delete process.env.OPENCODE_CONFIG_DIR
+    else process.env.OPENCODE_CONFIG_DIR = previousConfig
+  }
   let runtime: LocationRuntime | undefined
   let pipeline:
     | Awaited<ReturnType<typeof createGaLocalRequestPipeline>>
@@ -285,10 +294,10 @@ export async function openCode2(
     }
   }
   try {
-    const project = join(directory, '.opencode')
-    await mkdir(project)
+    // The fixture has its own user settings, including keys projects cannot set.
+    process.env.OPENCODE_CONFIG_DIR = directory
     await writeFile(
-      join(project, 'antigravity.json'),
+      join(directory, 'antigravity.json'),
       JSON.stringify({
         ...config(input.options.keepThinking),
         background_quota_refresh: false,
@@ -297,6 +306,9 @@ export async function openCode2(
         ...overrides,
       }),
     )
+    // Runtime bookkeeping does not advance the captured request timeline.
+    environment.nextNodeId = () =>
+      `00000000-0000-4000-8001-${(++locationSetupId).toString(16).padStart(12, '0')}`
     runtime = await createLocationRuntime({
       directory,
       quotaSnapshots: createMemoryQuotaSnapshots(),
@@ -338,6 +350,7 @@ export async function openCode2(
             ...common,
             pool: createVaultAccountPool({ source: source(environment) }),
           })
+    finishSetup()
     const bridge = await startGaLoopbackBridge({
       execute: pipeline.execute,
       send: noNetwork,
@@ -390,6 +403,7 @@ export async function openCode2(
       },
     }
   } catch (error) {
+    finishSetup()
     await disposeLocation()
     throw error
   }

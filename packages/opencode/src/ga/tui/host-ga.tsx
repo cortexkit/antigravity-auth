@@ -975,8 +975,23 @@ export interface GaMenuPresentation {
 
 /** Keep the issued actions and facts intact; sidebar selectors are not menu ids. */
 export function presentGaMenu(source: MenuModel): GaMenuPresentation {
+  // Add starts sign-in before asking for a callback; runGaDrawerLogin
+  // handles those prompts so a browser callback can dismiss them.
+  const menu = {
+    ...source,
+    sections: source.sections.map((section) =>
+      section.id !== 'accounts'
+        ? section
+        : {
+            ...section,
+            actions: section.actions.map((action) =>
+              action.id === 'add' ? { ...action, knobs: [] } : action,
+            ),
+          },
+    ),
+  }
   return {
-    menu: source,
+    menu,
     source,
     request(choice) {
       const section = source.sections.find(({ id }) => id === choice.sectionId)

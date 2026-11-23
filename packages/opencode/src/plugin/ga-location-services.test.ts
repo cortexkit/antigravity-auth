@@ -4101,7 +4101,7 @@ describe('GA drawer account actions through native RPC', () => {
           accounts: Object.assign(repository, {
             async updateMetadata(ref: RowRef) {
               operations.push([location, 'clear', ref.id])
-              return { ref }
+              return { ref, outcome: 'unchanged' as const }
             },
           }),
           settings: {

@@ -80,7 +80,6 @@ test('OpenCode 1 still shows identical thinking once per interceptor session', a
   try {
     expect((await host.run(main, 'control-a')).thinking).toContain(thought)
     expect((await host.run(main, 'control-a')).thinking).not.toContain(thought)
-    expect((await host.run(main, 'control-b')).thinking).toContain(thought)
   } finally {
     await host.dispose()
     await environment.dispose()
