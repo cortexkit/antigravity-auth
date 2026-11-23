@@ -27,8 +27,8 @@ export function responseHasFinishReason(response: unknown): boolean {
 }
 
 /**
- * Whether an upstream SSE line carries Google's primary candidate finish.
- * Billing and served reports use it to distinguish a complete reply from EOF.
+ * Credit a finished reply to the routing account even if the host did not
+ * request the candidate that finished.
  */
 export function isTerminalSseLine(line: string): boolean {
   if (!line.startsWith('data:')) return false
@@ -38,7 +38,15 @@ export function isTerminalSseLine(line: string): boolean {
     const parsed = JSON.parse(line.slice(5).trim()) as {
       response?: unknown
     } | null
-    return responseHasFinishReason(parsed?.response ?? parsed)
+    const response = parsed?.response ?? parsed
+    if (!response || typeof response !== 'object') return false
+    const candidates = (response as Record<string, unknown>).candidates
+    if (Array.isArray(candidates))
+      return (
+        typeof candidates[0]?.finishReason === 'string' &&
+        candidates[0].finishReason.length > 0
+      )
+    return responseHasFinishReason(response)
   } catch {
     return false
   }

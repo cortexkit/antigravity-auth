@@ -130,13 +130,10 @@ export interface VaultUpstreamObservation {
 }
 
 /**
- * The streaming transformer ends the reply it forwards right after the first
- * terminal event (a finish reason) and then cancels the upstream body, which
- * the server may also keep open. Upstream EOF therefore cannot mark an SSE
- * reply complete: it counts as completed once its terminal event arrives with
- * no failure before it, and a stream that ends without one never completes.
- * Bytes after the terminal event are never forwarded to the caller, so they
- * are not inspected. A non-SSE body completes at a clean EOF.
+ * An SSE reply counts as completed when Google supplies a finish with no
+ * upstream error before it. Reading further to collect usage, or the host's
+ * interpretation of the candidate, cannot retract that credit. A non-SSE body completes
+ * at a clean EOF.
  */
 export function observeVaultUpstream(
   routing: Pick<RequestRouting, 'hasAccessor'>,
@@ -187,7 +184,9 @@ export function observeVaultServed(
     if (
       upstream?.completedSuccessfully() &&
       error instanceof EngineRefusalError &&
-      (error.id === 'stopped_by_google' || error.id === 'empty')
+      (error.id === 'stopped_by_google' ||
+        error.id === 'empty' ||
+        error.id === 'incomplete')
     )
       report()
   })

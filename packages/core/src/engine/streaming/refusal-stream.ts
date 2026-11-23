@@ -35,7 +35,6 @@ export function enforceStreamRefusals(
   const usage: Record<string, unknown> = {}
   let buffer = ''
   let visible = false
-  let done = false
   let closed = false
   let failure: EngineRefusalError | undefined
   let terminalLine: string | undefined
@@ -53,7 +52,10 @@ export function enforceStreamRefusals(
     const payload = line.slice(5).trim()
     if (!payload) return
     if (payload === '[DONE]') {
-      if (!drain) done = true
+      if (!drain) {
+        failure = new EngineRefusalError(visible ? 'incomplete' : 'empty')
+        startDrain()
+      }
       return
     }
     let envelope: any
@@ -143,7 +145,7 @@ export function enforceStreamRefusals(
   return new ReadableStream({
     async pull(controller) {
       try {
-        while (!done && !closed) {
+        while (!closed) {
           const newline = buffer.indexOf('\n')
           if (newline >= 0) {
             const line = buffer.slice(0, newline)

@@ -3165,6 +3165,54 @@ describe('request.ts', () => {
       )
     })
 
+    it('normalizes a raw Claude tool-result turn before deciding whether to continue', () => {
+      const contents = [
+        { role: 'user', parts: [{ text: 'Look up the value.' }] },
+        {
+          role: 'model',
+          parts: [
+            {
+              functionCall: {
+                id: 'lookup-1',
+                name: 'lookup',
+                args: { key: 'value' },
+              },
+            },
+          ],
+        },
+        {
+          role: 'model',
+          parts: [
+            {
+              functionResponse: {
+                id: 'lookup-1',
+                name: 'lookup',
+                response: { output: 'Found it.' },
+              },
+            },
+          ],
+        },
+      ]
+      const prepare = (body: object) =>
+        JSON.parse(
+          String(
+            prepareAntigravityRequest(
+              'https://generativelanguage.googleapis.com/v1beta/models/antigravity-claude-sonnet-5-5:streamGenerateContent',
+              { method: 'POST', body: JSON.stringify(body) },
+              mockAccessToken,
+              mockProjectId,
+            ).init.body,
+          ),
+        ).request.contents
+      const wrapped = prepare({ project: mockProjectId, request: { contents } })
+      const raw = prepare({ contents })
+      expect(raw.at(-1)).toEqual(wrapped.at(-1))
+      expect(raw.at(-1)).toMatchObject({
+        role: 'user',
+        parts: [{ functionResponse: { name: 'lookup' } }],
+      })
+    })
+
     it('rethrows THINKING_RECOVERY_NEEDED for outer retry handling', async () => {
       const response = new Response(
         JSON.stringify({
