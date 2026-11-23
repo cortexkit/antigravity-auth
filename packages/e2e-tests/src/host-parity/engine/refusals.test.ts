@@ -177,8 +177,9 @@ for (const subject of ['opencode1', 'opencode2', 'pi'] as const) {
       expect(result.physicalSends).toHaveLength(sends)
       expect(result.turns[0]?.terminal).toEqual([`failure:${id}`])
       expect(result.turns[0]?.errors).toEqual([message])
+      // The recorded delays measure elapsed time between physical sends.
       if (reason === 'RATE_LIMIT_EXCEEDED')
-        expect(result.delays).toEqual([1000, 1000, 2000])
+        expect(result.delays).toEqual([1000, 1000])
     }
   })
 

@@ -34,6 +34,10 @@ import {
   readAccountStoreAdmission,
   sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  ENGINE_REFUSALS,
+  responseRefusal,
+} from '@cortexkit/antigravity-auth-core/engine'
 
 import { withVaultHost } from '../../../../test/support/vault-host.ts'
 import { vaultWaitClock } from '../../../../test/support/vault-wait-clock.test.ts'
@@ -1724,13 +1728,17 @@ describe('GA composed transport', () => {
         expect(vault.lists()).toBe(listsBefore401)
         expect(vault.reports).toHaveLength(0)
         const refused = await clock.drive(execute())
+        expect(responseRefusal(refused)?.id).toBe('vault_unreachable')
+        const entry = Reflect.get(ENGINE_REFUSALS, 'vault_unreachable') as
+          | { text: string }
+          | undefined
+        if (!entry) throw new Error('Missing refusal: vault_unreachable')
         expect(refused.status).toBe(412)
         expect(await refused.json()).toEqual({
           error: {
             code: 412,
             status: 'FAILED_PRECONDITION',
-            message:
-              'Antigravity could not communicate with Google. Check the plugin log for details.',
+            message: entry.text,
           },
         })
         expect(sends).toHaveLength(2)

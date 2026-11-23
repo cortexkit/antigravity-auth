@@ -247,6 +247,7 @@ describe('shared request engine import graph', () => {
       './retry-metadata.ts': [
         'createNativeGoogleErrorResponse as nativeErrorResponse',
         'extractAntigravityError',
+        'extractRateLimitErrorInfoReason',
         'resolveRetryMetadata',
       ],
       './after-handoff.ts': [

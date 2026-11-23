@@ -3097,6 +3097,47 @@ describe('parseDurationToMs and retry validation', () => {
     ).toBe('quota resets in 2h 1m2s-synthetic-opaque-credential')
   })
 
+  it('preserves validated timing on an explicit slowdown without publishing upstream headers', async () => {
+    const transformed = await transformAntigravityResponse(
+      new Response(
+        JSON.stringify({
+          error: {
+            message: 'Upstream throttle detail',
+            details: [
+              {
+                '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+                reason: 'RATE_LIMIT_EXCEEDED',
+              },
+              {
+                '@type': 'type.googleapis.com/google.rpc.RetryInfo',
+                retryDelay: '1.25s',
+              },
+            ],
+          },
+        }),
+        {
+          status: 429,
+          headers: { 'retry-after': '17', 'x-ratelimit-remaining': '0' },
+        },
+      ),
+      false,
+    )
+    expect(transformed.status).toBe(412)
+    expect([...transformed.headers]).toEqual([
+      ['content-type', 'application/json'],
+      ['retry-after', '2'],
+      ['retry-after-ms', '1250'],
+    ])
+    expect(await transformed.json()).toEqual({
+      error: {
+        code: 412,
+        status: 'FAILED_PRECONDITION',
+        message:
+          'Antigravity asked to slow down. Wait before sending another request.',
+      },
+    })
+  })
+
   const quotaExhaustedDetails = [
     {
       '@type': 'type.googleapis.com/google.rpc.ErrorInfo',

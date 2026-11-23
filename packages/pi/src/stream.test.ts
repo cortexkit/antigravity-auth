@@ -2181,7 +2181,7 @@ describe('streamCortexKitAntigravity', () => {
     expect(aborted).toBe(false)
   })
 
-  it('records GPT usage reported separately from the finish frame', async () => {
+  it('does not take GPT usage from after the shared terminal frame', async () => {
     const { result } = await runStream(
       fakeModel('antigravity-gpt-oss-120b-medium'),
       sseResponse([
@@ -2191,9 +2191,10 @@ describe('streamCortexKitAntigravity', () => {
       'gpt-trailing-usage',
     )
     expect(result.stopReason).toBe('stop')
-    expect(result.usage.input).toBe(10)
-    expect(result.usage.output).toBe(3)
-    expect(result.usage.totalTokens).toBe(13)
+    expect(result.content).toEqual([{ type: 'text', text: 'answer' }])
+    expect(result.usage.input).toBe(0)
+    expect(result.usage.output).toBe(0)
+    expect(result.usage.totalTokens).toBe(0)
   })
 
   it('finishes a GPT turn at STOP when trailing usage never arrives', async () => {

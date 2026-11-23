@@ -23,7 +23,11 @@ import {
   setLogSink,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
-import { EngineRefusalError } from '@cortexkit/antigravity-auth-core/engine'
+import {
+  ENGINE_REFUSALS,
+  EngineRefusalError,
+  responseRefusal,
+} from '@cortexkit/antigravity-auth-core/engine'
 import {
   hostFileError,
   hostFileErrorKinds,
@@ -143,6 +147,17 @@ async function expectTransportRefusal(response: Response) {
   expect(JSON.parse(text).error.message).toBe(
     'Antigravity could not communicate with Google. Check the plugin log for details.',
   )
+}
+
+async function expectVaultRefusal(
+  response: Response,
+  id: 'vault_unreachable' | 'vault_grant_denied',
+) {
+  expect(responseRefusal(response)?.id).toBe(id)
+  const entry = Reflect.get(ENGINE_REFUSALS, id) as { text: string } | undefined
+  if (!entry) throw new Error(`Missing refusal: ${id}`)
+  const text = await expectNativeFailure(response, 412, 'FAILED_PRECONDITION')
+  expect(JSON.parse(text).error.message).toBe(entry.text)
 }
 
 function expectFailFastBody(text: string): void {
@@ -2012,8 +2027,9 @@ describe('createFetchInterceptor', () => {
           expect(vault.lists()).toBe(listsBefore401)
           expect(vault.reports).toHaveLength(0)
           expect(transportMock).toHaveBeenCalledTimes(2)
-          await expectTransportRefusal(
+          await expectVaultRefusal(
             await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+            'vault_unreachable',
           )
           expect(transportMock).toHaveBeenCalledTimes(2)
           expect(vault.gets.length).toBeGreaterThan(2)
@@ -2039,8 +2055,9 @@ describe('createFetchInterceptor', () => {
           expect(vault.gets).toHaveLength(2)
           expect(vault.reports).toHaveLength(1)
           expect(transportMock).toHaveBeenCalledTimes(1)
-          await expectTransportRefusal(
+          await expectVaultRefusal(
             await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+            'vault_unreachable',
           )
           expect(transportMock).toHaveBeenCalledTimes(1)
           expect(vault.reports).toHaveLength(1)
@@ -2064,8 +2081,9 @@ describe('createFetchInterceptor', () => {
           expect(vault.gets).toHaveLength(2)
           expect(transportMock).toHaveBeenCalledTimes(1)
           vault.unreachable()
-          await expectTransportRefusal(
+          await expectVaultRefusal(
             await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+            'vault_unreachable',
           )
           expect(transportMock).toHaveBeenCalledTimes(1)
           expect(vault.reports).toHaveLength(1)
@@ -2085,12 +2103,14 @@ describe('createFetchInterceptor', () => {
             (await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT)).status,
           ).toBe(200)
           vault.deny()
-          await expectTransportRefusal(
+          await expectVaultRefusal(
             await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+            'vault_grant_denied',
           )
           vault.unreachable()
-          await expectTransportRefusal(
+          await expectVaultRefusal(
             await interceptor.fetch(NON_STREAM_URL, GENERATIVE_INIT),
+            'vault_unreachable',
           )
           expect(transportMock).toHaveBeenCalledTimes(1)
           expect(vault.reports).toHaveLength(0)
