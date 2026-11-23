@@ -454,6 +454,8 @@ export interface LocalRequestCredentials<A extends RequestAccountRow> {
  */
 export interface VaultRequestCredentials<A extends RequestAccountRow> {
   readonly domain: 'vault'
+  /** The host binds one route without asking the routing service to select it. */
+  readonly boundRoute?: boolean
   /** Non-secret roster identity; this never admits a credential or refreshes a token. */
   routingCandidate?(account: A): RoutingCandidate
   /** Decide whether a fresh admission may retry a 401 from the served admission. */
@@ -593,6 +595,8 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
   readonly routing: RequestRouting
   /** Sign-in command used in host-visible reauthorization guidance. */
   readonly authCommand: string
+  /** Fixed refusal for hosts whose account can only be replaced by signing in again. */
+  readonly reauthorize?: () => HostRefusalError
   /**
    * Live operator settings: routing overrides and the killswitch, which
    * excludes accounts whose remaining quota is below a threshold.
@@ -654,6 +658,12 @@ export interface RequestExecuteOptions {
   readonly kind?: RequestKind
   /** Selected catalog thinking variant ID; legacy hosts leave this unset. */
   readonly variant?: string
+  /** Observers of main attempts; neither can replace what is sent or received. */
+  readonly onPayload?: (payload: unknown) => unknown
+  readonly onResponse?: (response: {
+    status: number
+    headers: Headers
+  }) => unknown
   /**
    * Raw sender for this request's `antigravity` header-style sends, in place
    * of `RequestServicesDeps.transport`. It receives the transformed request's
@@ -1363,6 +1373,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         }
       : undefined
     const isChildRequest = requestSessionIdentity.parentSessionId !== null
+    const observe = async (callback: () => unknown) => {
+      try {
+        await callback()
+      } catch {
+        // A host observer does not participate in transport or retry policy.
+      }
+    }
     let physicalSendCount = 0
     // Empty-response retries are budgeted per logical request: a success or
     // an exhausted budget in another request must not refill this one.
@@ -2435,6 +2452,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             }
           } catch (error) {
             checkAborted()
+            if (deps.reauthorize) throw deps.reauthorize()
             if (credentials.isInvalidGrant(error)) {
               const removed = credentials.removeAccount(account)
               if (removed) {
@@ -2952,6 +2970,20 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             pushDebug(
               `dispatching request via ${prepared.headerStyle} transport`,
             )
+            if (options.onPayload)
+              await deadline.wait(() =>
+                observe(() => {
+                  const envelope = JSON.parse(String(prepared.init.body))
+                  const payload = JSON.parse(
+                    redactCredentialText(
+                      JSON.stringify(envelope.request),
+                      [...selectedCredentials],
+                      [...selectedProjectIds],
+                    ),
+                  )
+                  return options.onPayload?.(payload)
+                }),
+              )
             physicalAttemptStarted = true
             let response = await sendPhysical(
               toUrlString(prepared.request),
@@ -2962,6 +2994,25 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               retainMainTransportFailure,
             )
             const receivedAtMs = Date.now()
+            if (options.onResponse)
+              await deadline.wait(() =>
+                observe(() => {
+                  const headers = new Headers()
+                  for (const [key, value] of response.headers)
+                    headers.append(
+                      key,
+                      redactCredentialText(
+                        value,
+                        [...selectedCredentials],
+                        [...selectedProjectIds],
+                      ),
+                    )
+                  return options.onResponse?.({
+                    status: response.status,
+                    headers,
+                  })
+                }),
+              )
             let boundedRefusal:
               | Awaited<ReturnType<typeof readRefusalBody>>
               | undefined
@@ -3052,7 +3103,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               boundedRefusal !== undefined &&
               boundedRefusal.text === undefined
             const routingIdentity =
-              (routedPlacement || unreadableLimit) &&
+              (routedPlacement ||
+                vaultCredentials?.boundRoute ||
+                unreadableLimit) &&
               sendAdmission &&
               sessionKey &&
               routing.hasAccessor()
@@ -3062,7 +3115,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     credentialId: sendAdmission.credentialId,
                   }
                 : undefined
-            const routedIdentity = routedPlacement ? routingIdentity : undefined
+            const routedIdentity =
+              routedPlacement || vaultCredentials?.boundRoute
+                ? routingIdentity
+                : undefined
             if (sessionKey) {
               const routingEntry: RequestRoutingEntry = {
                 accountId: `acct-${account.index}`,
@@ -3613,6 +3669,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 )
               }
               if (
+                routedPlacement &&
                 routedIdentity &&
                 (extracted?.accountIneligible || extracted?.validationRequired)
               ) {
@@ -3655,6 +3712,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 retainHttpFailure(response)
                 shouldSwitchAccount = true
                 reportCondition('provider_ineligible')
+                if (deps.reauthorize) throw deps.reauthorize()
                 break
               }
 
@@ -3698,7 +3756,15 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 retainHttpFailure(response)
                 shouldSwitchAccount = true
                 reportCondition('provider_verification_required')
+                if (deps.reauthorize) throw deps.reauthorize()
                 break
+              }
+              if (deps.reauthorize) {
+                await showToast(
+                  `Run '${authCommand}' to reauthorize Antigravity.`,
+                  'warning',
+                )
+                throw deps.reauthorize()
               }
             }
 
@@ -3956,6 +4022,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               : transformedResponse
           } catch (error) {
             if (error instanceof PreResponseTimeoutError) throw error
+            if (deps.reauthorize && error instanceof HostRefusalError)
+              throw error
             checkAborted()
             if (
               tokenConsumed &&

@@ -22,11 +22,12 @@ function oc<const D extends ValueDescriptor>(
   value: D,
   defaultValue: ValueOf<D>,
   project: 'allowed' | 'user-only' = 'user-only',
+  hosts: 'opencode' | 'both' = 'opencode',
 ) {
   return {
     value,
     default: defaultValue,
-    hosts: 'opencode',
+    hosts,
     project,
     legacy: [
       { source: 'opencode', path: typeof path === 'string' ? [path] : path },
@@ -34,8 +35,14 @@ function oc<const D extends ValueDescriptor>(
   } as const
 }
 
-function numeric(name: string, min: number, max: number, defaultValue: number) {
-  return oc(name, number({ min, max }), defaultValue)
+function numeric(
+  name: string,
+  min: number,
+  max: number,
+  defaultValue: number,
+  hosts: 'opencode' | 'both' = 'opencode',
+) {
+  return oc(name, number({ min, max }), defaultValue, 'user-only', hosts)
 }
 
 const percent = number({ min: 0, max: 100 })
@@ -45,19 +52,26 @@ const percent = number({ min: 0, max: 100 })
 export const ANTIGRAVITY_SETTINGS = defineSettings({
   plugin: 'antigravity-auth',
   settings: {
-    quiet_mode: oc('quiet_mode', boolean(), false, 'allowed'),
+    quiet_mode: oc('quiet_mode', boolean(), false, 'allowed', 'both'),
     toast_scope: oc(
       'toast_scope',
       oneOf(['root_only', 'all']),
       'root_only',
       'allowed',
+      'both',
     ),
-    debug: oc('debug', boolean(), false),
+    debug: oc('debug', boolean(), false, 'user-only', 'both'),
     debug_tui: oc('debug_tui', boolean(), false),
     // An empty log directory selects the application's default state directory.
-    log_dir: oc('log_dir', string(), ''),
-    keep_thinking: oc('keep_thinking', boolean(), false),
-    thinking_warmup: oc('thinking_warmup', boolean(), false),
+    log_dir: oc('log_dir', string(), '', 'user-only', 'both'),
+    keep_thinking: oc('keep_thinking', boolean(), false, 'user-only', 'both'),
+    thinking_warmup: oc(
+      'thinking_warmup',
+      boolean(),
+      false,
+      'user-only',
+      'both',
+    ),
     cache_warmup_on_switch: oc('cache_warmup_on_switch', boolean(), true),
     session_recovery: oc('session_recovery', boolean(), true, 'allowed'),
     auto_resume: oc('auto_resume', boolean(), true),
@@ -76,6 +90,8 @@ export const ANTIGRAVITY_SETTINGS = defineSettings({
         disk_ttl_seconds: 172800,
         write_interval_seconds: 60,
       },
+      'user-only',
+      'both',
     ),
     empty_response_max_attempts: numeric(
       'empty_response_max_attempts',
@@ -94,12 +110,14 @@ export const ANTIGRAVITY_SETTINGS = defineSettings({
       boolean(),
       true,
       'allowed',
+      'both',
     ),
     claude_prompt_auto_caching: oc(
       'claude_prompt_auto_caching',
       boolean(),
       false,
       'allowed',
+      'both',
     ),
     proactive_token_refresh: oc('proactive_token_refresh', boolean(), true),
     proactive_refresh_buffer_seconds: numeric(
@@ -119,6 +137,7 @@ export const ANTIGRAVITY_SETTINGS = defineSettings({
       0,
       3600,
       300,
+      'both',
     ),
     account_selection_strategy: oc(
       'account_selection_strategy',
@@ -143,14 +162,15 @@ export const ANTIGRAVITY_SETTINGS = defineSettings({
       300,
       60,
     ),
-    failure_ttl_seconds: numeric('failure_ttl_seconds', 60, 7200, 3600),
+    failure_ttl_seconds: numeric('failure_ttl_seconds', 60, 7200, 3600, 'both'),
     default_retry_after_seconds: numeric(
       'default_retry_after_seconds',
       1,
       300,
       60,
+      'both',
     ),
-    request_jitter_max_ms: numeric('request_jitter_max_ms', 0, 5000, 0),
+    request_jitter_max_ms: numeric('request_jitter_max_ms', 0, 5000, 0, 'both'),
     switch_account_delay_ms: numeric('switch_account_delay_ms', 0, 10000, 500),
     soft_quota_threshold_percent: numeric(
       'soft_quota_threshold_percent',
@@ -238,6 +258,8 @@ export const ANTIGRAVITY_SETTINGS = defineSettings({
       ['operator', 'log_level'],
       oneOf(['error', 'warn', 'info', 'debug', 'trace']),
       'info',
+      'user-only',
+      'both',
     ),
     account_models: {
       // common-auth's list descriptor cannot require items. compileModelAccess

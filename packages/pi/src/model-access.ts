@@ -36,6 +36,11 @@ import type {
   ProtectionStore,
   ResolvedProtection,
 } from '@cortexkit/antigravity-auth-core/settings'
+import {
+  defaultPiRequestSettings,
+  type PiRequestSettings,
+  readPiRequestSettings,
+} from './request-settings.ts'
 
 type SettingsModule =
   typeof import('@cortexkit/antigravity-auth-core/common-auth/settings')
@@ -68,6 +73,7 @@ export interface PiModelAccess {
   ready(): Promise<void>
   /** The policy in force; deny-all until `ready` has applied the file. */
   policy(): Pick<ModelAccessPolicy, 'allows'>
+  requestSettings(): PiRequestSettings
   /** One vault account's list as the menu shows it, by base model name. */
   list(routeId: string): AntigravityAccountModelList
   /** The models a list may name, once `ready` has finished. */
@@ -118,6 +124,7 @@ export function createPiModelAccess(
   let starting: Promise<OpenSettings> | undefined
   let protection: ResolvedProtection | undefined
   let policy: Pick<ModelAccessPolicy, 'allows'> = { allows: () => false }
+  let requestSettings = defaultPiRequestSettings
   // Kept across restarts in one process: a value applied earlier still
   // stands in for a file that later becomes unusable.
   let lastApplied: AppliedProtection = {}
@@ -164,6 +171,7 @@ export function createPiModelAccess(
   const apply = async (opened: OpenSettings) => {
     const { rules, handle, file, store } = opened
     await handle.read()
+    requestSettings = await readPiRequestSettings(handle, file, requestSettings)
     const accountModels = await handle.get('account_models', { host: 'pi' })
     protection = rules.resolveProtection({
       accountModels,
@@ -225,6 +233,7 @@ export function createPiModelAccess(
       await ready()
     },
     policy: () => policy,
+    requestSettings: () => requestSettings,
     list(routeId) {
       if (!protection || !current) return null
       const lists = protection.accountModels

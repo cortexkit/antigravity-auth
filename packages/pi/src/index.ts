@@ -31,6 +31,11 @@ import { rememberPackedRefresh } from './credential-cache.ts'
 import { createPiModelAccess, piModelAccessStatePath } from './model-access.ts'
 import { getPiAntigravityVaultDir } from './paths.ts'
 import {
+  createPiRequestEngine,
+  PiReauthorizeError,
+  type PiRequestEngine,
+} from './request-engine.ts'
+import {
   createCortexKitAntigravityVaultStream,
   streamCortexKitAntigravity,
 } from './stream.ts'
@@ -43,8 +48,8 @@ import {
 } from './vault-setup.ts'
 import {
   createPiVaultAccountsPort,
+  createPiVaultRequest,
   createPiVaultRuntime,
-  createPiVaultSend,
   type PiVaultSeams,
 } from './vault-source.ts'
 
@@ -144,6 +149,7 @@ function publicModels(): NonNullable<ProviderConfig['models']> {
 function localProviderConfig(
   models: NonNullable<ProviderConfig['models']>,
   assertLocalAdmission: () => Promise<void>,
+  engine: PiRequestEngine,
 ): ProviderConfig {
   return {
     name: 'Google Antigravity (CortexKit OAuth)',
@@ -158,7 +164,14 @@ function localProviderConfig(
       },
       refreshToken: async (credentials) => {
         await assertLocalAdmission()
-        return refreshAntigravityCredentials(credentials)
+        try {
+          return await refreshAntigravityCredentials(credentials)
+        } catch (error) {
+          engine.logger.error('Native Google login refresh failed', {
+            error: error instanceof Error ? error.name : 'unknown',
+          })
+          throw new PiReauthorizeError()
+        }
       },
       getApiKey: (credentials) => {
         // Bridge the packed refresh (refreshToken|projectId|managedProjectId)
@@ -168,20 +181,28 @@ function localProviderConfig(
       },
     },
     streamSimple: (model, context, options) =>
-      streamCortexKitAntigravity(model, context, options, async () => {
-        await assertLocalAdmission()
-        // Pi resolves an api_key slot verbatim, even when it is our vault marker.
-        // Keep login available, but never send the marker as a Google bearer.
-        if (options?.apiKey === CUSTODY_PROVIDER_KEY_MARKER)
-          throw new PiVaultSetupError(MISSING_GOOGLE_LOGIN_MESSAGE)
-      }),
+      streamCortexKitAntigravity(
+        model,
+        context,
+        options,
+        async () => {
+          await assertLocalAdmission()
+          // Pi resolves an api_key slot verbatim, even when it is our vault marker.
+          // Keep login available, but never send the marker as a Google bearer.
+          if (options?.apiKey === CUSTODY_PROVIDER_KEY_MARKER)
+            throw new PiVaultSetupError(MISSING_GOOGLE_LOGIN_MESSAGE)
+        },
+        undefined,
+        engine,
+      ),
   }
 }
 
 /** Custody (or unreadable mode): no OAuth, so Pi never refreshes locally. */
 function custodyProviderConfig(
   models: NonNullable<ProviderConfig['models']>,
-  send: ReturnType<typeof createPiVaultSend>,
+  select: ReturnType<typeof createPiVaultRequest>,
+  engine: PiRequestEngine,
 ): ProviderConfig {
   return {
     name: 'Google Antigravity (CortexKit vault)',
@@ -190,8 +211,10 @@ function custodyProviderConfig(
     models,
     apiKey: CUSTODY_PROVIDER_KEY_MARKER,
     streamSimple: createCortexKitAntigravityVaultStream(
-      send,
+      select,
       CUSTODY_PROVIDER_KEY_MARKER,
+      undefined,
+      engine,
     ),
   }
 }
@@ -270,15 +293,29 @@ export async function registerCortexKitPiAntigravity(
   // Open and watch the settings file now; sends wait for this start and
   // then read only the policy in memory.
   void accountModels.ready().catch(() => {})
-  const send = createPiVaultSend({ ...vault.requestPath, accountModels })
+  let notify:
+    | NonNullable<NonNullable<PiVaultSeams['requestEngine']>['notify']>
+    | undefined
+  const engine = createPiRequestEngine({
+    ...seams.requestEngine,
+    ready: accountModels.ready,
+    settings: accountModels.requestSettings,
+    logDirectory: join(seams.vaultDir ?? getPiAntigravityVaultDir(), 'logs'),
+    notify: (message, variant) =>
+      (seams.requestEngine?.notify ?? notify)?.(message, variant),
+  })
+  const select = createPiVaultRequest({ ...vault.requestPath, accountModels })
 
+  let wasLocal: boolean | undefined
   const register = (mode: PiVaultModeRead) => {
     const local = mode.ok && mode.record.mode === 'local'
+    if (wasLocal !== local) engine.resetAccount()
+    wasLocal = local
     pi.registerProvider(
       ANTIGRAVITY_PROVIDER_ID,
       local
-        ? localProviderConfig(models, assertLocalAdmission)
-        : custodyProviderConfig(models, send),
+        ? localProviderConfig(models, assertLocalAdmission, engine)
+        : custodyProviderConfig(models, select, engine),
     )
   }
   const currentMode = async (): Promise<PiVaultModeRecord> => {
@@ -373,6 +410,10 @@ export async function registerCortexKitPiAntigravity(
   // /antigravity menu below, which holds the remedies, stays registered.
   await synchronizeSlot().catch(() => {})
   pi.on?.('session_start', async (_event, context) => {
+    notify = context.hasUI
+      ? (message, variant) =>
+          context.ui.notify(message, variant === 'success' ? 'info' : variant)
+      : undefined
     refreshRegistry = () => context.modelRegistry.refresh()
     try {
       await synchronizeSlot()
@@ -381,10 +422,15 @@ export async function registerCortexKitPiAntigravity(
     }
   })
   pi.on?.('session_shutdown', async () => {
+    notify = undefined
     // Both start at once, so the vault's disposal is not delayed; the
     // settings watcher must be closed before the next session's factory
     // opens its own.
-    await Promise.all([vault.dispose(), accountModels.dispose()])
+    await Promise.all([
+      engine.dispose(),
+      vault.dispose(),
+      accountModels.dispose(),
+    ])
   })
 
   const accounts = createPiVaultAccountsPort(vault.requestPath)

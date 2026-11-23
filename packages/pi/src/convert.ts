@@ -1,34 +1,28 @@
-import {
-  rewriteHarnessIdentity,
-  toGeminiSchema,
-} from '@cortexkit/antigravity-auth-core'
 import type {
   AssistantMessage,
   Context,
   ImageContent,
   Message,
-  TextContent,
   Tool,
   ToolResultMessage,
 } from '@earendil-works/pi-ai'
-// Namespace import so the transcript helpers can be feature-detected: a named
-// import of an export that an older installed pi-ai lacks fails at module link
-// time and would stop the extension from loading at all.
+// Older Pi versions don't export the transcript helpers.
 import * as piAi from '@earendil-works/pi-ai'
+import { googleToolParameters } from './google-tool-schema.ts'
 
-/** Gemini `contents` part shapes. */
+type InlineImage = { inlineData: { mimeType: string; data: string } }
 type GeminiPart =
   | { text: string; thought?: boolean; thoughtSignature?: string }
-  | { inlineData: { mimeType: string; data: string } }
+  | InlineImage
   | {
-      functionCall: { name: string; args: Record<string, unknown>; id: string }
+      functionCall: { name: string; args: Record<string, unknown> }
       thoughtSignature?: string
     }
   | {
       functionResponse: {
         name: string
         response: Record<string, unknown>
-        id: string
+        parts?: InlineImage[]
       }
     }
 
@@ -37,102 +31,108 @@ interface GeminiContent {
   parts: GeminiPart[]
 }
 
-interface GeminiTool {
-  functionDeclarations: Array<{
-    name: string
-    description: string
-    parameters?: unknown
-  }>
-}
-
 export interface GeminiRequest {
   contents: GeminiContent[]
-  tools?: GeminiTool[]
-  systemInstruction?: { role: 'system'; parts: GeminiPart[] }
+  systemInstruction?: { parts: Array<{ text: string }> }
+  tools?: Array<{
+    functionDeclarations: Array<{
+      name: string
+      description: string
+      parameters?: unknown
+    }>
+  }>
+  generationConfig?: Record<string, unknown>
 }
 
-function sanitize(text: string): string {
-  return text.replace(/[\uD800-\uDFFF]/gu, '\uFFFD')
-}
-
-function convertUserParts(
-  content: Array<TextContent | ImageContent>,
-): GeminiPart[] {
-  const parts: GeminiPart[] = []
-  for (const item of content) {
-    if (item.type === 'text') {
-      if (item.text) parts.push({ text: sanitize(item.text) })
-    } else if (item.type === 'image' && item.data) {
-      parts.push({ inlineData: { mimeType: item.mimeType, data: item.data } })
-    }
+function inlineImage(image: ImageContent): InlineImage {
+  return {
+    inlineData: {
+      mimeType: image.mimeType === 'image/*' ? 'image/jpeg' : image.mimeType,
+      data: image.data,
+    },
   }
-  return parts
-}
-
-function convertAssistantParts(
-  message: AssistantMessage,
-  preserveSignedHistory: boolean,
-): GeminiPart[] {
-  const parts: GeminiPart[] = []
-  for (const block of message.content) {
-    if (block.type === 'thinking') {
-      if (preserveSignedHistory && block.thinking) {
-        parts.push({
-          text: sanitize(block.thinking),
-          thought: true,
-          ...(block.thinkingSignature
-            ? { thoughtSignature: block.thinkingSignature }
-            : {}),
-        })
-      }
-    } else if (block.type === 'text' && block.text.trim()) {
-      parts.push({
-        text: sanitize(block.text),
-        ...(preserveSignedHistory && block.textSignature
-          ? { thoughtSignature: block.textSignature }
-          : {}),
-      })
-    } else if (block.type === 'toolCall') {
-      parts.push({
-        functionCall: {
-          name: block.name,
-          args: (block.arguments ?? {}) as Record<string, unknown>,
-          id: block.id,
-        },
-        ...(preserveSignedHistory && block.thoughtSignature
-          ? { thoughtSignature: block.thoughtSignature }
-          : {}),
-      })
-    }
-  }
-  return parts
-}
-
-function toolResultResponse(
-  message: ToolResultMessage,
-): Record<string, unknown> {
-  const text = message.content
-    .filter((item): item is TextContent => item.type === 'text')
-    .map((item) => item.text)
-    .join('\n')
-  if (message.isError) {
-    return { error: text || 'Error' }
-  }
-  return { output: text }
 }
 
 export interface BuildGeminiRequestOptions {
   provider?: string
   model?: string
+  generationConfig?: Record<string, unknown>
 }
 
-function isSameTargetModel(
+function convertAssistantParts(
   message: AssistantMessage,
-  options: BuildGeminiRequestOptions | undefined,
-): boolean {
-  if (!options?.provider || !options.model) return true
-  return (
-    message.provider === options.provider && message.model === options.model
+  options?: BuildGeminiRequestOptions,
+): GeminiPart[] {
+  const sameModel =
+    !options?.model ||
+    !options.provider ||
+    (message.provider === options.provider && message.model === options.model)
+  const parts: GeminiPart[] = []
+  for (const block of message.content) {
+    switch (block.type) {
+      case 'thinking':
+        if (sameModel && block.thinking && block.thinkingSignature)
+          parts.push({
+            text: block.thinking,
+            thought: true,
+            thoughtSignature: block.thinkingSignature,
+          })
+        break
+      case 'text':
+        if (block.text.length > 0)
+          parts.push({
+            text: block.text,
+            thoughtSignature: sameModel ? block.textSignature : undefined,
+          })
+        break
+      case 'toolCall':
+        parts.push({
+          functionCall: { name: block.name, args: block.arguments ?? {} },
+          thoughtSignature: sameModel ? block.thoughtSignature : undefined,
+        })
+        break
+    }
+  }
+  return parts
+}
+
+// @ai-sdk/google 3.0.73, src/convert-to-google-generative-ai-messages.ts:
+// model IDs outside its gemini-3 prefix carry tool-result images as sibling parts.
+function toolResultParts(
+  message: ToolResultMessage,
+  model?: string,
+): GeminiPart[] {
+  const name = message.toolName
+  const response = (content: string, parts?: InlineImage[]): GeminiPart => ({
+    functionResponse: {
+      name,
+      response: { name, content },
+      ...(parts?.length && { parts }),
+    },
+  })
+  if (model?.startsWith('gemini-3')) {
+    const texts = message.content.flatMap((item) =>
+      item.type === 'text' ? [item.text] : [],
+    )
+    const images = message.content.flatMap((item) =>
+      item.type === 'image' ? [inlineImage(item)] : [],
+    )
+    return [
+      response(
+        texts.length ? texts.join('\n') : 'Tool executed successfully.',
+        images,
+      ),
+    ]
+  }
+  return message.content.flatMap((item): GeminiPart[] =>
+    item.type === 'text'
+      ? [response(item.text)]
+      : [
+          inlineImage(item),
+          {
+            text: 'Tool executed successfully and returned this image as a response',
+          },
+        ],
   )
 }
 
@@ -141,98 +141,36 @@ function convertMessages(
   options?: BuildGeminiRequestOptions,
 ): GeminiContent[] {
   const contents: GeminiContent[] = []
-  const callMatchesTarget = new Map<string, boolean>()
-
+  let results: GeminiContent | undefined
   for (const message of messages) {
-    if (message?.role !== 'assistant') continue
-    const matchesTarget = isSameTargetModel(message, options)
-    for (const block of message.content) {
-      if (block.type === 'toolCall') {
-        callMatchesTarget.set(block.id, matchesTarget)
-      }
-    }
-  }
-
-  for (const message of messages) {
-    if (!message) continue
-
-    // System messages carry the prompt and tool state, which
-    // resolveInstructionState replays into systemInstruction and tools.
-    if (message.role === 'system') continue
-
-    if (message.role === 'user') {
-      const parts =
-        typeof message.content === 'string'
-          ? message.content.trim()
-            ? [{ text: sanitize(message.content) }]
-            : []
-          : convertUserParts(
-              message.content as Array<TextContent | ImageContent>,
-            )
-      if (parts.length) contents.push({ role: 'user', parts })
-      continue
-    }
-
-    if (message.role === 'assistant') {
-      const parts = convertAssistantParts(
-        message,
-        isSameTargetModel(message, options),
-      )
-      if (parts.length) contents.push({ role: 'model', parts })
-      continue
-    }
-
+    if (!message || message.role === 'system') continue
     if (message.role === 'toolResult') {
-      const role =
-        callMatchesTarget.get(message.toolCallId) === true &&
-        !options?.model?.replace(/^antigravity-/, '').startsWith('claude-')
-          ? 'model'
-          : 'user'
-      const part: GeminiPart = {
-        functionResponse: {
-          name: message.toolName,
-          response: toolResultResponse(message),
-          id: message.toolCallId,
-        },
+      if (!results) {
+        results = { role: 'user', parts: [] }
+        contents.push(results)
       }
-      // Consecutive function responses share a turn, with the target's role.
-      const last = contents[contents.length - 1]
-      if (
-        last &&
-        last.role === role &&
-        last.parts.every((p) => 'functionResponse' in p)
-      ) {
-        last.parts.push(part)
-      } else {
-        contents.push({ role, parts: [part] })
-      }
+      results.parts.push(...toolResultParts(message, options?.model))
+      continue
+    }
+    results = undefined
+    if (message.role === 'assistant') {
+      contents.push({
+        role: 'model',
+        parts: convertAssistantParts(message, options),
+      })
+    } else if (message.role === 'user') {
+      contents.push({
+        role: 'user',
+        parts:
+          typeof message.content === 'string'
+            ? [{ text: message.content }]
+            : message.content.map((item) =>
+                item.type === 'image' ? inlineImage(item) : { text: item.text },
+              ),
+      })
     }
   }
-
   return contents
-}
-
-function convertTools(
-  tools: Tool[] | undefined,
-  model?: string,
-): GeminiTool[] | undefined {
-  if (!tools?.length) return undefined
-  return tools.map((tool) => ({
-    // Match the captured agy wire format: field name is `parameters`
-    // (not `parametersJsonSchema`) and schemas are sanitized to Gemini shape
-    // (UPPERCASE types, unsupported keywords stripped) via core's toGeminiSchema.
-    functionDeclarations: [
-      {
-        name: tool.name,
-        description: tool.description,
-        parameters: toGeminiSchema(tool.parameters, {
-          moveNumericConstraintsToDescription: model
-            ?.replace(/^antigravity-/, '')
-            .startsWith('gpt-oss-'),
-        }),
-      },
-    ],
-  }))
 }
 
 interface InstructionState {
@@ -276,31 +214,28 @@ function resolveInstructionState(context: Context): InstructionState {
   }
 }
 
-/**
- * Convert a pi request context into a Gemini `generateContent` request body
- * (the inner `request` object of the Antigravity envelope). Accepts both the
- * transcript form Pi 0.86+ passes to providers and the flat `Context` of
- * older runtimes.
- */
+/** Build Google SDK ingress JSON; the engine performs all AGY transformations. */
 export function buildGeminiRequest(
   context: Context,
   options?: BuildGeminiRequestOptions,
 ): GeminiRequest {
-  const request: GeminiRequest = {
-    contents: convertMessages(context.messages, options),
-  }
-
   const { systemPrompt, tools } = resolveInstructionState(context)
-
-  const geminiTools = convertTools(tools, options?.model)
-  if (geminiTools) request.tools = geminiTools
-
-  if (systemPrompt.trim()) {
-    request.systemInstruction = {
-      role: 'system',
-      parts: [{ text: rewriteHarnessIdentity(sanitize(systemPrompt)) }],
-    }
+  return {
+    generationConfig: options?.generationConfig ?? {},
+    contents: convertMessages(context.messages, options),
+    systemInstruction: systemPrompt
+      ? { parts: [{ text: systemPrompt }] }
+      : undefined,
+    tools: tools.length
+      ? [
+          {
+            functionDeclarations: tools.map((tool) => ({
+              name: tool.name,
+              description: tool.description ?? '',
+              parameters: googleToolParameters(tool.parameters),
+            })),
+          },
+        ]
+      : undefined,
   }
-
-  return request
 }

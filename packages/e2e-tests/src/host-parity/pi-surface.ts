@@ -1,3 +1,7 @@
+import { mkdtemp, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { loadCommonAuthClaustrum } from '@cortexkit/antigravity-auth-core'
+import type { ClaustrumScopedClient } from '@cortexkit/antigravity-auth-core/common-auth/claustrum'
 import {
   type Api,
   type Context,
@@ -5,19 +9,24 @@ import {
   type Model,
   type SimpleStreamOptions,
 } from '@earendil-works/pi-ai'
-import { rememberPackedRefresh } from '../../../pi/src/credential-cache.ts'
-import type * as PiStream from '../../../pi/src/stream.ts'
+import type { ProviderConfig } from '@earendil-works/pi-coding-agent'
+import {
+  CUSTODY_PROVIDER_KEY_MARKER,
+  registerCortexKitPiAntigravity,
+} from '../../../pi/src/index.ts'
+import {
+  PI_ANTIGRAVITY_ENROLLMENT_NAME,
+  PiVaultSetup,
+} from '../../../pi/src/vault-setup.ts'
 import type { Conversation, Custody, Part } from './cases.ts'
 import type { Environment } from './environment.ts'
-import { credential, placeholder } from './fixtures.ts'
+import { credential, epoch } from './fixtures.ts'
 import {
   recordFailure,
   recordSignature,
   surface,
   terminal,
 } from './native-google.ts'
-
-let activation = 0
 
 function content(part: Part): Record<string, unknown> {
   switch (part.type) {
@@ -102,24 +111,124 @@ export async function piAdapter(
   custody: Custody,
   transcript: boolean,
 ) {
-  // Pi's active module holds the baseline session store. Import a separate
-  // activation for a separate scenario, not for each request in a scenario.
-  const module = (await import(
-    `../../../pi/src/stream.ts?host-parity=${++activation}`
-  )) as typeof PiStream
-  rememberPackedRefresh(
-    credential.accessToken,
-    `fixture-refresh|${credential.projectId}|${credential.projectId}`,
-  )
-  const stream =
-    custody === 'local'
-      ? module.streamCortexKitAntigravity
-      : module.createCortexKitAntigravityVaultStream(
-          (dispatch, signal) => dispatch(credential, signal),
-          placeholder,
-        )
+  const root = process.env.ANTIGRAVITY_TEST_ROOT
+  if (!root) throw new Error('Host parity requires the root test preload')
+  const dir = await mkdtemp(join(root, 'parity-pi-'))
+  const modeFile = join(dir, 'pi-mode.json')
+  const settingsFile = join(dir, 'settings.jsonc')
+  const nativeAuthPath = join(dir, 'auth.json')
+  const native = {
+    type: 'oauth' as const,
+    access: credential.accessToken,
+    refresh: `fixture-refresh|${credential.projectId}|${credential.projectId}`,
+    expires: epoch + 86_400_000,
+  }
+  const connectEnrollment = async () => ({
+    enrollPropose: async () => ({ requestId: 'parity-enrollment' }),
+    enrollPoll: async () => ({
+      status: 'approved' as const,
+      name: PI_ANTIGRAVITY_ENROLLMENT_NAME,
+      token: 'b'.repeat(64),
+      tokenGeneration: 1,
+    }),
+    close() {},
+  })
+  const client: ClaustrumScopedClient = {
+    listScoped: async () => ({
+      view: 'parity-roster',
+      rows: [
+        {
+          id: 'parity-credential',
+          accountId: 'parity-identity',
+          categories: ['antigravity-native'],
+          credentialType: 'oauth',
+          serves: [],
+          providerIds: [],
+          refreshAdapter: 'antigravity',
+          state: 'active',
+          recordVersion: 1,
+          operations: ['read'],
+          createdAtMs: null,
+        },
+      ],
+      grants: undefined,
+      grantTuples: undefined,
+    }),
+    getScoped: async () => ({
+      material: credential.accessToken,
+      projectId: credential.projectId,
+      accountId: 'parity-identity',
+      credentialId: 'parity-credential',
+      recordVersion: 1,
+      expiresAtMs: null,
+    }),
+    reportAuthFailureScoped: async () => {},
+    reportCondition: async ({ reason, providerStatus, actionUrl }) => {
+      environment.reports.push({
+        condition: { reason, providerStatus, ...(actionUrl && { actionUrl }) },
+      })
+    },
+    close() {},
+  }
+  const hostKey = Symbol.for('cortexkit.vault')
+  const priorHost = Reflect.getOwnPropertyDescriptor(globalThis, hostKey)
+  if (custody === 'host')
+    Reflect.defineProperty(globalThis, hostKey, {
+      configurable: true,
+      value: () => client,
+    })
+  let provider: ProviderConfig | undefined
+  let stop: (() => Promise<void>) | undefined
+  const initialize = async (keepThinking = false) => {
+    await Bun.write(
+      settingsFile,
+      JSON.stringify({ keep_thinking: keepThinking }),
+    )
+    if (custody === 'local')
+      await Bun.write(nativeAuthPath, JSON.stringify({ google: native }))
+    if (custody === 'vault') {
+      const setup = new PiVaultSetup({
+        claustrum: await loadCommonAuthClaustrum(),
+        stateDir: dir,
+        modeFile,
+        readHostSlot: () => undefined,
+        connectEnrollment,
+      })
+      const enrolled = await setup.connectStep()
+      if (enrolled.state !== 'approved')
+        throw new Error(`Pi parity enrollment: ${enrolled.state}`)
+    }
+    await registerCortexKitPiAntigravity(
+      {
+        registerProvider(_name, config) {
+          provider = config
+        },
+        registerCommand() {},
+        on(event: string, handler: () => Promise<void>) {
+          if (event === 'session_shutdown') stop = handler
+        },
+      } as Parameters<typeof registerCortexKitPiAntigravity>[0],
+      {
+        vaultDir: dir,
+        modeFile,
+        rosterFile: join(dir, 'roster.json'),
+        nativeAuthPath,
+        settingsFile,
+        readHostSlot: () => (custody === 'local' ? native : undefined),
+        connect: async () => client,
+        connectEnrollment,
+        requestEngine: {
+          notify: (message) => environment.notices.push(message),
+        },
+      },
+    )
+  }
   return {
     async run(input: Conversation, session?: string, signal?: AbortSignal) {
+      if (!provider) await initialize(input.options.keepThinking)
+      if (!provider?.streamSimple)
+        throw new Error('Pi did not register its stream')
+      const stream = provider.streamSimple
       const output = surface()
       const model = {
         id: input.model,
@@ -133,7 +242,10 @@ export async function piAdapter(
       } as Model<Api>
       const { level, budget, temperature, topP, maxTokens } = input.options
       const options = {
-        apiKey: custody === 'local' ? credential.accessToken : placeholder,
+        apiKey:
+          custody === 'local'
+            ? provider.oauth?.getApiKey(native)
+            : CUSTODY_PROVIDER_KEY_MARKER,
         sessionId: session,
         signal,
         reasoning: level,
@@ -212,6 +324,13 @@ export async function piAdapter(
       }
       return output
     },
-    async dispose() {},
+    async dispose() {
+      await stop?.()
+      if (custody === 'host') {
+        if (priorHost) Reflect.defineProperty(globalThis, hostKey, priorHost)
+        else Reflect.deleteProperty(globalThis, hostKey)
+      }
+      await rm(dir, { recursive: true, force: true })
+    },
   }
 }

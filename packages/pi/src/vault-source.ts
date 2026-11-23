@@ -21,6 +21,7 @@ import {
   loadCommonAuthClaustrum,
   type VaultGrantReach,
   type VaultRouteRef,
+  type VaultSendAdmission,
   vaultAuthority,
 } from '@cortexkit/antigravity-auth-core'
 import type {
@@ -37,7 +38,7 @@ import {
   getPiAntigravityVaultModeFile,
   getPiAntigravityVaultRosterFile,
 } from './paths.ts'
-import type { AntigravityVaultSend } from './stream.ts'
+import type { PiVaultSelection } from './request-engine.ts'
 import {
   PI_ANTIGRAVITY_ENROLLMENT_NAME,
   PI_ANTIGRAVITY_VAULT_HOST,
@@ -61,7 +62,22 @@ export type PiVaultAccountSource = Pick<
   | 'grantReach'
   | 'emptyRosterCause'
   | 'dispose'
->
+> &
+  Partial<
+    Pick<
+      AntigravityVaultAccountSource,
+      'admit' | 'reportServedStatus' | 'reportCondition' | 'clearCondition'
+    >
+  >
+
+type AntigravityVaultSend = (
+  dispatch: (
+    credential: VaultSendAdmission,
+    signal?: AbortSignal,
+  ) => Promise<Response>,
+  signal: AbortSignal,
+  modelId?: string,
+) => Promise<Response>
 
 type PiVaultRouteRef = VaultRouteRef
 
@@ -165,6 +181,64 @@ export function createPiVaultSend(
   }
 }
 
+/** Bind to the current route and record version, not to a reusable bearer. */
+export function createPiVaultRequest(options: PiVaultRequestPathOptions) {
+  return async (
+    signal: AbortSignal,
+    modelId?: string,
+  ): Promise<PiVaultSelection> => {
+    const { record, source } = await openCustody(options)
+    signal.throwIfAborted()
+    if (!source.routes().length) await source.refresh()
+    signal.throwIfAborted()
+    const route = selectRoute(source.routes(), record.routeId, () =>
+      source.emptyRosterCause(),
+    )
+    const admit = async (signal?: AbortSignal) => {
+      const mode = requireCustody(await options.readMode())
+      if (mode.routeId !== record.routeId)
+        throw new PiVaultSendError(
+          'The chosen Antigravity account changed. Start the request again.',
+        )
+      signal?.throwIfAborted()
+      if (options.accountModels) {
+        await options.accountModels.ready()
+        signal?.throwIfAborted()
+        if (
+          !options.accountModels.policy().allows(route.routeId, modelId ?? '')
+        )
+          throw new PiVaultSendError(PI_ACCOUNT_MODELS_REFUSAL)
+      }
+      if (!source.admit)
+        throw new PiVaultSendError(
+          'Antigravity could not admit the chosen vault account.',
+        )
+      const receipt = await source.admit(route, signal)
+      return {
+        fromKeptReceipt: receipt.fromKeptReceipt,
+        credentialId: receipt.credentialId,
+        accountIdentity: receipt.accountIdentity,
+        recordVersion: receipt.recordVersion,
+        accessToken: receipt.accessToken,
+        projectId: receipt.projectId,
+        report401: async (status: number) =>
+          source.reportServedStatus?.(receipt, status, 'direct'),
+        ...(source.reportCondition && {
+          reportCondition: (
+            condition: Parameters<
+              AntigravityVaultAccountSource['reportCondition']
+            >[1],
+          ) => source.reportCondition!(receipt, condition),
+        }),
+        ...(source.clearCondition && {
+          clearCondition: () => source.clearCondition!(receipt),
+        }),
+      }
+    }
+    return { route, first: await admit(signal), admit }
+  }
+}
+
 /** Vault accounts for the setup command, with declined ones marked. */
 export function createPiVaultAccountsPort(
   options: PiVaultRequestPathOptions,
@@ -255,6 +329,11 @@ export interface PiVaultSeams {
   loadCommands?: () => Promise<CommonAuthCommandsModule>
   /** The user settings file holding `account_models`. */
   settingsFile?: string
+  /** In-process request effects for the registered provider. */
+  requestEngine?: Pick<
+    import('./request-engine.ts').PiRequestEngineOptions,
+    'routing' | 'transport' | 'sessions' | 'notify'
+  >
 }
 
 export interface PiVaultRuntime {

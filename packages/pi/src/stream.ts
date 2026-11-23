@@ -1,34 +1,15 @@
 import {
-  type AgyRequestScope,
-  AgyRequestSessionStore,
-  ANTIGRAVITY_ENDPOINT,
-  appendAgyContinuation,
-  applyAgyNativeGenerationConfig,
-  buildAgyAgentRequestMetadata,
-  buildAntigravityHarnessUserAgent,
-  createLogger,
-  ensureProjectContext,
-  fetchWithAgyCliTransport,
-  forwardAbort,
   HostRefusalError,
   hostFailure,
   isGeminiArgonModel,
   isGeminiCarbonModel,
   isRetiredAgyModel,
-  isUpstreamFailure,
-  markUpstreamFailure,
-  orderAgyRequestPayloadInPlace,
   type PreResponseClock,
-  PreResponseDeadline,
-  parseRateLimitReason,
-  parseRefreshParts,
   RETIRED_AGY_MODEL_MESSAGE,
-  redactCredentialError,
-  redactCredentialText,
   resolveAntigravityModel,
   supportsGeminiXHigh,
-  UNCONFIRMED_RATE_LIMIT_MESSAGE,
 } from '@cortexkit/antigravity-auth-core'
+import { readRequestEvents } from '@cortexkit/antigravity-auth-core/engine'
 import {
   type Api,
   type AssistantMessage,
@@ -36,337 +17,16 @@ import {
   type Context,
   calculateCost,
   createAssistantMessageEventStream,
-  type JsonObject,
   type Model,
   type SimpleStreamOptions,
-  type StopReason,
-  type TextContent,
-  type ThinkingContent,
   type ThinkingLevel,
-  type ToolCall,
 } from '@earendil-works/pi-ai'
-
 import { buildGeminiRequest } from './convert.ts'
-import { getPackedRefresh } from './credential-cache.ts'
-
-const STREAM_ACTION = 'streamGenerateContent'
-const FALLBACK_SESSION_KEY = '__default__'
-const TRAILING_USAGE_TIMEOUT_MS = 1_000
-const requestSessions = new AgyRequestSessionStore()
-const failureLog = createLogger('pi-stream')
-
-async function nextWithTimeout<T>(
-  iterator: AsyncIterator<T>,
-  timeoutMs: number,
-  onTimeout: () => void,
-): Promise<IteratorResult<T> | undefined> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  try {
-    return await Promise.race([
-      iterator.next(),
-      new Promise<undefined>((resolve) => {
-        timer = setTimeout(() => {
-          onTimeout()
-          resolve(undefined)
-        }, timeoutMs)
-      }),
-    ])
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
-}
-
-// Mirrors Pi 1.6.0's mapStopReason in @earendil-works/pi-ai/dist/api/google-shared.js
-// (lines 440–469), which maps CONTINUATION to length beside MAX_TOKENS.
-// Only name known reasons in errors.
-const GOOGLE_ERROR_FINISH_REASONS = new Set([
-  'BLOCKLIST',
-  'PROHIBITED_CONTENT',
-  'SPII',
-  'SAFETY',
-  'IMAGE_SAFETY',
-  'IMAGE_PROHIBITED_CONTENT',
-  'IMAGE_RECITATION',
-  'IMAGE_OTHER',
-  'RECITATION',
-  'FINISH_REASON_UNSPECIFIED',
-  'OTHER',
-  'LANGUAGE',
-  'MALFORMED_FUNCTION_CALL',
-  'UNEXPECTED_TOOL_CALL',
-  'TOO_MANY_TOOL_CALLS',
-  'NO_IMAGE',
-])
-
-function mapFinishReason(reason: string): StopReason {
-  switch (reason) {
-    case 'STOP':
-      return 'stop'
-    case 'MAX_TOKENS':
-    case 'CONTINUATION':
-      return 'length'
-    default:
-      return 'error'
-  }
-}
-
-function createOutput(model: Model<Api>): AssistantMessage {
-  return {
-    role: 'assistant',
-    content: [],
-    api: model.api,
-    provider: model.provider,
-    model: model.id,
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: 'stop',
-    timestamp: Date.now(),
-  }
-}
-
-interface GeminiUsageMetadata {
-  promptTokenCount?: number
-  candidatesTokenCount?: number
-  cachedContentTokenCount?: number
-  thoughtsTokenCount?: number
-  totalTokenCount?: number
-}
-
-interface GeminiStreamChunk {
-  candidates?: Array<{
-    content?: { role?: string; parts?: GeminiResponsePart[] }
-    finishReason?: string
-  }>
-  usageMetadata?: GeminiUsageMetadata
-  error?: unknown
-  promptFeedback?: unknown
-}
-
-function asRecord(value: unknown): Record<string, unknown> | undefined {
-  return value !== null && typeof value === 'object'
-    ? (value as Record<string, unknown>)
-    : undefined
-}
-
-function describeEmbeddedStreamFailure(
-  chunk: GeminiStreamChunk,
-): string | undefined {
-  if (chunk.error !== undefined) {
-    const error = asRecord(chunk.error)
-    if (!error) {
-      const detail = typeof chunk.error === 'string' ? `: ${chunk.error}` : ''
-      return `Antigravity stream error${detail}`
-    }
-
-    const labels: string[] = []
-    if (typeof error.status === 'string') labels.push(error.status)
-    if (typeof error.code === 'number' || typeof error.code === 'string') {
-      labels.push(`code ${String(error.code)}`)
-    }
-    const details = Array.isArray(error.details) ? error.details : []
-    const reason = details
-      .map((detail) => asRecord(detail)?.reason)
-      .find((value): value is string => typeof value === 'string')
-    if (reason && !labels.includes(reason)) labels.push(reason)
-
-    const label = labels.length > 0 ? ` (${labels.join(', ')})` : ''
-    const message =
-      typeof error.message === 'string' && error.message.length > 0
-        ? `: ${error.message}`
-        : ''
-    return `Antigravity stream error${label}${message}`
-  }
-
-  const promptFeedback = asRecord(chunk.promptFeedback)
-  if (!promptFeedback) return undefined
-  const reason =
-    typeof promptFeedback.blockReason === 'string'
-      ? promptFeedback.blockReason
-      : undefined
-  const message =
-    typeof promptFeedback.blockReasonMessage === 'string'
-      ? promptFeedback.blockReasonMessage
-      : undefined
-  if (!reason && !message) return undefined
-
-  return `Antigravity prompt blocked${reason ? ` (${reason})` : ''}${message ? `: ${message}` : ''}`
-}
-
-/**
- * Antigravity wraps each streamGenerateContent SSE chunk under a `response`
- * key: `data: {"response": {"candidates": [...], "usageMetadata": {...}}}`.
- * Unwrap it so downstream sees the plain Gemini chunk. MITM-verified against
- * agy 1.0.4 on 2026-06-13.
- */
-function unwrapChunk(raw: unknown): GeminiStreamChunk {
-  if (raw && typeof raw === 'object' && 'response' in raw) {
-    const inner = (raw as { response?: unknown }).response
-    if (inner && typeof inner === 'object') {
-      return inner as GeminiStreamChunk
-    }
-  }
-  return raw as GeminiStreamChunk
-}
-
-export interface GeminiResponsePart {
-  text?: string
-  thought?: boolean
-  thoughtSignature?: string
-  functionCall?: { name?: string; args?: JsonObject; id?: string }
-}
-
-export interface GeminiToolCallState {
-  pendingThoughtSignature?: string
-}
-
-export function convertGeminiToolCallPart(
-  part: GeminiResponsePart,
-  state: GeminiToolCallState,
-): ToolCall | undefined {
-  // Antigravity emits a batch signature on a preceding empty thought part;
-  // native replay attaches it to the first function call in that batch.
-  if (part.thought && !part.text && part.thoughtSignature) {
-    state.pendingThoughtSignature = part.thoughtSignature
-  }
-
-  if (!part.functionCall) return undefined
-
-  const thoughtSignature =
-    part.thoughtSignature ?? state.pendingThoughtSignature
-  state.pendingThoughtSignature = undefined
-
-  return {
-    type: 'toolCall',
-    id: part.functionCall.id ?? `call_${crypto.randomUUID()}`,
-    name: part.functionCall.name ?? '',
-    arguments: part.functionCall.args ?? {},
-    ...(thoughtSignature ? { thoughtSignature } : {}),
-  }
-}
-
-export function updateUsage(
-  model: Model<Api>,
-  output: AssistantMessage,
-  usage?: GeminiUsageMetadata,
-): void {
-  if (!usage) return
-  const cacheRead = usage.cachedContentTokenCount ?? output.usage.cacheRead
-  // Antigravity reports promptTokenCount as the full (uncached + cached) prompt.
-  const promptTotal =
-    usage.promptTokenCount ?? output.usage.input + output.usage.cacheRead
-  output.usage.input = Math.max(0, promptTotal - cacheRead)
-  // candidatesTokenCount excludes thinking; thoughtsTokenCount is billed as
-  // output too. totalTokenCount = prompt + candidates + thoughts.
-  if (
-    usage.candidatesTokenCount !== undefined ||
-    usage.thoughtsTokenCount !== undefined
-  ) {
-    output.usage.output =
-      (usage.candidatesTokenCount ?? 0) + (usage.thoughtsTokenCount ?? 0)
-  }
-  output.usage.cacheRead = cacheRead
-  output.usage.totalTokens =
-    output.usage.input +
-    output.usage.output +
-    output.usage.cacheRead +
-    output.usage.cacheWrite
-  calculateCost(model, output.usage)
-}
-
-export async function* parseGeminiSse(
-  response: Response,
-): AsyncGenerator<GeminiStreamChunk> {
-  if (!response.body) return
-  const reader = response.body.getReader()
-  const decoder = new TextDecoder()
-  let buffer = ''
-
-  const parseFrame = function* (frame: string): Generator<GeminiStreamChunk> {
-    for (const line of frame.split('\n')) {
-      if (!line.startsWith('data:')) continue
-      const data = line.slice(5).trim()
-      if (!data || data === '[DONE]') continue
-      try {
-        yield unwrapChunk(JSON.parse(data))
-      } catch {
-        // Ignore malformed SSE frames.
-      }
-    }
-  }
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read().catch((error: unknown) => {
-        throw markUpstreamFailure(error)
-      })
-      if (done) break
-      // Antigravity uses CRLF line endings (`\r\n\r\n` frame separators);
-      // normalize so a single boundary check works for both LF and CRLF.
-      const text = decoder.decode(value, { stream: true })
-      if (text.startsWith('\n') && buffer.endsWith('\r'))
-        buffer = buffer.slice(0, -1)
-      buffer += text.replace(/\r\n/g, '\n')
-      let boundary = buffer.indexOf('\n\n')
-      while (boundary !== -1) {
-        const frame = buffer.slice(0, boundary)
-        buffer = buffer.slice(boundary + 2)
-        boundary = buffer.indexOf('\n\n')
-        yield* parseFrame(frame)
-      }
-    }
-    // Flush any trailing frame that did not end with a blank-line separator.
-    if (buffer.trim()) {
-      yield* parseFrame(buffer)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-}
-
-function getRequestSessionKey(
-  context: Context,
-  options?: SimpleStreamOptions,
-): string {
-  if (options?.sessionId) {
-    return options.sessionId
-  }
-  // Pi 0.86+ gives every leading system message timestamp 0. A session key
-  // based on that value would make unrelated conversations share one request-
-  // metadata entry. Use the first non-system message's timestamp instead.
-  const firstTimestamp = context.messages.find(
-    (message) => message.role !== 'system',
-  )?.timestamp
-  return firstTimestamp !== undefined
-    ? `message:${firstTimestamp}`
-    : FALLBACK_SESSION_KEY
-}
-
-export function finalizePiAntigravityRequest(
-  request: Record<string, unknown>,
-  wireModel: string,
-  scope: AgyRequestScope,
-): string {
-  delete request.toolConfig
-  if (Array.isArray(request.contents))
-    appendAgyContinuation(request.contents, wireModel)
-
-  const metadata = buildAgyAgentRequestMetadata(
-    scope.session,
-    request,
-    wireModel,
-    scope.timestamp,
-  )
-  request.labels = metadata.labels
-  request.sessionId = metadata.sessionId
-  orderAgyRequestPayloadInPlace(request)
-  return metadata.requestId
-}
+import {
+  createPiRequestEngine,
+  type PiRequestEngine,
+  type PiVaultSelection,
+} from './request-engine.ts'
 
 export function resolvePiAntigravityModel(
   model: Model<Api>,
@@ -396,188 +56,36 @@ export function resolvePiAntigravityModel(
   return resolveAntigravityModel(`${baseModel}-${tier}`)
 }
 
-/** A request body built once per logical request, before any credential is chosen. */
-interface PreparedAntigravityRequest {
-  readonly wireModel: string
-  readonly requestId: string
-  readonly request: Record<string, unknown>
-}
-
-/**
- * The bearer and Antigravity project for one physical send. Both must come
- * from the same source: the local login, or one vault receipt.
- */
-export interface AntigravitySendCredential {
-  readonly accessToken: string
-  readonly projectId: string
-}
-
-function prepareAntigravityRequest(options: {
-  model: Model<Api>
-  context: Context
-  streamOptions?: SimpleStreamOptions
-  sessionKey: string
-}): PreparedAntigravityRequest {
-  const resolved = resolvePiAntigravityModel(
-    options.model,
-    options.streamOptions?.reasoning,
-  )
-  const wireModel = resolved.actualModel
-  if (isRetiredAgyModel(options.model.id) || isRetiredAgyModel(wireModel)) {
-    throw new HostRefusalError(RETIRED_AGY_MODEL_MESSAGE)
-  }
-
-  const request: Record<string, unknown> = {
-    ...buildGeminiRequest(options.context, {
-      provider: options.model.provider,
-      model: options.model.id,
-    }),
-  }
-  const generationConfig: Record<string, unknown> = {}
-
-  if (resolved.thinkingLevel) {
-    generationConfig.thinkingConfig = {
-      includeThoughts: true,
-      thinkingLevel: resolved.thinkingLevel,
-    }
-  } else if (typeof resolved.thinkingBudget === 'number') {
-    generationConfig.thinkingConfig = {
-      includeThoughts: true,
-      thinkingBudget: resolved.thinkingBudget,
-    }
-  }
-
-  const maxTokens = options.streamOptions?.maxTokens ?? options.model.maxTokens
-  if (typeof maxTokens === 'number') {
-    generationConfig.maxOutputTokens = maxTokens
-  }
-  applyAgyNativeGenerationConfig(wireModel, generationConfig, {
-    preserveThinkingBudget: false,
-  })
-
-  if (Object.keys(generationConfig).length > 0) {
-    request.generationConfig = generationConfig
-  }
-
-  const requestScope = requestSessions.beginRequest(options.sessionKey)
-  const requestId = finalizePiAntigravityRequest(
-    request,
-    wireModel,
-    requestScope,
-  )
-  return { wireModel, requestId, request }
-}
-
-/** One physical send of a prepared request with one credential. */
-function dispatchAntigravityRequest(
-  prepared: PreparedAntigravityRequest,
-  credential: AntigravitySendCredential,
-  signal: AbortSignal | null,
-): Promise<Response> {
-  const envelope = {
-    project: credential.projectId,
-    requestId: prepared.requestId,
-    request: prepared.request,
-    model: prepared.wireModel,
-    userAgent: 'antigravity',
-    requestType: 'agent',
-  }
-
-  const url = `${ANTIGRAVITY_ENDPOINT}/v1internal:${STREAM_ACTION}?alt=sse`
-
-  return fetchWithAgyCliTransport(
-    url,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${credential.accessToken}`,
-        'Content-Type': 'application/json',
-        'User-Agent': buildAntigravityHarnessUserAgent(),
-        'Accept-Encoding': 'gzip',
-      },
-      body: JSON.stringify(envelope),
+function googleRequest(
+  model: Model<Api>,
+  context: Context,
+  options?: SimpleStreamOptions,
+) {
+  const reasoning = options?.reasoning
+  const budget = reasoning && options.thinkingBudgets?.[reasoning]
+  const level =
+    reasoning === 'xhigh' && !supportsGeminiXHigh(model.id) ? 'high' : reasoning
+  return buildGeminiRequest(context, {
+    model: model.id,
+    provider: model.provider,
+    generationConfig: {
+      maxOutputTokens: options?.maxTokens,
+      temperature: options?.temperature,
+      topP: options?.topP,
+      thinkingConfig:
+        model.reasoning && level
+          ? {
+              includeThoughts: true,
+              ...(typeof budget === 'number'
+                ? { thinkingBudget: budget }
+                : { thinkingLevel: level }),
+            }
+          : undefined,
     },
-    { signal },
-  ).catch((error: unknown) => {
-    throw markUpstreamFailure(error)
   })
 }
 
-/** Local mode only; custody sends never reach this path. */
-async function sendAntigravityRequest(options: {
-  model: Model<Api>
-  context: Context
-  streamOptions?: SimpleStreamOptions
-  accessToken: string
-  sessionKey: string
-  signal?: AbortSignal
-  assertAdmission?: () => Promise<void>
-  selectedProjectIds: Set<string>
-  deadline: PreResponseDeadline
-}): Promise<Response> {
-  if (isRetiredAgyModel(options.model.id)) {
-    throw new HostRefusalError(RETIRED_AGY_MODEL_MESSAGE)
-  }
-  // Pi passes only the access token; the packed refresh
-  // `refreshToken|projectId|managedProjectId` saved at getApiKey supplies
-  // the managed project without a loadCodeAssist call per turn.
-  const packedRefresh = getPackedRefresh(options.accessToken) ?? ''
-  const packedProject = parseRefreshParts(packedRefresh)
-  for (const projectId of [
-    packedProject.projectId,
-    packedProject.managedProjectId,
-  ]) {
-    if (projectId) options.selectedProjectIds.add(projectId)
-  }
-  const projectContext = await options.deadline.wait(() =>
-    ensureProjectContext({
-      type: 'oauth',
-      refresh: packedRefresh,
-      access: options.accessToken,
-      expires: Date.now() + 60_000,
-    }),
-  )
-
-  if (projectContext.effectiveProjectId)
-    options.selectedProjectIds.add(projectContext.effectiveProjectId)
-  const prepared = prepareAntigravityRequest(options)
-  await options.deadline.wait(() => options.assertAdmission?.())
-  return dispatchAntigravityRequest(
-    prepared,
-    {
-      accessToken: options.accessToken,
-      projectId: projectContext.effectiveProjectId,
-    },
-    options.signal ?? options.streamOptions?.signal ?? null,
-  )
-}
-
-/**
- * Vault (custody) mode: sends a prepared request through the vault. `send`
- * must call `dispatch` once per physical send, each time with the token and
- * project of a fresh vault receipt, and returns the response that was
- * finally served.
- */
-export type AntigravityVaultSend = (
-  dispatch: (
-    credential: AntigravitySendCredential,
-    signal?: AbortSignal,
-  ) => Promise<Response>,
-  signal: AbortSignal,
-  /**
-   * The request's model as Pi selected it, checked against the account's
-   * model list. The stream always passes it.
-   */
-  modelId?: string,
-) => Promise<Response>
-
-type OpenAntigravityResponse = (
-  sessionKey: string,
-  signal: AbortSignal,
-  selectedCredentials: Set<string>,
-  selectedProjectIds: Set<string>,
-  deadline: PreResponseDeadline,
-) => Promise<Response>
+const defaultEngine = createPiRequestEngine()
 
 export function streamCortexKitAntigravity(
   model: Model<Api>,
@@ -585,419 +93,223 @@ export function streamCortexKitAntigravity(
   options?: SimpleStreamOptions,
   assertAdmission?: () => Promise<void>,
   preResponseClock?: PreResponseClock,
+  engine = preResponseClock
+    ? createPiRequestEngine({ preResponseClock })
+    : defaultEngine,
 ): AssistantMessageEventStream {
-  return runAntigravityStream(
-    model,
-    context,
-    options,
-    async (
-      sessionKey,
-      signal,
-      _selectedCredentials,
-      selectedProjectIds,
-      deadline,
-    ) => {
-      await deadline.wait(() => assertAdmission?.())
-      const accessToken = options?.apiKey ?? ''
-      if (!accessToken)
-        throw new HostRefusalError('Missing Antigravity OAuth access token')
-      return sendAntigravityRequest({
-        model,
-        context,
-        streamOptions: options,
-        accessToken,
-        sessionKey,
-        signal,
-        assertAdmission,
-        selectedProjectIds,
-        deadline,
-      })
-    },
-    preResponseClock,
-  )
+  return run(model, context, options, engine, {
+    domain: 'local',
+    accessToken: options?.apiKey ?? '',
+    assertAdmission,
+  })
 }
 
-/**
- * In vault mode, Pi's Google auth slot contains a fixed API-key marker,
- * not a real credential. Refuse any other resolved key so a stale local
- * login cannot enter this stream. Each physical request obtains its bearer
- * and project from the vault; local credentials and project caches are unused.
- */
 export function createCortexKitAntigravityVaultStream(
-  send: AntigravityVaultSend,
+  select: (signal: AbortSignal, modelId?: string) => Promise<PiVaultSelection>,
   placeholderKey: string,
   preResponseClock?: PreResponseClock,
+  engine = createPiRequestEngine({ preResponseClock }),
 ) {
-  return (
-    model: Model<Api>,
-    context: Context,
-    options?: SimpleStreamOptions,
-  ): AssistantMessageEventStream =>
-    runAntigravityStream(
-      model,
-      context,
-      options,
-      (
-        sessionKey,
-        signal,
-        selectedCredentials,
-        selectedProjectIds,
-        deadline,
-      ) => {
+  return (model: Model<Api>, context: Context, options?: SimpleStreamOptions) =>
+    run(model, context, options, engine, {
+      domain: 'vault',
+      select(signal) {
         if (options?.apiKey !== placeholderKey)
           throw new HostRefusalError(
             'The native Google credential slot is not synchronized for vault mode. No request was sent.',
           )
-        const prepared = prepareAntigravityRequest({
-          model,
-          context,
-          streamOptions: options,
-          sessionKey,
-        })
-        return deadline.open(() =>
-          send(
-            async (credential, sendSignal) => {
-              selectedCredentials.add(credential.accessToken)
-              selectedProjectIds.add(credential.projectId)
-              try {
-                deadline.follow(sendSignal)
-                return await deadline.open(() =>
-                  dispatchAntigravityRequest(prepared, credential, signal),
-                )
-              } catch (error) {
-                const redacted = redactCredentialError(
-                  error,
-                  [...selectedCredentials],
-                  [...selectedProjectIds],
-                )
-                throw isUpstreamFailure(error)
-                  ? markUpstreamFailure(redacted)
-                  : redacted
-              }
-            },
-            signal,
-            model.id,
-          ),
-        )
+        return select(signal, model.id)
       },
-      preResponseClock,
-    )
+    })
 }
 
-function runAntigravityStream(
+function run(
   model: Model<Api>,
   context: Context,
   options: SimpleStreamOptions | undefined,
-  open: OpenAntigravityResponse,
-  preResponseClock?: PreResponseClock,
+  engine: PiRequestEngine,
+  selection: Parameters<PiRequestEngine['execute']>[0],
 ): AssistantMessageEventStream {
   const stream = createAssistantMessageEventStream()
-  const deadline = new PreResponseDeadline(options?.signal, preResponseClock)
-
+  const output: AssistantMessage = {
+    role: 'assistant',
+    content: [],
+    api: model.api,
+    provider: model.provider,
+    model: model.id,
+    usage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'stop',
+    timestamp: Date.now(),
+  }
+  let openIndex: number | undefined
+  const closeBlock = () => {
+    if (openIndex === undefined) return
+    const block = output.content[openIndex]
+    if (block?.type === 'text')
+      stream.push({
+        type: 'text_end',
+        contentIndex: openIndex,
+        content: block.text,
+        partial: output,
+      })
+    if (block?.type === 'thinking')
+      stream.push({
+        type: 'thinking_end',
+        contentIndex: openIndex,
+        content: block.thinking,
+        partial: output,
+      })
+    openIndex = undefined
+  }
+  stream.push({ type: 'start', partial: output })
   void (async () => {
-    const output = createOutput(model)
-    const selectedCredentials = new Set<string>(
-      options?.apiKey ? [options.apiKey] : [],
-    )
-    const selectedProjectIds = new Set<string>()
-    stream.push({ type: 'start', partial: output })
-    let response: Response | undefined
-    let requestAbort: AbortController | undefined
-    let chunkIterator: AsyncIterator<GeminiStreamChunk> | undefined
-    let detachCaller = () => {}
-
     try {
-      const sessionKey = getRequestSessionKey(context, options)
-      const openingAbort = new AbortController()
-      requestAbort = openingAbort
-      detachCaller = forwardAbort(deadline.signal, openingAbort)
-      response = await deadline.open(() =>
-        open(
-          sessionKey,
-          openingAbort.signal,
-          selectedCredentials,
-          selectedProjectIds,
-          deadline,
-        ),
+      options?.signal?.throwIfAborted()
+      if (isRetiredAgyModel(model.id))
+        throw new HostRefusalError(RETIRED_AGY_MODEL_MESSAGE)
+      const request = googleRequest(model, context, options)
+      const response = await engine.execute(
+        selection,
+        'https://generativelanguage.googleapis.com/v1beta/models/' +
+          encodeURIComponent(model.id) +
+          ':streamGenerateContent?alt=sse',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(request),
+          signal: options?.signal,
+        },
+        {
+          session: {
+            sessionId: options?.sessionId ?? null,
+            parentSessionId: null,
+          },
+          // Pi's provider callbacks receive the same shape as its native providers.
+          onPayload:
+            options?.onPayload &&
+            ((payload) => options.onPayload?.(payload, model)),
+          onResponse:
+            options?.onResponse &&
+            ((response) =>
+              options.onResponse?.(
+                {
+                  status: response.status,
+                  headers: Object.fromEntries(response.headers),
+                },
+                model,
+              )),
+        },
       )
-      if (response.ok) deadline.acceptHeaders()
-
-      if (!response.ok) {
-        const body = await deadline.wait(() =>
-          response!.text().catch((error: unknown) => {
-            throw markUpstreamFailure(error)
-          }),
-        )
-        if (response.status === 429) {
-          let error: Record<string, unknown> | undefined
-          try {
-            error = asRecord(asRecord(JSON.parse(body))?.error)
-          } catch {
-            // Non-JSON refusals have no structured reason either.
-          }
-          const details = Array.isArray(error?.details) ? error.details : []
-          const reason = details
-            .map(asRecord)
-            .find(
-              (detail) =>
-                typeof detail?.['@type'] === 'string' &&
-                detail['@type'].includes('google.rpc.ErrorInfo'),
-            )?.reason
-          if (
-            parseRateLimitReason(
-              typeof reason === 'string' ? reason : undefined,
-              typeof error?.message === 'string' ? error.message : undefined,
-              response.status,
-            ) === 'UNKNOWN'
-          )
-            throw new HostRefusalError(UNCONFIRMED_RATE_LIMIT_MESSAGE)
-        }
-        throw markUpstreamFailure(
-          new Error(
-            `Antigravity request failed: HTTP ${response.status} ${body}`,
-          ),
-        )
-      }
-
-      const content = output.content as Array<
-        TextContent | ThinkingContent | ToolCall
-      >
-      const toolCallState: GeminiToolCallState = {}
-      let textIndex = -1
-      let thinkingIndex = -1
-      let terminalSeen = false
-
-      const closeText = () => {
-        if (textIndex === -1) return
-        const block = content[textIndex]
-        if (block?.type === 'text') {
-          stream.push({
-            type: 'text_end',
-            contentIndex: textIndex,
-            content: block.text,
-            partial: output,
-          })
-        }
-        textIndex = -1
-      }
-
-      const closeThinking = () => {
-        if (thinkingIndex === -1) return
-        const block = content[thinkingIndex]
-        if (block?.type === 'thinking') {
-          stream.push({
-            type: 'thinking_end',
-            contentIndex: thinkingIndex,
-            content: block.thinking,
-            partial: output,
-          })
-        }
-        thinkingIndex = -1
-      }
-
-      chunkIterator = parseGeminiSse(response)[Symbol.asyncIterator]()
-      while (true) {
-        const next = terminalSeen
-          ? await nextWithTimeout(
-              chunkIterator,
-              TRAILING_USAGE_TIMEOUT_MS,
-              () => requestAbort?.abort(),
-            )
-          : await chunkIterator.next()
-        if (!next) break
-        if (next.done) break
-
-        const chunk = next.value
-        const embeddedFailure = describeEmbeddedStreamFailure(chunk)
-        if (embeddedFailure)
-          throw markUpstreamFailure(new Error(embeddedFailure))
-        updateUsage(model, output, chunk.usageMetadata)
-
-        if (terminalSeen) {
-          if (chunk.usageMetadata) break
-          continue
-        }
-
-        const candidate = chunk.candidates?.[0]
-        const parts = candidate?.content?.parts ?? []
-
-        for (const part of parts) {
-          if (
-            !part.thought &&
-            !part.functionCall &&
-            !part.text &&
-            part.thoughtSignature
-          ) {
-            const block = textIndex === -1 ? undefined : content[textIndex]
-            if (block?.type === 'text') {
-              block.textSignature = part.thoughtSignature
-            } else {
-              toolCallState.pendingThoughtSignature = part.thoughtSignature
+      for await (const event of readRequestEvents(response)) {
+        switch (event.type) {
+          case 'text': {
+            let block =
+              openIndex === undefined ? undefined : output.content[openIndex]
+            if (block?.type !== 'text') {
+              closeBlock()
+              block = { type: 'text', text: '' }
+              openIndex = output.content.push(block) - 1
+              stream.push({
+                type: 'text_start',
+                contentIndex: openIndex,
+                partial: output,
+              })
             }
-            continue
+            block.text += event.delta
+            if (event.signature) block.textSignature = event.signature
+            if (event.delta)
+              stream.push({
+                type: 'text_delta',
+                contentIndex: openIndex!,
+                delta: event.delta,
+                partial: output,
+              })
+            break
           }
-
-          const toolCall = convertGeminiToolCallPart(part, toolCallState)
-          if (toolCall) {
-            closeText()
-            closeThinking()
-            content.push(toolCall)
-            const idx = content.length - 1
+          case 'thinking': {
+            let block =
+              openIndex === undefined ? undefined : output.content[openIndex]
+            if (block?.type !== 'thinking') {
+              closeBlock()
+              block = { type: 'thinking', thinking: '' }
+              openIndex = output.content.push(block) - 1
+              stream.push({
+                type: 'thinking_start',
+                contentIndex: openIndex,
+                partial: output,
+              })
+            }
+            block.thinking += event.delta
+            if (event.signature) block.thinkingSignature = event.signature
+            if (event.delta)
+              stream.push({
+                type: 'thinking_delta',
+                contentIndex: openIndex!,
+                delta: event.delta,
+                partial: output,
+              })
+            break
+          }
+          case 'toolCall': {
+            closeBlock()
+            const toolCall = {
+              type: 'toolCall' as const,
+              id: event.id,
+              name: event.name,
+              arguments: event.arguments,
+              thoughtSignature: event.signature,
+            }
+            const contentIndex = output.content.push(toolCall) - 1
             stream.push({
               type: 'toolcall_start',
-              contentIndex: idx,
+              contentIndex,
               partial: output,
             })
             stream.push({
               type: 'toolcall_end',
-              contentIndex: idx,
+              contentIndex,
               toolCall,
               partial: output,
             })
-            output.stopReason = 'toolUse'
-            continue
+            break
           }
-
-          if (part.thought) {
-            if (typeof part.text !== 'string' || part.text.length === 0)
-              continue
-            closeText()
-            if (thinkingIndex === -1) {
-              content.push({
-                type: 'thinking',
-                thinking: '',
-                ...(part.thoughtSignature
-                  ? { thinkingSignature: part.thoughtSignature }
-                  : {}),
-              })
-              thinkingIndex = content.length - 1
-              stream.push({
-                type: 'thinking_start',
-                contentIndex: thinkingIndex,
-                partial: output,
-              })
-            }
-            const block = content[thinkingIndex]
-            if (block?.type === 'thinking') {
-              block.thinking += part.text
-              if (part.thoughtSignature)
-                block.thinkingSignature = part.thoughtSignature
-              stream.push({
-                type: 'thinking_delta',
-                contentIndex: thinkingIndex,
-                delta: part.text,
-                partial: output,
-              })
-            }
-            continue
-          }
-
-          if (typeof part.text === 'string' && part.text.length > 0) {
-            closeThinking()
-            if (textIndex === -1) {
-              const textSignature =
-                part.thoughtSignature ?? toolCallState.pendingThoughtSignature
-              toolCallState.pendingThoughtSignature = undefined
-              content.push({
-                type: 'text',
-                text: '',
-                ...(textSignature ? { textSignature } : {}),
-              })
-              textIndex = content.length - 1
-              stream.push({
-                type: 'text_start',
-                contentIndex: textIndex,
-                partial: output,
-              })
-            }
-            const block = content[textIndex]
-            if (block?.type === 'text') {
-              block.text += part.text
-              if (part.thoughtSignature)
-                block.textSignature = part.thoughtSignature
-              stream.push({
-                type: 'text_delta',
-                contentIndex: textIndex,
-                delta: part.text,
-                partial: output,
-              })
-            }
-          }
-        }
-
-        if (candidate?.finishReason) {
-          closeText()
-          closeThinking()
-          const reason = mapFinishReason(candidate.finishReason)
-          if (reason === 'error') {
-            const label = GOOGLE_ERROR_FINISH_REASONS.has(
-              candidate.finishReason,
-            )
-              ? candidate.finishReason
-              : 'unknown reason'
-            throw new HostRefusalError(`Google stopped the response: ${label}.`)
-          }
-          if (reason !== 'stop' || output.stopReason !== 'toolUse') {
-            output.stopReason = reason
-          }
-          terminalSeen = true
-          const needsTrailingUsage =
-            model.id.toLowerCase().includes('gpt-oss') && !chunk.usageMetadata
-          if (!needsTrailingUsage) break
+          case 'metadata':
+            if (event.responseId !== undefined)
+              output.responseId = event.responseId
+            if (event.rawStopReason !== undefined)
+              output.rawStopReason = event.rawStopReason
+            break
+          case 'usage':
+            Object.assign(output.usage, event.usage)
+            calculateCost(model, output.usage)
+            break
+          case 'terminal':
+            closeBlock()
+            output.stopReason = event.reason
+            stream.push({ type: 'done', reason: event.reason, message: output })
+            break
+          case 'failure':
+            throw event.error
         }
       }
-
-      if (terminalSeen) {
-        try {
-          await chunkIterator.return?.(undefined)
-        } catch (error) {
-          if (!requestAbort.signal.aborted) throw error
-        }
-        await response.body?.cancel().catch(() => {})
-      }
-
-      if (options?.signal?.aborted)
-        throw new HostRefusalError('Request was aborted')
-      if (!terminalSeen) {
-        throw new HostRefusalError(
-          'Antigravity stream ended without a terminal candidate response',
-        )
-      }
-      if (content.length === 0) {
-        throw new HostRefusalError('Antigravity returned an empty response')
-      }
-
-      stream.push({
-        type: 'done',
-        reason: output.stopReason as 'stop' | 'length' | 'toolUse',
-        message: output,
-      })
-      stream.end()
     } catch (error) {
-      requestAbort?.abort()
-      await chunkIterator?.return?.(undefined).catch(() => {})
-      await response?.body?.cancel().catch(() => {})
+      closeBlock()
       output.stopReason = options?.signal?.aborted ? 'aborted' : 'error'
-      const redact = (text: string) =>
-        redactCredentialText(
-          text,
-          [...selectedCredentials],
-          [...selectedProjectIds],
-        )
-      output.errorMessage =
-        (options?.signal?.aborted && error === options.signal.reason) ||
-        isUpstreamFailure(error)
-          ? redact(error instanceof Error ? error.message : String(error))
-          : hostFailure(error, (diagnostic) =>
-              failureLog.error(redact(diagnostic)),
-            ).message
+      output.errorMessage = options?.signal?.aborted
+        ? 'Request was aborted'
+        : hostFailure(error, (diagnostic) => engine.logger.error(diagnostic))
+            .message
       stream.push({ type: 'error', reason: output.stopReason, error: output })
-      stream.end()
     } finally {
-      deadline.dispose()
-      detachCaller()
+      stream.end()
     }
   })()
-
   return stream
 }

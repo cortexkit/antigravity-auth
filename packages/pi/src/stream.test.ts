@@ -12,8 +12,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import * as actualCore from '@cortexkit/antigravity-auth-core'
 import {
+  convertGeminiToolCallPart,
+  createRequestWire,
+  createRequestWireLocation,
+  mapRequestUsage,
+  parseGeminiSse,
+} from '@cortexkit/antigravity-auth-core/engine'
+import {
   type Api,
-  type AssistantMessage,
   type Context,
   type Model,
   normalizeContext,
@@ -43,6 +49,9 @@ import stockPiPrompt from '../../../test-fixtures/pi-1.5.2-system-prompt.json'
 import { outageVault } from '../../core/src/__fixtures__/vault-outage.ts'
 import { expectNoOpenCodeRetryHints } from '../../opencode/src/plugin/__fixtures__/opencode-retry-hints.test.ts'
 import { rememberPackedRefresh } from './credential-cache.ts'
+import { createPiRequestDiagnostics } from './request-diagnostics.ts'
+import type { PiVaultSelection } from './request-engine.ts'
+import { defaultPiRequestSettings } from './request-settings.ts'
 
 const ensureProjectContextMock = mock(async () => ({
   auth: {
@@ -66,13 +75,9 @@ mock.module('@cortexkit/antigravity-auth-core', () => ({
 }))
 
 const {
-  convertGeminiToolCallPart,
-  finalizePiAntigravityRequest,
-  parseGeminiSse,
   resolvePiAntigravityModel,
   streamCortexKitAntigravity,
   createCortexKitAntigravityVaultStream,
-  updateUsage,
 } = await import('./stream.ts')
 
 function fakeModel(id = 'antigravity-gemini-3.8-flash'): Model<Api> {
@@ -84,24 +89,76 @@ function fakeModel(id = 'antigravity-gemini-3.8-flash'): Model<Api> {
   } as unknown as Model<Api>
 }
 
-function emptyOutput(): AssistantMessage {
-  return {
-    role: 'assistant',
-    content: [],
-    api: 'google-generative-ai',
-    provider: 'google',
-    model: 'antigravity-gemini-3.8-flash',
-    usage: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 0,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+function finalizePiAntigravityRequest(
+  request: Record<string, unknown>,
+  model: string,
+  scope: actualCore.AgyRequestScope,
+) {
+  const { debug, dump, logger } = createPiRequestDiagnostics(
+    () => defaultPiRequestSettings,
+  )
+  const wire = createRequestWire(
+    createRequestWireLocation({
+      signatures: {
+        keepThinking: false,
+        signatureStore: {
+          get: () => undefined,
+          has: () => false,
+          delete() {},
+          set() {},
+        },
+        cacheSignature() {},
+        getCachedSignature: () => undefined,
+      },
+      debug: { ...debug, isDebugTuiEnabled: () => false, logCacheStats() {} },
+      logger,
+    }),
+    {
+      pluginSessionId: 'test',
+      defaultSession: scope.session,
+      debugMessagePrefix: 'test',
+      helperLog: logger,
+      dump,
     },
-    stopReason: 'stop',
-    timestamp: 0,
+  )
+  const sent = wire.prepare(
+    'https://generativelanguage.googleapis.com/v1beta/models/' +
+      model +
+      ':streamGenerateContent?alt=sse',
+    { method: 'POST', body: JSON.stringify(request) },
+    'bearer',
+    'project',
+    undefined,
+    false,
+    {
+      agySession: scope.session,
+      agyRequestTimestamp: scope.timestamp,
+    },
+  )
+  const parsed = JSON.parse(String(sent.init.body))
+  for (const key of Object.keys(request)) delete request[key]
+  Object.assign(request, parsed.request)
+  return parsed.requestId
+}
+
+function vaultSelection(
+  accessToken: string,
+  projectId: string,
+): PiVaultSelection {
+  const route = {
+    routeId: 'test-route',
+    credentialId: 'test-credential',
+    accountIdentity: 'test-account',
+    label: 'Test',
   }
+  const first = {
+    ...route,
+    accessToken,
+    projectId,
+    recordVersion: 1,
+    report401: async () => {},
+  }
+  return { route, first, admit: async () => first }
 }
 
 function sseResponse(frames: string[]): Response {
@@ -114,7 +171,10 @@ function sseResponse(frames: string[]): Response {
       controller.close()
     },
   })
-  return new Response(body, { status: 200 })
+  return new Response(body, {
+    status: 200,
+    headers: { 'content-type': 'text/event-stream' },
+  })
 }
 
 function openSseResponse(frame: string): {
@@ -131,7 +191,10 @@ function openSseResponse(frame: string): {
     },
   })
   return {
-    response: new Response(body, { status: 200 }),
+    response: new Response(body, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    }),
     wasCancelled: () => cancelled,
   }
 }
@@ -148,7 +211,10 @@ function stalledSseResponse(frame: string): {
     },
   })
   return {
-    response: new Response(body, { status: 200 }),
+    response: new Response(body, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    }),
     abort: () => streamController?.error(new Error('aborted')),
   }
 }
@@ -649,9 +715,9 @@ describe('selected credential boundary', () => {
         }),
       })
       try {
-        const { createPiVaultSend } = await import('./vault-source.ts')
+        const { createPiVaultRequest } = await import('./vault-source.ts')
         const { CUSTODY_PROVIDER_KEY_MARKER } = await import('./index.ts')
-        const send = createPiVaultSend({
+        const send = createPiVaultRequest({
           readMode: () => ({
             ok: true,
             record: { version: 1, mode: 'custody' },
@@ -865,12 +931,9 @@ describe('Pi pre-response deadline', () => {
         ensureProjectContextMock.mockImplementationOnce(stall)
       const stream = mode.startsWith('vault')
         ? createCortexKitAntigravityVaultStream(
-            async (dispatch, signal) => {
+            async () => {
               if (mode === 'vault-admission') return stall()
-              return dispatch(
-                { accessToken: 'vault-token', projectId: 'vault-project' },
-                signal,
-              )
+              return vaultSelection('vault-token', 'vault-project')
             },
             'marker',
             time,
@@ -957,8 +1020,8 @@ describe('Pi pre-response deadline', () => {
       }),
     })
     try {
-      const { createPiVaultSend } = await import('./vault-source.ts')
-      const send = createPiVaultSend({
+      const { createPiVaultRequest } = await import('./vault-source.ts')
+      const send = createPiVaultRequest({
         readMode: () => ({ ok: true, record: { version: 1, mode: 'custody' } }),
         source: async () => vault,
       })
@@ -2286,8 +2349,8 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
     const reason = new Error('vault caller canceled')
     let forwarded!: AbortSignal
     const vaultStream = createCortexKitAntigravityVaultStream(
-      async (_dispatch, signal) => {
-        forwarded = signal!
+      async (signal) => {
+        forwarded = signal
         expect(listeners.size).toBe(1)
         caller.abort(reason)
         throw forwarded.reason
@@ -2436,30 +2499,28 @@ describe('parseGeminiSse', () => {
 
 describe('updateUsage', () => {
   it('counts thinking tokens as output and splits cached prompt tokens', () => {
-    const output = emptyOutput()
-    // MITM-observed: total = prompt + candidates + thoughts.
-    updateUsage(fakeModel(), output, {
+    // Captured total = prompt + candidates + thoughts.
+    const usage = mapRequestUsage({
       promptTokenCount: 11597,
       candidatesTokenCount: 16,
       thoughtsTokenCount: 50,
       cachedContentTokenCount: 4000,
       totalTokenCount: 11663,
     })
-    expect(output.usage.input).toBe(11597 - 4000)
-    expect(output.usage.cacheRead).toBe(4000)
-    expect(output.usage.output).toBe(16 + 50)
-    expect(output.usage.totalTokens).toBe(7597 + 66 + 4000)
+    expect(usage.input).toBe(11597 - 4000)
+    expect(usage.cacheRead).toBe(4000)
+    expect(usage.output).toBe(16 + 50)
+    expect(usage.totalTokens).toBe(7597 + 66 + 4000)
   })
 
   it('treats promptTokenCount as the full prompt when no cache is reported', () => {
-    const output = emptyOutput()
-    updateUsage(fakeModel(), output, {
+    const usage = mapRequestUsage({
       promptTokenCount: 100,
       candidatesTokenCount: 10,
     })
-    expect(output.usage.input).toBe(100)
-    expect(output.usage.cacheRead).toBe(0)
-    expect(output.usage.output).toBe(10)
+    expect(usage.input).toBe(100)
+    expect(usage.cacheRead).toBe(0)
+    expect(usage.output).toBe(10)
   })
 })
 
@@ -2469,7 +2530,9 @@ describe('vault native-slot admission', () => {
     'synthetic-local-oauth-access',
     'antigravity-vault-custody-extra',
   ])('rejects a missing or foreign resolved credential before vault dispatch (%s)', async (apiKey) => {
-    const send = mock(async () => sseResponse([]))
+    const send = mock(async () =>
+      vaultSelection('unexpected-vault-token', 'unexpected-project'),
+    )
     const stream = createCortexKitAntigravityVaultStream(
       send,
       'antigravity-vault-custody',
@@ -2490,17 +2553,8 @@ describe('vault native-slot admission', () => {
         'data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"vault okay"}]},"finishReason":"STOP"}]}}\n\n',
       ]),
     )
-    const send: import('./stream.ts').AntigravityVaultSend = async (
-      dispatch,
-      signal,
-    ) =>
-      dispatch(
-        {
-          accessToken: 'synthetic-served-vault-token',
-          projectId: 'synthetic-served-project',
-        },
-        signal,
-      )
+    const send = async () =>
+      vaultSelection('synthetic-served-vault-token', 'synthetic-served-project')
     const stream = createCortexKitAntigravityVaultStream(
       send,
       'antigravity-vault-custody',
@@ -2710,9 +2764,9 @@ describe('Pi final tool schema wire normalization', () => {
 it('recovers a cold Pi request when the vault answers inside the receipt wait bound', async () => {
   const clock = vaultWaitClock()
   const vault = await outageVault('pi', { clock })
-  const { createPiVaultSend } = await import('./vault-source.ts')
+  const { createPiVaultRequest } = await import('./vault-source.ts')
   const { CUSTODY_PROVIDER_KEY_MARKER } = await import('./index.ts')
-  const send = createPiVaultSend({
+  const send = createPiVaultRequest({
     readMode: () => ({ ok: true, record: { version: 1, mode: 'custody' } }),
     source: async () => vault.source,
   })
