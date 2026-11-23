@@ -4071,15 +4071,20 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             // reading must restore the original expiry first; once it has
             // passed, this throws the deadline error instead of resending.
             deadline.resume()
+            // A stale pool-file grant cannot start a send. Keep an earlier
+            // physical failure if there is one, otherwise report the pool refusal.
             if (
               credentials.domain === 'local' &&
-              localGrant?.captured.source === 'store' &&
+              (localGrant?.captured.source === 'store' ||
+                (localGrant?.captured.source === 'pool-file' &&
+                  !retainedMainAttemptFailure)) &&
               isLocalGrantError(error)
             ) {
               // The one-recapture limit covers main requests, warmups and probes. A
               // superseded unsent preparation is rebuilt on the same selection
               // and request scope, without failure penalties or endpoint retry.
               if (
+                localGrant.captured.source === 'store' &&
                 error instanceof LocalGrantSupersededError &&
                 !localRecaptureUsed
               ) {
