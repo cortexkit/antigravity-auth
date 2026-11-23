@@ -41,10 +41,11 @@ for (const subject of ['opencode1', 'opencode2', 'pi'] satisfies Subject[]) {
 
   test(`${subject} preserves ordinary text but replaces an injected thinking placeholder at its index`, async () => {
     const user = '[Thinking preserved]\nWhat does this mean?'
-    const assistant =
-      (subject === 'pi'
+    const debugPrefix =
+      subject === 'pi'
         ? 'Antigravity diagnostics:'
-        : '[opencode-antigravity-auth debug]') + ' is an example.'
+        : '[opencode-antigravity-auth debug]'
+    const assistant = `${debugPrefix} is an example.`
     const input = conversation('thinking placeholder replay', {
       options: { keepThinking: true },
       messages: [

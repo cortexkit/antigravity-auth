@@ -4133,7 +4133,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               deadline.resume()
               invalidOutputResend = { prepared, admission: sendAdmission }
               await assertAdmission()
-              retainedMainAttemptFailure = undefined
+              retainedMainAttemptFailure = null
               i -= 1
               continue
             }
