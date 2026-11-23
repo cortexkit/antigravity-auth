@@ -146,10 +146,16 @@ export function googleStopCode(reason: unknown): string {
     : 'unknown'
 }
 
-function quotaResetClause(delayMs: number | undefined): string {
-  if (delayMs === undefined || !Number.isFinite(delayMs) || delayMs < 0)
-    return ''
-  const seconds = (BigInt(Math.ceil(delayMs)) + 999n) / 1000n
+function quotaMilliseconds(delayMs: number | bigint | undefined) {
+  if (typeof delayMs === 'bigint') return delayMs >= 0n ? delayMs : undefined
+  if (delayMs !== undefined && Number.isFinite(delayMs) && delayMs >= 0)
+    return BigInt(Math.ceil(delayMs))
+}
+
+function quotaResetClause(delayMs: number | bigint | undefined): string {
+  const milliseconds = quotaMilliseconds(delayMs)
+  if (milliseconds === undefined) return ''
+  const seconds = (milliseconds + 999n) / 1000n
   const hours = seconds / 3600n
   const minutes = (seconds % 3600n) / 60n
   const remainder = seconds % 60n
@@ -163,7 +169,7 @@ function quotaResetClause(delayMs: number | undefined): string {
   return /429|5\d\d/.test(clause) ? '' : clause
 }
 
-type RefusalDetails = { finishReason?: unknown; resetAfterMs?: number }
+type RefusalDetails = { finishReason?: unknown; resetAfterMs?: number | bigint }
 
 export class EngineRefusalError extends HostRefusalError {
   readonly rawStopReason?: string
@@ -209,14 +215,11 @@ export function engineRefusalResponse(
   const error = new EngineRefusalError(id, details)
   const { status, headers: standardHeaders } = entry[host]
   const headers = new Headers(standardHeaders)
-  const ms = details.resetAfterMs
-  if (
-    id === 'quota_exhausted' &&
-    ms !== undefined &&
-    Number.isFinite(ms) &&
-    ms >= 0
-  ) {
-    const milliseconds = BigInt(Math.ceil(ms))
+  const milliseconds =
+    id === 'quota_exhausted'
+      ? quotaMilliseconds(details.resetAfterMs)
+      : undefined
+  if (milliseconds !== undefined) {
     headers.set('retry-after', ((milliseconds + 999n) / 1000n).toString())
     headers.set('retry-after-ms', milliseconds.toString())
   }
