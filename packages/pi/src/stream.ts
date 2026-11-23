@@ -309,7 +309,6 @@ function run(
         }
       }
     } catch (error) {
-      requestAbort.abort()
       closeBlock()
       output.stopReason = options?.signal?.aborted ? 'aborted' : 'error'
       output.errorMessage = options?.signal?.aborted

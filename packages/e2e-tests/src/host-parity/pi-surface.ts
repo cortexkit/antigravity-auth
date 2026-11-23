@@ -2,6 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
   AgyRequestSessionStore,
+  fetchWithAgyCliTransport,
   loadCommonAuthClaustrum,
 } from '@cortexkit/antigravity-auth-core'
 import type { ClaustrumScopedClient } from '@cortexkit/antigravity-auth-core/common-auth/claustrum'
@@ -118,6 +119,7 @@ export async function piAdapter(
   transcript: boolean,
   settings: Readonly<Record<string, unknown>> = {},
   transport?: RequestTransport,
+  beforeVaultReceipt?: () => Promise<void>,
 ) {
   const root = process.env.ANTIGRAVITY_TEST_ROOT
   if (!root) throw new Error('Host parity requires the root test preload')
@@ -175,14 +177,17 @@ export async function piAdapter(
       grants: undefined,
       grantTuples: undefined,
     }),
-    getScoped: async () => ({
-      material: credential.accessToken,
-      projectId: credential.projectId,
-      accountId: 'parity-identity',
-      credentialId: 'parity-credential',
-      recordVersion,
-      expiresAtMs: epoch + 86_400_000,
-    }),
+    async getScoped() {
+      await beforeVaultReceipt?.()
+      return {
+        material: credential.accessToken,
+        projectId: credential.projectId,
+        accountId: 'parity-identity',
+        credentialId: 'parity-credential',
+        recordVersion,
+        expiresAtMs: epoch + 86_400_000,
+      }
+    },
     reportAuthFailureScoped: async () => {},
     reportCondition: async ({ reason, providerStatus, actionUrl }) => {
       environment.reports.push({
@@ -207,6 +212,22 @@ export async function piAdapter(
       ) => Promise<void>)
     | undefined
   let executionId = 10_001
+  let resumeClock: (() => void) | undefined
+  const releaseClock = () => {
+    resumeClock?.()
+    resumeClock = undefined
+  }
+  const vaultTransport: RequestTransport = async (...args) => {
+    releaseClock()
+    try {
+      return await (transport ?? fetchWithAgyCliTransport)(...args)
+    } catch (error) {
+      // An endpoint fallback reads the on-disk vault enrollment again. The
+      // fixture must not jump to the deadline while that real I/O is pending.
+      resumeClock = environment.holdClock()
+      throw error
+    }
+  }
   const sessionStore = new AgyRequestSessionStore({
     now: () => Date.now(),
     // Generate execution IDs separately so native-slot locking and settings
@@ -244,7 +265,8 @@ export async function piAdapter(
         connect: async () => client,
         connectEnrollment,
         requestEngine: {
-          transport,
+          transport: custody === 'vault' ? vaultTransport : transport,
+          preResponseClock: environment.preResponseClock,
           notify: (message) => environment.notices.push(message),
           sessions: {
             beginRequest: ({ sessionId }) =>
@@ -380,10 +402,13 @@ export async function piAdapter(
         }
       } catch (error) {
         recordFailure(output, error)
+      } finally {
+        releaseClock()
       }
       return output
     },
     async dispose() {
+      releaseClock()
       await stop?.()
       if (custody === 'host') {
         if (priorHost) Reflect.defineProperty(globalThis, hostKey, priorHost)

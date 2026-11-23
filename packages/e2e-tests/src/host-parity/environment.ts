@@ -3,6 +3,7 @@ import { Buffer } from 'node:buffer'
 import * as crypto from 'node:crypto'
 import { Duplex } from 'node:stream'
 import * as tls from 'node:tls'
+import type { PreResponseClock } from '@cortexkit/antigravity-auth-core'
 import { bodyOf, epoch, type Reply, success, type Wire } from './fixtures.ts'
 
 export function decodeWrite(host: string, bytes: Buffer): Wire {
@@ -67,6 +68,7 @@ export class Environment {
   readonly hooks: unknown[] = []
   private readonly sockets = new Set<Duplex>()
   private readonly timers = new Map<Timer, { at: number; call(): void }>()
+  private clockHolds = 0
   private instant = epoch
   private randomIndex = 0
   private nodeId = 0
@@ -74,6 +76,26 @@ export class Environment {
   private webId = 0
   private latestSend = epoch
   private readonly restore: (() => void)[] = []
+
+  readonly preResponseClock: PreResponseClock = {
+    now: () => this.instant - epoch,
+    schedule(callback, delay) {
+      const timer = setTimeout(callback, delay)
+      timer.unref()
+      return () => clearTimeout(timer)
+    },
+  }
+
+  /** Let real fixture I/O finish before advancing to a virtual timer. */
+  holdClock(): () => void {
+    this.clockHolds++
+    let held = true
+    return () => {
+      if (!held) return
+      held = false
+      this.clockHolds--
+    }
+  }
 
   constructor(
     private readonly reply: (wire: Wire, attempt: number) => Reply = () =>
@@ -256,7 +278,7 @@ export class Environment {
       for (let turns = 0; !finished && turns < 160; turns++) {
         await new Promise<void>((resolve) => realSetTimeout(resolve, 3))
         if (finished) break
-        if (this.wires.length === 0) continue
+        if (this.wires.length === 0 || this.clockHolds > 0) continue
         const next = Array.from(this.timers).sort(
           (a, b) => a[1].at - b[1].at,
         )[0]

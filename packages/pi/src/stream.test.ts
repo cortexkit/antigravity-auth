@@ -2088,6 +2088,28 @@ describe('streamCortexKitAntigravity', () => {
     expect(open.wasCancelled()).toBe(true)
   })
 
+  it('closes an open body on a terminal error without aborting the transport signal', async () => {
+    const open = openSseResponse(
+      'data: {"error":{"message":"embedded failure"}}\n\n',
+    )
+    let aborted = false
+    const { result } = await runStream(
+      fakeModel(),
+      open.response,
+      'terminal-error-cleanup',
+      () => {
+        aborted = true
+      },
+    )
+    expect(result.stopReason).toBe('error')
+    expect(result.errorMessage).toBe(
+      'Antigravity stream error: embedded failure',
+    )
+    expect(open.wasCancelled()).toBe(true)
+    expect(open.response.body!.locked).toBe(false)
+    expect(aborted).toBe(false)
+  })
+
   it('uses the shared transform’s terminal-frame usage for GPT', async () => {
     const { result } = await runStream(
       fakeModel('antigravity-gpt-oss-120b-medium'),
@@ -2383,7 +2405,7 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
       // Error bodies must use only Response.text()'s readers, not an extra parseGeminiSse reader.
       expect(parserReader).toHaveBeenCalledTimes(stockReader.mock.calls.length)
       expect(listeners.size).toBe(0)
-      expect(requestSignal.aborted).toBe(true)
+      expect(requestSignal.aborted).toBe(false)
       const firstReason = requestSignal.reason
       caller.abort(new Error('after HTTP failure'))
       expect(requestSignal.reason).toBe(firstReason)

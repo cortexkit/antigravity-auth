@@ -332,7 +332,7 @@ export interface PiVaultSeams {
   /** In-process request effects for the registered provider. */
   requestEngine?: Pick<
     import('./request-engine.ts').PiRequestEngineOptions,
-    'routing' | 'transport' | 'sessions' | 'notify'
+    'routing' | 'transport' | 'sessions' | 'notify' | 'preResponseClock'
   >
 }
 

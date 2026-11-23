@@ -1,6 +1,5 @@
 export interface RequestCancellation {
   readonly signal: AbortSignal
-  abort(): void
   release(): void
 }
 
@@ -43,14 +42,14 @@ export function createRequestCancellation(
     if (source.aborted) forward()
     if (controller.signal.aborted) break
   }
-  return { signal: controller.signal, abort: () => controller.abort(), release }
+  return { signal: controller.signal, release }
 }
 
 /** Headers do not end a request: keep cancellation alive until its body ends or is cancelled. */
 export async function retainResponseLifetime(
   response: Response,
   cancellation: RequestCancellation,
-  options: { cleanup?: Promise<void>; abortOnClose?: boolean } = {},
+  options: { cleanup?: Promise<void> } = {},
 ): Promise<{
   response: Response
   settled: Promise<void>
@@ -81,7 +80,6 @@ export async function retainResponseLifetime(
       if (options.cleanup) await options.cleanup
     } finally {
       cancellation.signal.removeEventListener('abort', abort)
-      if (options.abortOnClose) cancellation.abort()
       cancellation.release()
       resolve()
     }

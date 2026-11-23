@@ -229,6 +229,7 @@ function custodyProviderConfig(
 function refusingProviderConfig(
   models: NonNullable<ProviderConfig['models']>,
   reason: string,
+  clock?: NonNullable<PiVaultSeams['requestEngine']>['preResponseClock'],
 ): ProviderConfig {
   return {
     name: 'Google Antigravity (CortexKit, unavailable)',
@@ -236,11 +237,15 @@ function refusingProviderConfig(
     api: 'google-generative-ai',
     models,
     apiKey: CUSTODY_PROVIDER_KEY_MARKER,
-    streamSimple: createCortexKitAntigravityVaultStream(async () => {
-      throw new PiVaultSetupError(
-        `${reason} Resolve it from /antigravity; Antigravity requests are refused until then. No request was sent.`,
-      )
-    }, CUSTODY_PROVIDER_KEY_MARKER),
+    streamSimple: createCortexKitAntigravityVaultStream(
+      async () => {
+        throw new PiVaultSetupError(
+          `${reason} Resolve it from /antigravity; Antigravity requests are refused until then. No request was sent.`,
+        )
+      },
+      CUSTODY_PROVIDER_KEY_MARKER,
+      clock,
+    ),
   }
 }
 
@@ -360,7 +365,11 @@ export async function registerCortexKitPiAntigravity(
       )
       pi.registerProvider(
         ANTIGRAVITY_PROVIDER_ID,
-        refusingProviderConfig(models, refusal.message),
+        refusingProviderConfig(
+          models,
+          refusal.message,
+          seams.requestEngine?.preResponseClock,
+        ),
       )
       throw refusal
     }

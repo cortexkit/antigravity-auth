@@ -4343,7 +4343,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               cancellation,
               {
                 cleanup: waitPolicy.bodyCleanup,
-                abortOnClose: deps.typedEvents && !response.ok,
               },
             )
             inFlight.add(retained.settled)
@@ -4371,7 +4370,6 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           },
           (error: unknown) => {
             handoff.cancel()
-            if (deps.typedEvents) cancellation.abort()
             deadline.dispose()
             cancellation.release()
             throw redactFailure(error)

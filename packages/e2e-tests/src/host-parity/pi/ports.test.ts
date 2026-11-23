@@ -26,6 +26,29 @@ const missing = {
 const modelUnavailable =
   'Antigravity request failed: HTTP 412 {"error":{"code":412,"status":"FAILED_PRECONDITION","message":"The requested Antigravity model is not available to the configured accounts. Choose another model."}}'
 
+test('vault endpoint fallback waits for receipt I/O without advancing the fixture clock', async () => {
+  const env = new Environment(() => ({ stall: 'before-headers' }))
+  let admissions = 0
+  const pi = await piAdapter(env, 'vault', false, {}, undefined, async () => {
+    if (++admissions === 2) await Bun.sleep(15)
+  })
+  try {
+    const result = await env.timed(() => pi.run(input, 'slow-vault-fallback'))
+    expect(admissions).toBe(2)
+    expect(env.physicalSends.map(({ endpoint }) => endpoint)).toEqual([
+      'https://daily-cloudcode-pa.googleapis.com',
+      'https://cloudcode-pa.googleapis.com',
+    ])
+    expect(env.delays).toEqual([180_000])
+    expect(env.cancellations).toEqual([180_000, 360_000])
+    expect(env.aborts).toEqual([])
+    expect(result.terminal).toEqual(['failure:deadline'])
+  } finally {
+    await pi.dispose()
+    await env.dispose()
+  }
+})
+
 for (const [gate, settings] of [
   [
     'health',
