@@ -53,6 +53,9 @@ export class ToolIdMismatchError extends Error {
   }
 }
 
+/** The response arrived, but its final refusal body could not be read. */
+export class ResponseBodyReadError extends Error {}
+
 /**
  * Thrown when the operator killswitch excludes every available account.
  *

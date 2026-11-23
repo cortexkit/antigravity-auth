@@ -1,3 +1,5 @@
+import { toGeminiSchema } from '@cortexkit/antigravity-auth-core'
+
 type Schema =
   | boolean
   | {
@@ -18,11 +20,7 @@ type Schema =
 
 // Match the ordered OpenAPI subset emitted by @ai-sdk/google 3.0.73's
 // convert-json-schema-to-openapi-schema.ts. Claude hardening runs after this.
-export function googleToolParameters(
-  input: unknown,
-  root = true,
-  preserveConstraints = false,
-): unknown {
+export function googleToolParameters(input: unknown, root = true): unknown {
   const schema = input as Schema | undefined
   if (schema == null) return undefined
   if (typeof schema === 'boolean') return { type: 'boolean', properties: {} }
@@ -59,8 +57,7 @@ export function googleToolParameters(
     }
   } else if (type) result.type = type
   if (schema.enum !== undefined) result.enum = schema.enum
-  const child = (source: Schema) =>
-    googleToolParameters(source, false, preserveConstraints)
+  const child = (source: Schema) => googleToolParameters(source, false)
   if (properties)
     result.properties = Object.fromEntries(
       Object.entries(properties).map(([name, value]) => [name, child(value)]),
@@ -86,24 +83,50 @@ export function googleToolParameters(
   }
   if (oneOf) result.oneOf = oneOf.map(child)
   if (schema.minLength !== undefined) result.minLength = schema.minLength
-  if (preserveConstraints) {
-    // Gemini's existing Pi schemas carry constraints the Google SDK drops.
-    // Retain them for the engine's Gemini/GPT-OSS sanitizer.
-    const constraints = schema as Record<string, unknown>
-    for (const key of [
-      'minimum',
-      'maximum',
-      'exclusiveMinimum',
-      'exclusiveMaximum',
-      'multipleOf',
-      'minItems',
-      'maxItems',
-      'maxLength',
-      'pattern',
-      'example',
-    ]) {
-      if (constraints[key] !== undefined) result[key] = constraints[key]
-    }
-  }
   return result
+}
+
+function googleSchemaOrder(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(googleSchemaOrder)
+  if (!schema || typeof schema !== 'object') return schema
+  const entries = new Map(Object.entries(schema))
+  const ordered = new Map<string, unknown>()
+  for (const field of [
+    'description',
+    'required',
+    'format',
+    'type',
+    'enum',
+    'properties',
+    'items',
+    'anyOf',
+  ]) {
+    if (!entries.has(field)) continue
+    const value = entries.get(field)
+    const child =
+      field === 'properties' && value && typeof value === 'object'
+        ? Object.fromEntries(
+            Object.entries(value).map(([name, property]) => [
+              name,
+              googleSchemaOrder(property),
+            ]),
+          )
+        : field === 'items' || field === 'anyOf'
+          ? googleSchemaOrder(value)
+          : value
+    ordered.set(field, child)
+    entries.delete(field)
+  }
+  return Object.fromEntries([...ordered, ...entries])
+}
+
+/** Preserve first-party Gemini and GPT-OSS schema constraints the SDK does not carry. */
+export function piGeminiToolParameters(input: unknown, model: string): unknown {
+  return googleSchemaOrder(
+    toGeminiSchema(input, {
+      moveNumericConstraintsToDescription: model
+        .replace(/^antigravity-/, '')
+        .startsWith('gpt-oss-'),
+    }),
+  )
 }

@@ -59,7 +59,7 @@ import {
   createAfterHandoff,
   type RegisterResponseHandoff,
 } from './after-handoff.ts'
-import { AntigravityKillswitchError } from './errors.ts'
+import { AntigravityKillswitchError, ResponseBodyReadError } from './errors.ts'
 import {
   createRetryState,
   type RateLimitBackoffResult,
@@ -91,7 +91,9 @@ import type {
 } from './ports.ts'
 import type { PrepareRequestOptions, RequestWire } from './request.ts'
 import {
+  attachResponseCleanup,
   createRequestCancellation,
+  getResponseCleanup,
   retainResponseLifetime,
 } from './request-cancellation.ts'
 import {
@@ -480,6 +482,7 @@ export interface VaultRequestCredentials<A extends RequestAccountRow> {
 type VaultConditionWork = () => Promise<VaultConditionOutcome> | undefined
 
 interface RequestCompletion {
+  bodyCleanup?: Promise<void>
   refusal?: () => Response
   quota?: (signal: AbortSignal) => Promise<void>
   vaultConditions: VaultConditionWork[]
@@ -586,8 +589,8 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
   readonly credentials: RequestCredentials<A>
   /** This location's AGY conversation/trajectory session metadata. */
   readonly sessions: RequestSessions
-  /** De-duplicate displayed thoughts by allocated conversation, not by the signature cache's model and prompt fingerprint. */
-  readonly scopeDisplayedThinking?: boolean
+  /** Keep the response alive through cleanup, and scope displayed thoughts to the conversation. */
+  readonly typedEvents?: boolean
   /** Legacy session headers and request-kind markers are interpreted by the adapter. */
   readonly readSession: (headers?: HeadersInit) => RequestSessionIdentity
   readonly isTitleRoutingRequest: (
@@ -1476,8 +1479,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           context.toolDebugSummary,
           debugLines,
           context.dumpContext,
+          ...(deps.typedEvents
+            ? ([agyRequestSession.conversationId] as const)
+            : []),
         )
       }
+      if (failure?.kind === 'transport' && deps.typedEvents)
+        throw markUpstreamFailure(failure.error)
       throw terminalFetchError(
         lastError ?? (failure?.kind === 'transport' ? failure.error : null),
         fallbackMessage,
@@ -3931,12 +3939,13 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 prepared.toolDebugSummary,
                 debugLines,
                 dumpContext,
-                ...(deps.scopeDisplayedThinking
+                ...(deps.typedEvents
                   ? ([agyRequestSession.conversationId] as const)
                   : []),
               ),
             )
 
+            waitPolicy.bodyCleanup = getResponseCleanup(transformedResponse)
             const contextError = transformedResponse.headers.get(
               'x-antigravity-context-error',
             )
@@ -4044,6 +4053,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             if (deps.reauthorize && error instanceof HostRefusalError)
               throw error
             checkAborted()
+            if (deps.typedEvents && error instanceof ResponseBodyReadError)
+              throw markUpstreamFailure(error.cause ?? error)
             if (
               tokenConsumed &&
               (!isLocalGrantError(error) || !physicalAttemptStarted)
@@ -4330,6 +4341,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             const retained = await retainResponseLifetime(
               response,
               cancellation,
+              {
+                cleanup: waitPolicy.bodyCleanup,
+                abortOnClose: deps.typedEvents && !response.ok,
+              },
             )
             inFlight.add(retained.settled)
             void retained.settled.then(() => inFlight.delete(retained.settled))
@@ -4340,6 +4355,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               undefined,
               [...selectedProjectIds],
             )
+            if (deps.typedEvents)
+              attachResponseCleanup(published, retained.settled)
             if (
               published.ok &&
               waitPolicy.quota &&
@@ -4354,6 +4371,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           },
           (error: unknown) => {
             handoff.cancel()
+            if (deps.typedEvents) cancellation.abort()
             deadline.dispose()
             cancellation.release()
             throw redactFailure(error)

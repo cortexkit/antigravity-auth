@@ -8,7 +8,10 @@ import type {
 } from '@earendil-works/pi-ai'
 // Older Pi versions don't export the transcript helpers.
 import * as piAi from '@earendil-works/pi-ai'
-import { googleToolParameters } from './google-tool-schema.ts'
+import {
+  googleToolParameters,
+  piGeminiToolParameters,
+} from './google-tool-schema.ts'
 
 type InlineImage = { inlineData: { mimeType: string; data: string } }
 type GeminiPart =
@@ -240,11 +243,10 @@ export function buildGeminiRequest(
           functionDeclarations: tools.map((tool) => ({
             name: tool.name,
             description: tool.description ?? '',
-            parameters: googleToolParameters(
-              tool.parameters,
-              true,
-              !options?.model?.includes('claude'),
-            ),
+            parameters:
+              options?.model && !options.model.includes('claude')
+                ? piGeminiToolParameters(tool.parameters, options.model)
+                : googleToolParameters(tool.parameters),
           })),
         },
       ],

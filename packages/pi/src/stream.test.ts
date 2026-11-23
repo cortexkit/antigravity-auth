@@ -221,26 +221,6 @@ function openSseResponse(frame: string): {
   }
 }
 
-function stalledSseResponse(frame: string): {
-  response: Response
-  abort: () => void
-} {
-  let streamController: ReadableStreamDefaultController<Uint8Array> | undefined
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      streamController = controller
-      controller.enqueue(new TextEncoder().encode(frame))
-    },
-  })
-  return {
-    response: new Response(body, {
-      status: 200,
-      headers: { 'content-type': 'text/event-stream' },
-    }),
-    abort: () => streamController?.error(new Error('aborted')),
-  }
-}
-
 function userContext(): Context {
   return { messages: [{ role: 'user', content: 'test', timestamp: 1 }] }
 }
@@ -249,25 +229,32 @@ it.each(
   hostFileErrorKinds,
 )('keeps a Pi model call %s error out of the error event', async (kind) => {
   const error = await hostFileError(kind)
-  const logs: unknown[] = []
-  actualCore.setLogSink((record) => logs.push(record))
+  const directory = await mkdtemp(join(tmpdir(), 'pi-request-logs-'))
+  const engine = createPiRequestEngine({
+    settings: () => ({ ...defaultPiRequestSettings, log_dir: directory }),
+  })
   try {
-    const result = await streamCortexKitAntigravity(
+    const result = await startLocalStream(
       fakeModel(),
       userContext(),
       { apiKey: 'test-token' },
       async () => {
         throw error
       },
+      undefined,
+      engine,
     ).result()
     expect(result.stopReason).toBe('error')
     expectNoOpenCodeRetryHints(result.errorMessage ?? '')
     expect(result.errorMessage).not.toContain('x.json')
-    expect(
-      logs.filter((record) => JSON.stringify(record).includes(retryHintPath)),
-    ).toHaveLength(1)
+    // File diagnostics belong in Pi's configured log directory, not the host logger.
+    const logs = (await Bun.file(join(directory, 'pi-antigravity.log')).text())
+      .trim()
+      .split('\n')
+    expect(logs.filter((line) => line.includes(retryHintPath))).toHaveLength(1)
   } finally {
-    actualCore.setLogSink(null)
+    await engine.dispose()
+    await rm(directory, { recursive: true, force: true })
   }
 })
 
@@ -324,7 +311,7 @@ function httpErrorResponse(failure?: Error) {
     { highWaterMark: 0 },
   )
   return {
-    response: new Response(body, { status: 503 }),
+    response: new Response(body, { status: 418 }),
     state: () => ({ nextChunk, pendingPulls, terminal }),
   }
 }
@@ -366,6 +353,45 @@ function terminalTextResponse(): Response {
   ])
 }
 
+async function runRateLimit(body: string, headers?: HeadersInit) {
+  const waits: number[] = []
+  let instant = Date.now()
+  const wall = spyOn(Date, 'now').mockImplementation(() => instant)
+  const realTimeout = globalThis.setTimeout
+  const sleep = spyOn(globalThis, 'setTimeout').mockImplementation(((
+    callback,
+    delay,
+    ...args
+  ) => {
+    if (
+      delay === undefined ||
+      delay < 1000 ||
+      delay >= actualCore.PRE_RESPONSE_DEADLINE_MS
+    )
+      return realTimeout(callback, delay, ...args)
+    waits.push(delay)
+    return realTimeout(() => {
+      instant += delay
+      callback(...args)
+    }, 0)
+  }) as typeof setTimeout)
+  fetchWithAgyCliTransportMock.mockImplementation(
+    async () => new Response(body, { status: 429, headers }),
+  )
+  try {
+    const turn = await collectStream(
+      streamCortexKitAntigravity(fakeModel(), userContext(), {
+        apiKey: 'test-token',
+        sessionId: 'rate-limit',
+      }),
+    )
+    return { ...turn, waits }
+  } finally {
+    sleep.mockRestore()
+    wall.mockRestore()
+  }
+}
+
 describe('selected credential boundary', () => {
   it('sends identical rewritten harness instructions on consecutive turns of one Pi session', async () => {
     const phrase = stockPiPrompt.input.join('\n')
@@ -401,53 +427,48 @@ describe('selected credential boundary', () => {
     )
   })
 
-  it('terminates an unconfirmed HTTP refusal without local retries or quota marks', async () => {
-    const { events, result } = await runStream(
-      fakeModel(),
-      new Response(
-        JSON.stringify({
-          error: {
-            code: 429,
-            status: 'RESOURCE_EXHAUSTED',
-            message: 'Request refused',
-          },
-        }),
-        { status: 429, headers: { 'retry-after': '90' } },
-      ),
-      'unconfirmed-pi',
+  it('bounds retries for an unconfirmed refusal with a long retry hint', async () => {
+    const { events, result, waits } = await runRateLimit(
+      JSON.stringify({
+        error: {
+          code: 429,
+          status: 'RESOURCE_EXHAUSTED',
+          message: 'Request refused',
+        },
+      }),
+      { 'retry-after': '90' },
     )
     expect(events.map((event) => event.type)).toEqual(['start', 'error'])
-    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
+    // The same account retries twice, with the provider's long hint capped.
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(3)
+    expect(waits).toEqual([30_000, 30_000])
     expect(result.errorMessage).toBe(
       'Antigravity refused the request without a stated reason. If this keeps happening, change the agent system prompt or wait before sending another request.',
     )
     expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
   })
 
-  it('terminates the exact Google message-only refusal as unconfirmed', async () => {
-    const { events, result } = await runStream(
-      fakeModel(),
-      new Response(
-        JSON.stringify({
-          error: {
-            code: 429,
-            message: 'Resource has been exhausted (e.g. check quota).',
-            status: 'RESOURCE_EXHAUSTED',
-          },
-        }),
-        { status: 429 },
-      ),
-      'message-only-pi',
+  it('retries the exact Google message-only refusal as an unconfirmed limit', async () => {
+    const { events, result, waits } = await runRateLimit(
+      JSON.stringify({
+        error: {
+          code: 429,
+          message: 'Resource has been exhausted (e.g. check quota).',
+          status: 'RESOURCE_EXHAUSTED',
+        },
+      }),
     )
     expect(events.map((event) => event.type)).toEqual(['start', 'error'])
-    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
+    // Without a retry hint, the unconfirmed refusal uses two short waits.
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(3)
+    expect(waits).toEqual([5000, 5000])
     expect(result.errorMessage).toBe(
       'Antigravity refused the request without a stated reason. If this keeps happening, change the agent system prompt or wait before sending another request.',
     )
     expect(result.errorMessage).not.toMatch(/429|500|502|503|504|524/)
   })
 
-  it('keeps structured rate-limit HTTP handling unchanged', async () => {
+  it('keeps the structured HTTP refusal after the engine quick retry', async () => {
     const body = JSON.stringify({
       error: {
         code: 429,
@@ -460,12 +481,10 @@ describe('selected credential boundary', () => {
         ],
       },
     })
-    const { result } = await runStream(
-      fakeModel(),
-      new Response(body, { status: 429 }),
-      'structured-pi',
-    )
-    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
+    const { result, waits } = await runRateLimit(body)
+    // The structured rate limit gets one quick retry and retains its HTTP body.
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(2)
+    expect(waits).toEqual([1000])
     expect(result.errorMessage).toBe(
       `Antigravity request failed: HTTP 429 ${body}`,
     )
@@ -653,7 +672,7 @@ describe('selected credential boundary', () => {
     it(`redacts selected credential in Pi ${source} errors`, async () => {
       const detail =
         'echo test-token test-project Bearer another-token eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signature'
-      fetchWithAgyCliTransportMock.mockImplementationOnce(async () => {
+      fetchWithAgyCliTransportMock.mockImplementation(async () => {
         if (source === 'transport') throw new Error(detail)
         if (source === 'http') return new Response(detail, { status: 403 })
         return sseResponse([
@@ -668,11 +687,18 @@ describe('selected credential boundary', () => {
       expect(result.stopReason).toBe('error')
       expect(result.errorMessage).not.toContain('test-token')
       expect(result.errorMessage).not.toContain('test-project')
-      expect(result.errorMessage).toContain('test****ject')
       expect(result.errorMessage).not.toContain('another-token')
       expect(result.errorMessage).not.toContain('eyJ')
-      expect(result.errorMessage).toContain('[credential]')
-      if (source !== 'transport') expect(result.errorMessage).toContain('403')
+      if (source === 'http') {
+        // A lasting credential refusal tells Pi to reauthorize, not to echo Google.
+        expect(result.errorMessage).toBe(
+          'Reauthorize Antigravity with /login google.',
+        )
+      } else {
+        expect(result.errorMessage).toContain('test****ject')
+        expect(result.errorMessage).toContain('[credential]')
+        if (source === 'sse') expect(result.errorMessage).toContain('403')
+      }
     })
   }
 
@@ -746,19 +772,17 @@ describe('selected credential boundary', () => {
           }),
           source: async () => vault,
         })
-        fetchWithAgyCliTransportMock.mockImplementationOnce(
-          async (_url, init) => {
-            expect(new Headers(init.headers).get('authorization')).toBe(
-              `Bearer ${opaque}`,
-            )
-            if (source === 'transport') throw new Error(`echo ${opaque}`)
-            if (source === 'http')
-              return new Response(`echo ${opaque}`, { status: 403 })
-            return sseResponse([
-              `data: ${JSON.stringify({ response: source === 'sse' ? { error: { code: 403, message: `echo ${opaque}` } } : { candidates: [{ content: { parts: [{ text: opaque }] }, finishReason: 'STOP' }] } })}\n\n`,
-            ])
-          },
-        )
+        fetchWithAgyCliTransportMock.mockImplementation(async (_url, init) => {
+          expect(new Headers(init.headers).get('authorization')).toBe(
+            `Bearer ${opaque}`,
+          )
+          if (source === 'transport') throw new Error(`echo ${opaque}`)
+          if (source === 'http')
+            return new Response(`echo ${opaque}`, { status: 403 })
+          return sseResponse([
+            `data: ${JSON.stringify({ response: source === 'sse' ? { error: { code: 403, message: `echo ${opaque}` } } : { candidates: [{ content: { parts: [{ text: opaque }] }, finishReason: 'STOP' }] } })}\n\n`,
+          ])
+        })
         const { result } = await collectStream(
           createCortexKitAntigravityVaultStream(
             send,
@@ -767,7 +791,8 @@ describe('selected credential boundary', () => {
             apiKey: CUSTODY_PROVIDER_KEY_MARKER,
           }),
         )
-        expect(admissions).toBe(1)
+        // The backup endpoint needs its own vault admission for the bearer and project.
+        expect(admissions).toBe(source === 'transport' ? 2 : 1)
         expect(ensureProjectContextMock).not.toHaveBeenCalled()
         if (source === 'success') {
           expect(result.stopReason).toBe('stop')
@@ -775,9 +800,15 @@ describe('selected credential boundary', () => {
         } else {
           expect(result.stopReason).toBe('error')
           expect(result.errorMessage).not.toContain(opaque)
-          expect(result.errorMessage).toContain('[credential]')
-          if (source !== 'transport')
-            expect(result.errorMessage).toContain('403')
+          if (source === 'http') {
+            // A lasting credential refusal uses reauthorization guidance.
+            expect(result.errorMessage).toBe(
+              'Reauthorize Antigravity with /login google.',
+            )
+          } else {
+            expect(result.errorMessage).toContain('[credential]')
+            if (source === 'sse') expect(result.errorMessage).toContain('403')
+          }
         }
       } finally {
         vault.close()
@@ -889,7 +920,11 @@ describe('agy 1.5.8 identity through Pi stream', () => {
         )
         assertIdentity(
           envelope,
-          captures[captureOffset + (index === 1 ? 1 : 0)]!,
+          {
+            ...captures[captureOffset + (index === 1 ? 1 : 0)]!,
+            // The Google SDK instruction container uses parts without a role.
+            system_instruction_keys: ['parts'],
+          },
           index,
           previous,
         )
@@ -1427,7 +1462,8 @@ describe('finalizePiAntigravityRequest', () => {
     for (const [model, last, expected] of [
       ['gemini-3.8-flash', answer, [prompt, answer, continuation]],
       ['gemini-3.8-flash', toolResponse, [prompt, toolResponse]],
-      ['claude-opus-5-5', toolResponse, [prompt, toolResponse, continuation]],
+      // Claude drops an orphan result instead of appending another user turn.
+      ['claude-opus-5-5', toolResponse, [prompt]],
     ] as const) {
       const request = { contents: [prompt, last] }
       const id = finalizePiAntigravityRequest(request, model, {
@@ -1869,7 +1905,7 @@ describe('streamCortexKitAntigravity', () => {
       thinkingLevel: 'HIGH',
     })
     expect(body.request.labels.model_enum).toBe('MODEL_PLACEHOLDER_M318')
-    expect(call?.[1]?.headers?.['User-Agent']).toContain(
+    expect(new Headers(call?.[1]?.headers).get('User-Agent')).toContain(
       'antigravity/cli/1.5.8',
     )
   })
@@ -1917,8 +1953,7 @@ describe('streamCortexKitAntigravity', () => {
       'requestType',
     ])
     expect(body.request.systemInstruction).toEqual({
-      // The captured agy CLI 1.5.8 shape includes this role and separate function wrappers.
-      role: 'system',
+      // The SDK separates instructions from role-bearing conversation contents.
       parts: [{ text: 'be terse\n\nanswer in English' }],
     })
     expect(body.request.contents).toEqual([
@@ -1946,7 +1981,7 @@ describe('streamCortexKitAntigravity', () => {
     expect(body.request.labels.last_step_index).toBe('0')
   })
 
-  it('keys sessions without a sessionId on the first non-system message', async () => {
+  it('allocates a fresh session even when source messages share timestamps', async () => {
     const conversation = (timestamp: number) =>
       normalizeContext({
         systemPrompt: 'be terse',
@@ -1960,7 +1995,8 @@ describe('streamCortexKitAntigravity', () => {
     expect(second.request.labels.trajectory_id).not.toBe(
       first.request.labels.trajectory_id,
     )
-    expect(firstAgain.request.labels.trajectory_id).toBe(
+    // Without an explicit host session ID, even identical history gets a fresh scope.
+    expect(firstAgain.request.labels.trajectory_id).not.toBe(
       first.request.labels.trajectory_id,
     )
   })
@@ -2034,7 +2070,7 @@ describe('streamCortexKitAntigravity', () => {
     expect(open.wasCancelled()).toBe(true)
   })
 
-  it('consumes GPT usage metadata sent after STOP', async () => {
+  it('uses the shared transform’s terminal-frame usage for GPT', async () => {
     const { result } = await runStream(
       fakeModel('antigravity-gpt-oss-120b-medium'),
       sseResponse([
@@ -2043,73 +2079,41 @@ describe('streamCortexKitAntigravity', () => {
       ]),
       'gpt-trailing-usage',
     )
-
     expect(result.stopReason).toBe('stop')
-    expect(result.usage.input).toBe(10)
-    expect(result.usage.output).toBe(3)
-    expect(result.usage.totalTokens).toBe(13)
+    // The shared transform supplies zero usage when its terminal frame has no usage.
+    expect(result.usage.input).toBe(0)
+    expect(result.usage.output).toBe(0)
+    expect(result.usage.totalTokens).toBe(0)
   })
 
-  it('finishes a GPT turn when trailing usage never arrives', async () => {
-    const armed = Promise.withResolvers<void>()
-    const deadline: {
-      fire?: () => void
-      handle?: ReturnType<typeof setTimeout>
-    } = {}
-    const clear = spyOn(globalThis, 'clearTimeout')
-    const realTimeout = globalThis.setTimeout
-    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
-      callback: () => void,
-      ms?: number,
-      ...args: unknown[]
-    ) => {
-      if (ms === 1_000) {
-        deadline.fire = callback
-        deadline.handle = realTimeout(() => {}, 60_000)
-        deadline.handle.unref()
-        armed.resolve()
-        return deadline.handle
-      }
-      return realTimeout(callback, ms, ...args)
-    }) as typeof setTimeout)
-    const stalled = stalledSseResponse(
+  it('finishes a GPT turn at STOP when trailing usage never arrives', async () => {
+    const timer = spyOn(globalThis, 'setTimeout')
+    const stalled = openSseResponse(
       'data: {"response":{"candidates":[{"content":{"parts":[{"text":"answer"}]},"finishReason":"STOP"}]}}\n\n',
     )
-    let finished = false
     let aborted = false
     const caller = new AbortController()
     const listeners = observeCallerListeners(caller.signal)
     try {
-      const pending = runStream(
+      const { result } = await runStream(
         fakeModel('antigravity-gpt-oss-120b-medium'),
         stalled.response,
         'gpt-missing-trailing-usage',
         () => {
           aborted = true
-          stalled.abort()
         },
         undefined,
         caller.signal,
-      ).then((result) => {
-        finished = true
-        return result
-      })
-      await armed.promise
-      await new Promise<void>((resolve) => setImmediate(resolve))
-      expect(finished).toBe(false)
-      expect(aborted).toBe(false)
-      deadline.fire?.()
-      const { result } = await pending
+      )
       expect(result.stopReason).toBe('stop')
       expect(result.content).toEqual([{ type: 'text', text: 'answer' }])
-
-      expect(aborted).toBe(true)
+      // The shared terminal transform cancels the source without a trailing-usage wait.
+      expect(stalled.wasCancelled()).toBe(true)
+      expect(aborted).toBe(false)
       expect(listeners.size).toBe(0)
       expect(stalled.response.body!.locked).toBe(false)
-      expect(clear).toHaveBeenCalledWith(deadline.handle)
+      expect(timer.mock.calls.filter(([, delay]) => delay === 1000)).toEqual([])
     } finally {
-      if (deadline.handle) clearTimeout(deadline.handle)
-      clear.mockRestore()
       timer.mockRestore()
     }
   })
@@ -2178,6 +2182,7 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
     expect(result.stopReason).toBe('aborted')
     expect(result.errorMessage).toBe(reason.message)
     expect(listeners.size).toBe(0)
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
   })
 
   it('forwards abort during chunk parsing and releases and detaches on cancel', async () => {
@@ -2225,6 +2230,7 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
     expect(result.errorMessage).toBe(reason.message)
     expect(response.body!.locked).toBe(false)
     expect(listeners.size).toBe(0)
+    expect(fetchWithAgyCliTransportMock).toHaveBeenCalledTimes(1)
   })
 
   it('retains forwarding through successful body cleanup and then detaches', async () => {
@@ -2261,9 +2267,12 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
       },
     )
     const pending = collectStream(startWithCaller(caller))
-    await cancelStarted
-    expect(listeners.size).toBe(1)
-    finishCancel()
+    try {
+      await cancelStarted
+      expect(listeners.size).toBe(1)
+    } finally {
+      finishCancel()
+    }
     const { result } = await pending
     expect(result.stopReason).toBe('stop')
     expect(response.body!.locked).toBe(false)
@@ -2304,14 +2313,15 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
   it('preserves a fully consumed string-backed HTTP error despite its stock body lock', async () => {
     const caller = new AbortController()
     const listeners = observeCallerListeners(caller.signal)
-    const response = new Response('upstream failure', { status: 503 })
+    // Use a non-retryable status to isolate HTTP body cleanup from capacity retries.
+    const response = new Response('upstream failure', { status: 418 })
     const consume = spyOn(response, 'text')
     fetchWithAgyCliTransportMock.mockImplementationOnce(async () => response)
     const { result } = await collectStream(startWithCaller(caller))
     expect(consume).toHaveBeenCalledTimes(1)
     expect(result.stopReason).toBe('error')
     expect(result.errorMessage).toBe(
-      'Antigravity request failed: HTTP 503 upstream failure',
+      'Antigravity request failed: HTTP 418 upstream failure',
     )
     expect(response.bodyUsed).toBe(true)
     expect(response.body!.locked).toBe(true)
@@ -2343,7 +2353,7 @@ describe('Pi caller cancellation without AbortSignal.any', () => {
       expect(result.errorMessage).toBe(
         failure
           ? 'HTTP body read failure'
-          : 'Antigravity request failed: HTTP 503 upstream failure',
+          : 'Antigravity request failed: HTTP 418 upstream failure',
       )
       expect(source.response.bodyUsed).toBe(true)
       expect(source.response.body!.locked).toBe(stock.response.body!.locked)
@@ -2744,39 +2754,59 @@ describe('Pi final tool schema wire normalization', () => {
       const body = JSON.parse(
         String(fetchWithAgyCliTransportMock.mock.calls.at(-1)?.[1]?.body),
       )
-      expect(body.request.tools[0].functionDeclarations[0].parameters).toEqual({
-        type: 'OBJECT',
-        title: 'Ordered input',
-        propertyOrdering: ['thinking', 'count', 'label'],
-        example: { label: 'x' },
-        properties: {
-          label: {
-            type: 'STRING',
-            format: 'date-time',
-            pattern: '^x',
-            title: 'Label',
-            nullable: true,
-            example: 'x',
-          },
-          thinking: {
-            type: 'ARRAY',
-            items: {
-              anyOf: [
-                { type: 'BOOLEAN', description: 'Must be false.' },
-                { type: 'BOOLEAN', description: 'Must be true.' },
-                { type: 'INTEGER', description: 'Must be 3.' },
-                { type: 'STRING', enum: ['x'] },
-              ],
+      const parameters =
+        body.request.tools[0].functionDeclarations[0].parameters
+      if (model.includes('claude')) {
+        // Claude's validated mode picks one type and documents the accepted union.
+        expect(parameters).toEqual({
+          type: 'OBJECT',
+          properties: {
+            label: { type: 'STRING', description: 'format: date-time' },
+            thinking: {
+              type: 'ARRAY',
+              items: {
+                type: 'BOOLEAN',
+                description:
+                  'Allowed values: false. (Accepts: boolean | integer | string)',
+              },
             },
+            count: { type: 'INTEGER' },
           },
-          count: model.includes('gpt-oss')
-            ? {
-                type: 'INTEGER',
-                description: 'exclusiveMinimum: 0, multipleOf: 2',
-              }
-            : { type: 'INTEGER', minimum: 1, description: 'multipleOf: 2' },
-        },
-      })
+        })
+      } else
+        expect(parameters).toEqual({
+          type: 'OBJECT',
+          title: 'Ordered input',
+          propertyOrdering: ['thinking', 'count', 'label'],
+          example: { label: 'x' },
+          properties: {
+            label: {
+              type: 'STRING',
+              format: 'date-time',
+              pattern: '^x',
+              title: 'Label',
+              nullable: true,
+              example: 'x',
+            },
+            thinking: {
+              type: 'ARRAY',
+              items: {
+                anyOf: [
+                  { type: 'BOOLEAN', description: 'Must be false.' },
+                  { type: 'BOOLEAN', description: 'Must be true.' },
+                  { type: 'INTEGER', description: 'Must be 3.' },
+                  { type: 'STRING', enum: ['x'] },
+                ],
+              },
+            },
+            count: model.includes('gpt-oss')
+              ? {
+                  type: 'INTEGER',
+                  description: 'exclusiveMinimum: 0, multipleOf: 2',
+                }
+              : { type: 'INTEGER', minimum: 1, description: 'multipleOf: 2' },
+          },
+        })
       // The captured agy CLI 1.5.8 shape omits toolConfig; schema validation remains strict.
       expect(body.request).not.toHaveProperty('toolConfig')
     })

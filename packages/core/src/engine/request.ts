@@ -49,6 +49,7 @@ import {
   type ThinkingTier,
 } from '../transform/index.ts'
 import type { GoogleSearchConfig } from '../transform/types.ts'
+import { ResponseBodyReadError } from './errors.ts'
 import { isCanonicalGoogleOrigin } from './google-origin.ts'
 import type {
   AntigravityDebugContext,
@@ -59,6 +60,7 @@ import type {
   SaveResponseImage,
 } from './ports.ts'
 import { detectErrorType } from './recovery-error.ts'
+import { attachResponseCleanup } from './request-cancellation.ts'
 import {
   type AntigravityApiBody,
   applyToolPairingFixes,
@@ -2667,7 +2669,9 @@ async function transformAntigravityResponseIn(
 ): Promise<Response> {
   const contentType = response.headers.get('content-type') ?? ''
   const isJsonResponse = contentType.includes('application/json')
-  const isEventStreamResponse = contentType.includes('text/event-stream')
+  const isEventStreamResponse =
+    contentType.includes('text/event-stream') ||
+    (!!displayedThinkingScope && streaming && !contentType)
 
   // Generate text for thinking injection:
   // - If debug=true: inject full debug logs
@@ -2697,6 +2701,7 @@ async function transformAntigravityResponseIn(
   // This enables thinking tokens to be displayed as they arrive, like the Codex plugin.
   if (streaming && response.ok && isEventStreamResponse && response.body) {
     const headers = new Headers(response.headers)
+    if (!contentType) headers.set('Content-Type', 'text/event-stream')
 
     wire.debug.logAntigravityDebugResponse(debugContext, response, {
       note: 'Streaming SSE response (real-time transform)',
@@ -2704,9 +2709,6 @@ async function transformAntigravityResponseIn(
     effects.dump.noteResponse(dumpContext, response)
 
     const rawDumpTransformer = effects.dump.createResponseTransform(dumpContext)
-    const sourceBody = rawDumpTransformer
-      ? response.body.pipeThrough(rawDumpTransformer)
-      : response.body
 
     const streamingTransformer = createStreamingTransformer(
       wire.signatures.signatureStore,
@@ -2757,6 +2759,28 @@ async function transformAntigravityResponseIn(
         // injectSyntheticThinking removed - keep_thinking now unified with debug via debugText
       },
     )
+    if (displayedThinkingScope) {
+      // A typed consumer publishes done only after the sender finishes cancelling
+      // the upstream body. pipeThrough would hide that completion promise.
+      const pipes: Promise<void>[] = []
+      if (rawDumpTransformer)
+        pipes.push(response.body.pipeTo(rawDumpTransformer.writable))
+      const source = rawDumpTransformer?.readable ?? response.body
+      pipes.push(source.pipeTo(streamingTransformer.writable))
+      const transformed = new Response(streamingTransformer.readable, {
+        status: response.status,
+        statusText: response.statusText,
+        headers,
+      })
+      attachResponseCleanup(
+        transformed,
+        Promise.allSettled(pipes).then(() => {}),
+      )
+      return transformed
+    }
+    const sourceBody = rawDumpTransformer
+      ? response.body.pipeThrough(rawDumpTransformer)
+      : response.body
     return new Response(sourceBody.pipeThrough(streamingTransformer), {
       status: response.status,
       statusText: response.statusText,
@@ -2812,7 +2836,7 @@ async function transformAntigravityResponseIn(
         plainHeaders['Retry-After'] = initialForwarded['retry-after']
       }
 
-      const freshError = new Error(
+      const freshError = new ResponseBodyReadError(
         `Failed to read response body: ${safeMessage}`,
         sanitizedCause ? { cause: sanitizedCause } : undefined,
       )
@@ -2974,6 +2998,10 @@ async function transformAntigravityResponseIn(
       ) {
         headers.set('x-antigravity-context-error', 'tool_pairing')
       }
+
+      // Consumers of typed events receive the legacy refusal text without the debug
+      // context that the HTTP adapter attaches to its error envelope.
+      if (displayedThinkingScope) return await createSafeFallback(text)
 
       // Early raw diagnostic branch only for non-JSON non-SSE
       if (!isJson && !isEventStreamResponse) {

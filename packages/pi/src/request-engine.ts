@@ -176,7 +176,7 @@ export function createPiRequestEngine(options: PiRequestEngineOptions = {}) {
           accounts: createPiRequestPool(row),
           credentials,
           sessions,
-          scopeDisplayedThinking: true,
+          typedEvents: true,
           assertAdmission: async (signal) => {
             signal.throwIfAborted()
             await current.getStore()?.assertAdmission?.()

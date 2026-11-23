@@ -1,6 +1,22 @@
 export interface RequestCancellation {
   readonly signal: AbortSignal
+  abort(): void
   release(): void
+}
+
+const responseCleanup = new WeakMap<Response, Promise<void>>()
+
+export function attachResponseCleanup(
+  response: Response,
+  cleanup: Promise<void>,
+): void {
+  responseCleanup.set(response, cleanup)
+}
+
+export function getResponseCleanup(
+  response: Response,
+): Promise<void> | undefined {
+  return responseCleanup.get(response)
 }
 
 /** Keep caller and final-shutdown cancellation independent without requiring AbortSignal.any. */
@@ -27,13 +43,14 @@ export function createRequestCancellation(
     if (source.aborted) forward()
     if (controller.signal.aborted) break
   }
-  return { signal: controller.signal, release }
+  return { signal: controller.signal, abort: () => controller.abort(), release }
 }
 
 /** Headers do not end a request: keep cancellation alive until its body ends or is cancelled. */
 export async function retainResponseLifetime(
   response: Response,
   cancellation: RequestCancellation,
+  options: { cleanup?: Promise<void>; abortOnClose?: boolean } = {},
 ): Promise<{
   response: Response
   settled: Promise<void>
@@ -56,12 +73,18 @@ export async function retainResponseLifetime(
   let stopping = false
   let finished = false
   let controller: ReadableStreamDefaultController<Uint8Array>
-  const finish = () => {
+  const finish = async () => {
     if (finished) return
     finished = true
-    cancellation.signal.removeEventListener('abort', abort)
-    cancellation.release()
-    resolve()
+    try {
+      reader.releaseLock()
+      if (options.cleanup) await options.cleanup
+    } finally {
+      cancellation.signal.removeEventListener('abort', abort)
+      if (options.abortOnClose) cancellation.abort()
+      cancellation.release()
+      resolve()
+    }
   }
   const abort = () => {
     if (finished || stopping) return
@@ -81,15 +104,15 @@ export async function retainResponseLifetime(
         const next = await reader.read()
         if (stopping) return
         if (next.done) {
+          await finish()
           output.close()
-          finish()
         } else {
           output.enqueue(next.value)
         }
       } catch (error) {
         if (stopping) return
         output.error(error)
-        finish()
+        await finish()
       }
     },
     async cancel(reason) {
@@ -97,7 +120,7 @@ export async function retainResponseLifetime(
       try {
         await reader.cancel(reason)
       } finally {
-        finish()
+        await finish()
       }
     },
   })

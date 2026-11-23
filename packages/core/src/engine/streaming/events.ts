@@ -1,6 +1,7 @@
 import { HostRefusalError, markUpstreamFailure } from '../../host-failure.ts'
 import { PRE_RESPONSE_TIMEOUT_MESSAGE } from '../../pre-response-deadline.ts'
 import { UNCONFIRMED_RATE_LIMIT_MESSAGE } from '../../rotation.ts'
+import { getResponseCleanup } from '../request-cancellation.ts'
 
 export interface RequestUsage {
   input: number
@@ -33,7 +34,14 @@ interface Frame {
     finishReason?: string
   }>
   usageMetadata?: UsageMetadata
-  error?: { status?: string; message?: string } | string
+  error?:
+    | {
+        status?: string
+        code?: number | string
+        details?: unknown
+        message?: string
+      }
+    | string
   promptFeedback?: { blockReason?: string; blockReasonMessage?: string }
 }
 
@@ -173,6 +181,10 @@ export function convertGeminiToolCallPart(
 export async function* readRequestEvents(
   response: Response,
 ): AsyncGenerator<RequestEvent> {
+  const close = async () => {
+    await response.body?.cancel().catch(() => {})
+    await getResponseCleanup(response)
+  }
   try {
     if (!response.ok) {
       const body = await response.text()
@@ -195,13 +207,26 @@ export async function* readRequestEvents(
       if (frame.responseId)
         yield { type: 'metadata', responseId: frame.responseId }
       if (frame.usageMetadata) usage = mapRequestUsage(frame.usageMetadata)
-      if (frame.error) {
-        const status =
-          typeof frame.error === 'object' ? frame.error.status : undefined
+      if (frame.error !== undefined) {
+        const error =
+          frame.error && typeof frame.error === 'object'
+            ? frame.error
+            : undefined
         const detail =
-          typeof frame.error === 'object' ? frame.error.message : frame.error
+          error?.message ??
+          (typeof frame.error === 'string' ? frame.error : undefined)
+        const labels: string[] = []
+        if (typeof error?.status === 'string') labels.push(error.status)
+        if (typeof error?.code === 'number' || typeof error?.code === 'string')
+          labels.push(`code ${error.code}`)
+        if (Array.isArray(error?.details)) {
+          const reason = error.details.find(
+            (item) => item && typeof item.reason === 'string',
+          )?.reason
+          if (reason && !labels.includes(reason)) labels.push(reason)
+        }
         throw new HostRefusalError(
-          `Antigravity stream error${status ? ` (${status})` : ''}${detail ? `: ${detail}` : ''}`,
+          `Antigravity stream error${labels.length ? ` (${labels.join(', ')})` : ''}${detail ? `: ${detail}` : ''}`,
         )
       }
       if (frame.promptFeedback?.blockReason) {
@@ -225,10 +250,7 @@ export async function* readRequestEvents(
             signature: call.thoughtSignature,
           }
         } else if (part.thought) {
-          if (
-            part.text ||
-            (lastBlock === 'thinking' && part.thoughtSignature)
-          ) {
+          if (part.text) {
             lastBlock = 'thinking'
             yield {
               type: 'thinking',
@@ -268,16 +290,18 @@ export async function* readRequestEvents(
       )
     if (!lastBlock)
       throw new HostRefusalError('Antigravity returned an empty response')
+    await close()
     yield {
       type: 'terminal',
       reason: finish === 'STOP' ? (usedTool ? 'toolUse' : 'stop') : 'length',
     }
   } catch (error) {
+    await close()
     yield {
       type: 'failure',
       error: error instanceof Error ? error : new Error(String(error)),
     }
   } finally {
-    await response.body?.cancel().catch(() => {})
+    await close()
   }
 }

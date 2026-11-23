@@ -1,4 +1,5 @@
 import {
+  forwardAbort,
   HostRefusalError,
   hostFailure,
   isGeminiArgonModel,
@@ -6,6 +7,7 @@ import {
   isRetiredAgyModel,
   type PreResponseClock,
   RETIRED_AGY_MODEL_MESSAGE,
+  redactCredentialText,
   resolveAntigravityModel,
   supportsGeminiXHigh,
 } from '@cortexkit/antigravity-auth-core'
@@ -174,8 +176,10 @@ function run(
   }
   stream.push({ type: 'start', partial: output })
   void (async () => {
+    const requestAbort = new AbortController()
+    const detach = forwardAbort(options?.signal, requestAbort)
     try {
-      options?.signal?.throwIfAborted()
+      requestAbort.signal.throwIfAborted()
       if (isRetiredAgyModel(model.id))
         throw new HostRefusalError(RETIRED_AGY_MODEL_MESSAGE)
       const request = googleRequest(model, context, options)
@@ -188,7 +192,7 @@ function run(
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(request),
-          signal: options?.signal,
+          signal: requestAbort.signal,
         },
         {
           session: {
@@ -295,6 +299,7 @@ function run(
             calculateCost(model, output.usage)
             break
           case 'terminal':
+            requestAbort.signal.throwIfAborted()
             closeBlock()
             output.stopReason = event.reason
             stream.push({ type: 'done', reason: event.reason, message: output })
@@ -304,14 +309,19 @@ function run(
         }
       }
     } catch (error) {
+      requestAbort.abort()
       closeBlock()
       output.stopReason = options?.signal?.aborted ? 'aborted' : 'error'
       output.errorMessage = options?.signal?.aborted
-        ? 'Request was aborted'
+        ? redactCredentialText(
+            error instanceof Error ? error.message : String(error),
+            options.apiKey,
+          )
         : hostFailure(error, (diagnostic) => engine.logger.error(diagnostic))
             .message
       stream.push({ type: 'error', reason: output.stopReason, error: output })
     } finally {
+      detach()
       stream.end()
     }
   })()
