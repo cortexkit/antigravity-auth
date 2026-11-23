@@ -329,6 +329,7 @@ export async function ensureProjectContext(
       parts.projectId ?? fallbackProjectId,
       admit,
     )
+    if (admit) await admit()
     // Capture tier from the loadCodeAssist payload. The raw id is stored
     // as-is; absent payload or missing tier leaves capturedTier undefined.
     const capturedTierId = loadPayload?.currentTier?.id
@@ -365,6 +366,7 @@ export async function ensureProjectContext(
       undefined,
       admit,
     )
+    if (admit) await admit()
 
     if (provisionedProjectId) {
       log.debug('Successfully provisioned managed project', {

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Antigravity refusals no longer show Google's raw diagnostics or cause unintended retries. In-flight local sign-ins and refreshes stop if the credential source changes.
 - OpenCode 2 now uses each location's thinking, signature-cache and debug settings and shows every action offered by the Antigravity account drawer.
 - Both OpenCode hosts now honor health-score and token-bucket settings when routing through the account store or vault.
 - In vault mode, a manual "Check quota now" that finishes after the background check no longer replaces its newer reading ([#78](https://github.com/cortexkit/antigravity-auth/pull/78), thanks @iceteaSA).

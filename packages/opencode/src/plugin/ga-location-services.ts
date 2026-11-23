@@ -2869,10 +2869,13 @@ export function createGaRuntimeCollaborators(input: {
       })(account, signal, purpose)
     },
     refreshToken: async (_auth, account) => {
+      await input.assertAdmission?.()
       const manager = input.accounts.current
       if (manager === null || !manager.getAccounts().includes(account))
         return undefined
-      const outcome = await manager.refreshAccount(account)
+      const outcome = await manager.refreshAccount(account, {
+        admit: input.assertAdmission,
+      })
       return outcome.status === 'rotated'
         ? manager.toAuthDetails(account)
         : undefined

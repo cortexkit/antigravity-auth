@@ -144,6 +144,8 @@ function getHttpsProxy(url: URL): URL | undefined {
   }
 }
 
+export class AgyResponseHeaderTimeoutError extends Error {}
+
 function waitForHead(
   socket: net.Socket,
   timeoutMs: number,
@@ -155,7 +157,7 @@ function waitForHead(
       onTimeout()
       cleanup(() =>
         reject(
-          new Error(
+          new AgyResponseHeaderTimeoutError(
             `Antigravity request timed out waiting for response headers after ${timeoutMs}ms`,
           ),
         ),

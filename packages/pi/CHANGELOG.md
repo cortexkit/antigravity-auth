@@ -9,7 +9,8 @@
 ### Fixed
 
 - Pi uses the same Antigravity request engine as OpenCode, including endpoint fallback, bounded retries, tool history and thinking replay. It still uses only one account and leaves the native Google login in place when reauthorization is needed.
-- On Pi, a response Google ends with CONTINUATION is treated as hitting the output limit, as Pi 1.6.0 does, instead of as an error.
+- An unrecognized Google stop reason is shown as `unknown`. Refusals no longer expose raw Google diagnostics or cause Pi to resend the request.
+- A local login or token refresh in progress stops without replacing the login if the credential source changes.
 - Responses that Google stops for safety or another refusal now show an error instead of appearing to complete successfully.
 - Pi can resume Antigravity conversations that end with an assistant reply, while normal Gemini tool continuations stay unchanged.
 - A model response that stalls, is aborted, is cancelled or is cut off before its end now fails with an error and closes its connection, instead of hanging or being passed on as a complete answer.

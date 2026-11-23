@@ -158,14 +158,13 @@ describe('shared request engine import graph', () => {
 
     expect(imports).toEqual({
       'node:crypto': ['createHash', 'randomUUID'],
+      '../agy-transport.ts': ['AgyResponseHeaderTimeoutError'],
       '../index.ts': [
         'HostRefusalError',
         'MAX_UNCONFIRMED_RATE_LIMIT_RETRIES',
         'PRE_RESPONSE_DEADLINE_MS',
         'PreResponseDeadline',
         'PreResponseTimeoutError',
-        'RETIRED_AGY_MODEL_MESSAGE',
-        'UNCONFIRMED_RATE_LIMIT_MESSAGE',
         'VAULT_ACCOUNT_REMEDY',
         'accessTokenExpired',
         'calculateBackoffMs',
@@ -180,7 +179,6 @@ describe('shared request engine import graph', () => {
         'markUpstreamFailure',
         'parseRateLimitReason',
         'parseRefreshParts',
-        'preResponseTimeoutResponse',
         'preserveResponseMetadata',
         'quotaAccountIdentity',
         'quotaExhaustedUntil',
@@ -210,7 +208,7 @@ describe('shared request engine import graph', () => {
         'ANTIGRAVITY_ENDPOINT_FALLBACKS',
       ],
       '../model-access.ts': ['type ModelAccessPolicy'],
-      './errors.ts': ['AntigravityKillswitchError', 'ResponseBodyReadError'],
+      './errors.ts': ['AntigravityKillswitchError'],
       './fetch/retry-state.ts': [
         'createRetryState',
         'type RateLimitBackoffResult',
@@ -236,6 +234,12 @@ describe('shared request engine import graph', () => {
         'type RequestSessions',
       ],
       './request.ts': ['type PrepareRequestOptions', 'type RequestWire'],
+      './refusals.ts': [
+        'EngineRefusalError',
+        'engineRefusalResponse',
+        'rememberResponseRefusal',
+        'responseRefusal',
+      ],
       './request-helpers.ts': [
         'createSyntheticTextResponse',
         'isEmptyResponseBody',

@@ -551,8 +551,12 @@ export function createAuthLoader({
   }
 
   async function readLocalHostAuth(getAuth: GetAuth) {
+    if (readAuthority && (await readAuthority()) !== 'local')
+      throw new EngineRefusalError('authority_changed')
     const auth = await getAuth()
     assertOpen()
+    if (readAuthority && (await readAuthority()) !== 'local')
+      throw new EngineRefusalError('authority_changed')
     // After disconnect, the activation marker is not a local account.
     // Refuse before opening or repairing the pool; a real sign-in is required.
     const claustrum = await loadCommonAuthClaustrum()

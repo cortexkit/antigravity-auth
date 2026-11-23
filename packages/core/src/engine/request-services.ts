@@ -3,6 +3,7 @@
  * for one adapter location. All host state and effects arrive through ports.
  */
 import { createHash, randomUUID } from 'node:crypto'
+import { AgyResponseHeaderTimeoutError } from '../agy-transport.ts'
 import {
   ANTIGRAVITY_ENDPOINT_DAILY,
   ANTIGRAVITY_ENDPOINT_FALLBACKS,
@@ -1485,15 +1486,20 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           [...selectedProjectIds],
         ),
       })
-      return engineRefusalResponse('transport_error')
+      return engineRefusalResponse(
+        failure?.kind === 'transport' &&
+          failure.error instanceof AgyResponseHeaderTimeoutError
+          ? 'deadline'
+          : 'transport_error',
+      )
     }
     const abortSignal = init?.signal ?? undefined
-    const routingSleep = (
+    const routingSleep = async (
       ms: number,
       reason: RequestWaitReason,
       attempt?: number,
-    ) =>
-      waits.sleep(
+    ) => {
+      await waits.sleep(
         ms,
         abortSignal,
         credentials.domain === 'vault'
@@ -1502,6 +1508,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         reason,
         attempt,
       )
+      if (credentials.domain === 'local') await assertAdmission()
+    }
 
     const checkAborted = () => {
       deadline.check()
@@ -2593,6 +2601,14 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             },
             onMainTransportFailure,
           )
+          if (credentials.domain === 'local') {
+            try {
+              await assertAdmission()
+            } catch (error) {
+              void response.body?.cancel().catch(() => {})
+              throw error
+            }
+          }
           return billing?.observe(response) ?? response
         } catch (error) {
           billing?.end(false)
@@ -3006,6 +3022,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   })
                 }),
               )
+            if (credentials.domain === 'local' && options.onResponse)
+              await assertAdmission()
             let boundedRefusal:
               | Awaited<ReturnType<typeof readRefusalBody>>
               | undefined
@@ -3030,7 +3048,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               )
             }
             pushDebug(
-              `status=${response.status} ${response.statusText} (api_request #${apiRequestCount})`,
+              `status=${response.status} (api_request #${apiRequestCount})`,
             )
             dump.noteResponse(dumpContext, response)
             if (
@@ -3432,14 +3450,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               const effectiveDelayMs = Math.max(backoff.delayMs, smartBackoffMs)
 
               pushDebug(
-                `429 idx=${account.index} email=${account.email ?? ''} family=${family} delayMs=${effectiveDelayMs} attempt=${backoff.attempt} reason=${rateLimitReason}`,
+                `Quota check for account ${account.index}: family=${family} delayMs=${effectiveDelayMs} attempt=${backoff.attempt} reason=${rateLimitReason}`,
               )
-              if (reasonInfo.message)
-                pushDebug(`429 message=${reasonInfo.message}`)
-              if (reasonInfo.quotaResetTime)
-                pushDebug(`429 quotaResetTime=${reasonInfo.quotaResetTime}`)
-              if (reasonInfo.reason)
-                pushDebug(`429 reason=${reasonInfo.reason}`)
 
               debug.logRateLimitEvent(
                 account.index,
@@ -3461,6 +3473,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               ) {
                 await showToast(`Rate limited. Quick retry in 1s...`, 'warning')
                 await sleep(FIRST_RETRY_DELAY_MS, abortSignal)
+                if (credentials.domain === 'local') await assertAdmission()
 
                 if (config.scheduling_mode === 'cache_first') {
                   const maxCacheFirstWaitMs =
@@ -3552,6 +3565,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   'warning',
                 )
                 await sleep(switchAccountDelayMs, abortSignal)
+                if (credentials.domain === 'local') await assertAdmission()
               } else if (!continueRouting || isHardEligible(account)) {
                 const expBackoffMs = Math.min(
                   FIRST_RETRY_DELAY_MS * 2 ** (backoff.attempt - 1),
@@ -3610,7 +3624,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     ? unavailable.reasons.join(',')
                     : 'none'
                 const note = `model-unavailable idx=${account.index} status=${unavailable.status} reasons=${reasonCodes}`
-                pushDebug(note)
+                pushDebug(
+                  `Model could not be served by account ${account.index}`,
+                )
                 debug.logAntigravityDebugResponse(debugContext, response, {
                   note,
                 })
@@ -3884,6 +3900,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     'warning',
                   )
                   await sleep(retryDelayMs, abortSignal)
+                  if (credentials.domain === 'local') await assertAdmission()
                   continue
                 }
 
@@ -3950,7 +3967,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             )
             if (dailyCounts) {
               pushDebug(
-                `[Quota] Account ${account.index} (${account.email ?? 'unknown'}) today: claude=${dailyCounts.claude} gemini=${dailyCounts.gemini}`,
+                `[Quota] Account ${account.index} today: claude=${dailyCounts.claude} gemini=${dailyCounts.gemini}`,
               )
             }
             const totalToday = accountManager.getTotalDailyRequests(family)
