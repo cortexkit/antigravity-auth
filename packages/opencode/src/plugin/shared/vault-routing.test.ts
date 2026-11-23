@@ -1,16 +1,18 @@
 import { expect, test } from 'bun:test'
 import {
+  routingExhaustionFields,
+  routingQuotaScope,
+} from '@cortexkit/antigravity-auth-core/engine'
+import {
   askRouting,
   reportRouting,
 } from '../../common-auth-embedded/routing-accessor/index.js'
 import {
-  hasVaultRoutingAccessor,
   observeVaultServed,
   observeVaultUpstream,
   reportVaultExhaustion,
-  routingExhaustionFields,
-  routingQuotaScope,
-} from './vault-routing'
+} from '../__fixtures__/engine-routing.test'
+import { hasVaultRoutingAccessor } from './engine-routing'
 
 const key = Symbol.for('cortexkit.routing')
 const identity = {

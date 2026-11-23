@@ -24,6 +24,7 @@ import {
   type RowRef,
   sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
+import { LocalGrantSupersededError } from '@cortexkit/antigravity-auth-core/engine'
 import {
   AccountManager,
   AccountStoreNotReadyError,
@@ -39,7 +40,6 @@ import {
 // Bun's `mock.module` doesn't support the `importOriginal` callback that
 // Vitest exposes, so we capture the real exports first and merge.
 import { commitLogins } from './persist-account-pool'
-import { LocalGrantSupersededError } from './shared/local-grant'
 import * as realStorage from './storage'
 import {
   type AccountStorageV4,

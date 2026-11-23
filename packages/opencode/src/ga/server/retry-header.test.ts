@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test'
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
-import { createNativeGoogleErrorResponse } from '../../plugin/request-helpers.ts'
+import { createNativeGoogleErrorResponse } from '../../plugin/request-helper-effects'
 import { OpenCode230Retryability } from './__fixtures__/opencode-230-retryability.test.ts'
 import {
   adaptGaHttpResponse,

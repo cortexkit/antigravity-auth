@@ -130,11 +130,7 @@ export interface ResumeConfig {
 // Hook Types
 // =============================================================================
 
-export type RecoveryErrorType =
-  | 'tool_result_missing'
-  | 'thinking_block_order'
-  | 'thinking_disabled_violation'
-  | null
+export type { RecoveryErrorType } from '@cortexkit/antigravity-auth-core/engine'
 
 export interface ToolUsePart {
   type: 'tool_use'

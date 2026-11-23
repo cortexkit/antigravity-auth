@@ -5,7 +5,7 @@ import {
   hasPossibleCompactedThinking,
   looksLikeCompactedThinkingTurn,
   needsThinkingRecovery,
-} from './thinking-recovery'
+} from '@cortexkit/antigravity-auth-core/engine'
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@ import { getEventListeners } from 'node:events'
 import {
   createRequestCancellation,
   retainResponseLifetime,
-} from './request-cancellation'
+} from '@cortexkit/antigravity-auth-core/engine'
 
 function sources() {
   const caller = new AbortController()

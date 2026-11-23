@@ -8,9 +8,8 @@ import {
   type openSettings,
   openSettings as realOpenSettings,
 } from '@cortexkit/antigravity-auth-core/common-auth/settings'
-
+import { accountKeyForRefreshToken } from '@cortexkit/antigravity-auth-core/engine'
 import { getProjectConfigPath, loadConfig } from '../plugin/config/loader'
-import { accountKeyForRefreshToken } from '../plugin/killswitch'
 import { createOperatorSettingsController } from '../plugin/operator-settings'
 import { floorKeyTableFromRows } from './legacy'
 import { createProtectionStore } from './protection'

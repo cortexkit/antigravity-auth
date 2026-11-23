@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 
-import { accountKeyForRefreshToken } from '../plugin/killswitch'
+import { accountKeyForRefreshToken } from '@cortexkit/antigravity-auth-core/engine'
 import {
   floorKeyTableFromRows,
   hasTokenKeyedFloors,

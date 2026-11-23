@@ -24,6 +24,7 @@ import {
   createLogger as createCoreLogger,
   setLogSink,
 } from '@cortexkit/antigravity-auth-core'
+import { createStreamingTransformer } from '@cortexkit/antigravity-auth-core/engine'
 import {
   createSignatureProcessState,
   type LocationSignatureCache,
@@ -37,7 +38,6 @@ import {
   type SignatureCacheConfig,
 } from '../config'
 import { DEFAULT_CONFIG } from '../config/schema'
-import { createStreamingTransformer } from '../core/streaming/transformer'
 import {
   createLocationDebug,
   initializeDebug,

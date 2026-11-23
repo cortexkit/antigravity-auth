@@ -1,22 +1,12 @@
 /**
- * Shared Antigravity request engine: account selection, retries, endpoint
- * fallback, warmups and response handling for one plugin location.
- *
- * OpenCode 1's `createFetchInterceptor` and the GA location services both
- * call `createRequestExecutor`, so there is exactly one retry loop. Every
- * collaborator with state (accounts, credentials, session metadata, operator
- * settings, wire state, debug log, dump switch, logger, health and token
- * trackers) arrives through `RequestServicesDeps`; this module never reads a
- * module-level OpenCode 1 binding or a host SDK client. Host-only effects
- * (toasts, the sidebar routing file, clearing host-stored OAuth credentials)
- * are optional or explicit callbacks the host binding supplies.
- *
- * The wire rules themselves (payload transformation, header and envelope
- * order, SSE handling) stay in `../request`. The engine receives them as
- * `RequestWire`, which `createRequestWire` binds to one location's signature
- * cache, debug log and logger; the raw sender is called unchanged.
+ * Account selection, retries, endpoint fallback, warmups and response handling
+ * for one adapter location. All host state and effects arrive through ports.
  */
 import { createHash, randomUUID } from 'node:crypto'
+import {
+  ANTIGRAVITY_ENDPOINT_DAILY,
+  ANTIGRAVITY_ENDPOINT_FALLBACKS,
+} from '../constants.ts'
 import {
   type AgyTransportOptions,
   accessTokenExpired,
@@ -63,31 +53,19 @@ import {
   VAULT_ACCOUNT_REMEDY,
   type VaultConditionInput,
   type VaultConditionOutcome,
-} from '@cortexkit/antigravity-auth-core'
-import { hasVaultHost } from '../../common-auth-embedded/claustrum/host.js'
+} from '../index.ts'
+import type { ModelAccessPolicy } from '../model-access.ts'
 import {
-  type AskRoutingInput,
-  askRouting,
-  askRoutingUntilCapacity,
-  type BillingRequestKind,
-  type RoutingCandidate,
-  type RoutingRefusal,
-  reportRouting as reportVaultRouting,
-} from '../../common-auth-embedded/routing-accessor/index.js'
-import {
-  ANTIGRAVITY_ENDPOINT_DAILY,
-  ANTIGRAVITY_ENDPOINT_FALLBACKS,
-} from '../../constants'
-import type { ModelAccessPolicy } from '../../settings/core-settings'
-import type { AntigravityConfig } from '../config'
-import type { LocationDebug } from '../debug'
-import { AntigravityKillswitchError } from '../errors'
+  createAfterHandoff,
+  type RegisterResponseHandoff,
+} from './after-handoff.ts'
+import { AntigravityKillswitchError } from './errors.ts'
 import {
   createRetryState,
   type RateLimitBackoffResult,
   type RetryState,
-} from '../fetch/retry-state'
-import { createWarmupState, type WarmupState } from '../fetch/warmup'
+} from './fetch/retry-state.ts'
+import { createWarmupState, type WarmupState } from './fetch/warmup.ts'
 import {
   extractModelFromUrl,
   getModelFamilyFromUrl,
@@ -95,54 +73,51 @@ import {
   MAX_TOTAL_CAPACITY_RETRIES,
   toUrlString,
   toWarmupStreamUrl,
-} from '../fetch-routing'
-import { type GeminiDumpState, noteGeminiDumpResponse } from '../gemini-dump'
-import { evaluateKillswitchForAccount, throwIfAllKilled } from '../killswitch'
-import type { Logger } from '../logger'
-import type { OperatorSettingsController } from '../operator-settings'
-import type {
-  buildThinkingWarmupBody,
-  getImageModelLocalTitle,
-  getLastCacheStats,
-  PrepareRequestOptions,
-  prepareAntigravityRequest,
-  transformAntigravityResponse,
-} from '../request'
-import {
-  createNativeGoogleErrorResponse,
-  createSyntheticTextResponse,
-  extractAntigravityError,
-  isEmptyResponseBody,
-  resolveRetryMetadata,
-} from '../request-helpers'
-import {
-  type AgySessionRegistry,
-  extractOpenCodeSessionIdentity,
-  type OpenCodeSessionIdentity,
-} from '../session-context'
-import {
-  createAfterHandoff,
-  type RegisterResponseHandoff,
-} from './after-handoff.ts'
+} from './fetch-routing.ts'
+import { evaluateKillswitchForAccount, throwIfAllKilled } from './killswitch.ts'
 import {
   type CapturedLocalGrant,
   isLocalGrantError,
   LocalGrantSupersededError,
-} from './local-grant'
+} from './local-grant.ts'
+import type {
+  RequestConfig,
+  RequestDebug,
+  RequestDump,
+  RequestLogger,
+  RequestOperatorSettings,
+  RequestSessionIdentity,
+  RequestSessions,
+} from './ports.ts'
+import type { PrepareRequestOptions, RequestWire } from './request.ts'
 import {
   createRequestCancellation,
   retainResponseLifetime,
-} from './request-cancellation'
-import { VaultBillingAttempt } from './vault-billing'
+} from './request-cancellation.ts'
 import {
-  hasVaultRoutingAccessor,
+  createSyntheticTextResponse,
+  isEmptyResponseBody,
+} from './request-helpers.ts'
+import {
+  extractAntigravityError,
+  createNativeGoogleErrorResponse as nativeErrorResponse,
+  resolveRetryMetadata,
+} from './retry-metadata.ts'
+import type {
+  BillingRequestKind,
+  RequestRouting,
+  RoutingCandidate,
+  RoutingExhaustion,
+  RoutingIdentity,
+  RoutingRefusal,
+} from './routing-port.ts'
+import { VaultBillingAttempt } from './vault-billing.ts'
+import {
   observeVaultServed,
   observeVaultUpstream,
-  type RoutingIdentity,
   reportVaultExhaustion,
   type VaultExhaustionProof,
-} from './vault-routing'
-import { isTitleVaultRequest } from './vault-routing-purpose'
+} from './vault-routing.ts'
 
 /**
  * Wait before retrying the same selection after its first 429.
@@ -321,8 +296,8 @@ type CoreResult<K extends keyof CoreAccountManager> =
  *    (`RoutingMode`, `dist/routing/ordered.d.ts`), and both routes run
  *    admission (`OrderedRouteInput` and `StickyRouteInput` extend
  *    `AdmissionInput`). Antigravity uses sticky, round-robin and hybrid
- *    (health and token-bucket) selection with PID offset and per-session and
- *    parent-session pinning.
+ *    (health and token-bucket) selection. The process id can offset the
+ *    starting account index, and child sessions can inherit a parent's pin.
  * 4. Soft quota: Antigravity excludes accounts over
  *    `soft_quota_threshold_percent`, never the only usable account, and
  *    waits for the soonest reset. The library has no admission equivalent;
@@ -408,7 +383,7 @@ export interface RequestAccountPool<A extends RequestAccountRow> {
 }
 
 /**
- * Credentials kept on the location's own pool rows (OpenCode 1, or a GA
+ * Credentials kept on the location's own pool rows (local or legacy
  * location on its local account repository): the selected row's stored
  * token is refreshed when expired, its project is resolved, and the result
  * is written back to the pool. One token and project serve every send of
@@ -535,15 +510,6 @@ export type RequestCredentials<A extends RequestAccountRow> =
   | LocalRequestCredentials<A>
   | VaultRequestCredentials<A>
 
-/** Wire preparation and response handling, unchanged from `../request`. */
-export interface RequestWire {
-  prepare: typeof prepareAntigravityRequest
-  transformResponse: typeof transformAntigravityResponse
-  buildThinkingWarmupBody: typeof buildThinkingWarmupBody
-  getImageModelLocalTitle: typeof getImageModelLocalTitle
-  getLastCacheStats: typeof getLastCacheStats
-}
-
 /** A prepared upstream request, as `RequestWire.prepare` returns it. */
 export type PreparedAgyRequest = ReturnType<RequestWire['prepare']>
 
@@ -602,19 +568,6 @@ export function prepareAgyWireRequest(
   )
 }
 
-/** This location's debug-log methods the engine calls. */
-export type RequestDebug = Pick<
-  LocationDebug,
-  | 'isDebugEnabled'
-  | 'logAccountContext'
-  | 'logAntigravityDebugResponse'
-  | 'logModelFamily'
-  | 'logRateLimitEvent'
-  | 'logRateLimitSnapshot'
-  | 'logResponseBody'
-  | 'startAntigravityDebugRequest'
->
-
 /**
  * One location's collaborators for the shared request engine. `A` is the
  * location's pool row type; `credentials.domain` selects how a selected row
@@ -626,19 +579,25 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
   readonly modelAvailabilityNow?: () => number
   /** Check the persistent account source before each operation that uses credentials. */
   readonly assertAdmission?: (signal: AbortSignal) => Promise<void>
-  readonly config: AntigravityConfig
+  readonly config: RequestConfig
   readonly accounts: RequestAccountPool<A>
   readonly credentials: RequestCredentials<A>
   /** This location's AGY conversation/trajectory session metadata. */
-  readonly sessions: AgySessionRegistry
+  readonly sessions: RequestSessions
+  /** Legacy session headers and request-kind markers are interpreted by the adapter. */
+  readonly readSession: (headers?: HeadersInit) => RequestSessionIdentity
+  readonly isTitleRoutingRequest: (
+    kind: RequestKind | undefined,
+    headers?: HeadersInit,
+  ) => boolean
+  readonly routing: RequestRouting
+  /** Sign-in command used in host-visible reauthorization guidance. */
+  readonly authCommand: string
   /**
    * Live operator settings: routing overrides and the killswitch, which
    * excludes accounts whose remaining quota is below a threshold.
    */
-  readonly operatorSettings?: Pick<
-    OperatorSettingsController,
-    'get' | 'floorKeying'
-  >
+  readonly operatorSettings?: RequestOperatorSettings
   /**
    * The per-account model lists (`account_models`) in force, read without
    * I/O on every selection pass. An account its list forbids for the
@@ -655,8 +614,8 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
   readonly transport: RequestTransport
   readonly wire: RequestWire
   readonly debug: RequestDebug
-  readonly dump: Pick<GeminiDumpState, 'dumpRequest'>
-  readonly logger: Logger
+  readonly dump: RequestDump
+  readonly logger: RequestLogger
   readonly trackers: {
     readonly health: Pick<
       HealthScoreTracker,
@@ -669,7 +628,7 @@ export interface RequestServicesDeps<A extends RequestAccountRow> {
    * bodies. It does not classify quota errors.
    */
   classifyAccessError(bodyText: string): AccountAccessErrorDetails
-  /** Host notice (OpenCode 1 toast). Rejections and throws are ignored. */
+  /** Host notice. Rejections and throws are ignored. */
   notify?(message: string, variant: RequestNoticeVariant): unknown
   /**
    * Records the route a session's request was dispatched on. Called without
@@ -683,14 +642,14 @@ export interface RequestExecuteOptions {
   /** Installed by the host adapter; executor completion is not publication. */
   readonly onResponseHandoff?: RegisterResponseHandoff
   /**
-   * The host session this request belongs to. When omitted, the OpenCode
-   * session headers on the request are read.
+   * The host session this request belongs to. When omitted, the adapter's
+   * session header reader supplies it.
    */
-  readonly session?: OpenCodeSessionIdentity
+  readonly session?: RequestSessionIdentity
   /**
    * The host's request kind. `title` routes the request as a session title
    * (see `routeTitleModel`); every kind other than `primary` keeps its own
-   * AGY session metadata. Omitted by OpenCode 1, which has no kind.
+   * AGY session metadata. Omitted by hosts that do not report a kind.
    */
   readonly kind?: RequestKind
   /** Selected catalog thinking variant ID; legacy hosts leave this unset. */
@@ -703,7 +662,7 @@ export interface RequestExecuteOptions {
   readonly transport?: RequestTransport
 }
 
-/** The request kinds an OpenCode 2 host reports for a model request. */
+/** The request kinds a host can report for a model request. */
 export type RequestKind = 'primary' | 'compaction' | 'title' | 'generate'
 
 /**
@@ -752,9 +711,9 @@ export function retiredModelResponse(url: string): Response | undefined {
  * kind-less) requests, a separate per-kind key for every other kind.
  */
 function agyMetadataIdentity(
-  identity: OpenCodeSessionIdentity,
+  identity: RequestSessionIdentity,
   kind: RequestKind | undefined,
-): OpenCodeSessionIdentity {
+): RequestSessionIdentity {
   if (kind === undefined || kind === 'primary' || !identity.sessionId) {
     return identity
   }
@@ -908,6 +867,7 @@ interface RoutingWaits {
 
 /** A finished sleep is not a resumed request: resume only at the next upstream send. */
 async function withRoutingWaitReports<T>(
+  routing: RequestRouting,
   cancellation: AbortSignal,
   run: (waits: RoutingWaits) => Promise<T>,
 ): Promise<T> {
@@ -915,13 +875,13 @@ async function withRoutingWaitReports<T>(
   let closed = false
   const finish = (outcome: 'resumed' | 'cancelled' | 'abandoned') => {
     for (const wait of pending.splice(0)) {
-      reportVaultRouting({ kind: 'wait', phase: 'end', ...wait, outcome })
+      routing.report({ kind: 'wait', phase: 'end', ...wait, outcome })
     }
   }
   try {
     return await run({
       sleep(ms, signal, sessionId, reason, attempt) {
-        if (!closed && ms >= 2000 && sessionId && hasVaultRoutingAccessor()) {
+        if (!closed && ms >= 2000 && sessionId && routing.hasAccessor()) {
           const wait: RoutingWait = {
             sessionId,
             waitId: randomUUID(),
@@ -931,7 +891,7 @@ async function withRoutingWaitReports<T>(
             message: WAIT_MESSAGES[reason],
           }
           pending.push(wait)
-          reportVaultRouting({ kind: 'wait', phase: 'start', ...wait })
+          routing.report({ kind: 'wait', phase: 'start', ...wait })
         }
         return sleep(ms, signal)
       },
@@ -958,7 +918,7 @@ export function createLocalQuotaRefresh(
     | 'requestSaveToDisk'
   >,
   quotaManager: Pick<QuotaManager, 'refreshAccount' | 'hashedLogLabel'>,
-  log: Logger,
+  log: RequestLogger,
 ): (
   account: ManagedAccount,
   intervalMinutes: number,
@@ -1042,6 +1002,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     accounts: accountManager,
     credentials,
     sessions: agySessionRegistry,
+    readSession,
+    isTitleRoutingRequest,
+    routing,
+    authCommand,
     operatorSettings,
     modelAccess,
     transport: defaultTransport,
@@ -1055,10 +1019,14 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     onRouting,
   } = deps
 
+  const createNativeGoogleErrorResponse = (
+    options: Parameters<typeof nativeErrorResponse>[0],
+  ) => nativeErrorResponse(options, authCommand)
+
   const retryState: RetryState = createRetryState()
   const warmupState: WarmupState = createWarmupState()
   // One executor serves every request of its interceptor/location pipeline.
-  // Keep negative capability evidence separate from retry and health state.
+  // Keep evidence that an account cannot serve a model separate from retry and health state.
   const modelAvailabilityNow = deps.modelAvailabilityNow ?? Date.now
   const unavailableModels = new Map<
     string | A,
@@ -1380,8 +1348,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           throw markUpstreamFailure(error)
         })
       })
-    const requestSessionIdentity =
-      options.session ?? extractOpenCodeSessionIdentity(init?.headers)
+    const requestSessionIdentity = options.session ?? readSession(init?.headers)
     // AGY conversation/trajectory/step metadata is kept per session and
     // request kind: a title or compaction request never advances the
     // primary conversation's step counter or shares its trajectory.
@@ -1410,7 +1377,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       return createNoAccountResponse(
         credentials.domain === 'vault'
           ? (credentials.emptyRosterRefusal?.() ?? VAULT_ACCOUNT_REMEDY)
-          : 'No Antigravity accounts configured. Run `opencode auth login`.',
+          : `No Antigravity accounts configured. Run \`${authCommand}\`.`,
         modelFromUrl,
       )
     }
@@ -1580,12 +1547,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
     const modelUnavailableIndexes = new Set<number>()
     let routingPlacementConsidered = false
     let routedCandidate: RoutingCandidate | undefined
-    let continueRouting: AskRoutingInput['exhausted']
+    let continueRouting: RoutingExhaustion | undefined
     let continueOnlyLogin = false
-    const refusedRoutes = new Map<
-      string,
-      NonNullable<AskRoutingInput['exhausted']>
-    >()
+    const refusedRoutes = new Map<string, RoutingExhaustion>()
     let routingTitle = false
     let routingWaitMs = 0
 
@@ -1653,7 +1617,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       response: Response,
     ): Promise<Response | undefined> => {
       checkAborted()
-      reportVaultRouting({ ...identity, kind: 'transient_backoff', retryAtMs })
+      routing.report({ ...identity, kind: 'transient_backoff', retryAtMs })
       void response.body?.cancel().catch(() => {})
       if (unconfirmedRetries >= MAX_UNCONFIRMED_RATE_LIMIT_RETRIES)
         return unconfirmedRefusal()
@@ -1685,7 +1649,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         // that race with account removal still get a proper 401 instead of a
         // hang or a synthetic 200.
         return createNoAccountResponse(
-          'No Antigravity accounts available. Run `opencode auth login`.',
+          `No Antigravity accounts available. Run \`${authCommand}\`.`,
           model ?? 'unknown',
         )
       }
@@ -1741,9 +1705,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
       const vaultCredentials =
         credentials.domain === 'vault' ? credentials : undefined
       const routingPresent =
-        vaultCredentials !== undefined && hasVaultRoutingAccessor()
+        vaultCredentials !== undefined && routing.hasAccessor()
       routingTitle ||=
-        routingPresent && isTitleVaultRequest(kind, init?.headers)
+        routingPresent && isTitleRoutingRequest(kind, init?.headers)
 
       let account: A | null = null
       if (
@@ -2001,7 +1965,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 refusals: true as const,
               }
               if (exhausted)
-                return askRouting({
+                return routing.ask({
                   ...input,
                   mode: 'continue',
                   requestId: randomUUID(),
@@ -2012,7 +1976,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 })
               // Each routing call has its own deadline. The pre-response
               // deadline also stops the wait before another call can start.
-              return askRoutingUntilCapacity(input, {
+              return routing.askUntilCapacity(input, {
                 signal: deadline.signal,
               })
             })
@@ -2477,7 +2441,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               const removed = credentials.removeAccount(account)
               if (removed) {
                 log.warn(
-                  'Removed revoked account from pool - reauthenticate via `opencode auth login`',
+                  `Removed revoked account from pool - reauthenticate via \`${authCommand}\``,
                 )
                 try {
                   await deadline.wait(() => credentials.saveToDiskReplace())
@@ -2503,7 +2467,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 }
 
                 return createNoAccountResponse(
-                  'All Antigravity accounts have invalid refresh tokens. Run `opencode auth login` and reauthenticate.',
+                  `All Antigravity accounts have invalid refresh tokens. Run \`${authCommand}\` and reauthenticate.`,
                   model ?? 'unknown',
                 )
               }
@@ -2586,7 +2550,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         const source =
           credentials.domain === 'local'
             ? 'local'
-            : hasVaultHost()
+            : routing.hasVaultHost()
               ? 'hosted'
               : 'vault'
         const message = `request-send source=${source} model=${sendModel} account=Account ${account.index + 1}`
@@ -2595,8 +2559,9 @@ export function createRequestExecutor<A extends RequestAccountRow>(
         const attempt = ++physicalSendCount
         const sessionId = requestSessionIdentity.sessionId
         const billing =
-          admission && sessionId && hasVaultRoutingAccessor()
+          admission && sessionId && routing.hasAccessor()
             ? new VaultBillingAttempt(
+                routing.report,
                 sessionId,
                 admission,
                 requestKind,
@@ -3025,7 +2990,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
             pushDebug(
               `status=${response.status} ${response.statusText} (api_request #${apiRequestCount})`,
             )
-            noteGeminiDumpResponse(dumpContext, response)
+            dump.noteResponse(dumpContext, response)
             if (
               credentials.domain === 'vault' &&
               sendAdmission &&
@@ -3092,7 +3057,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               (routedPlacement || unreadableLimit) &&
               sendAdmission &&
               sessionKey &&
-              hasVaultRoutingAccessor()
+              routing.hasAccessor()
                 ? {
                     sessionId: sessionKey,
                     accountId: sendAdmission.accountIdentity,
@@ -3194,7 +3159,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 // An unreadable real refusal is still evidence of a short
                 // backoff, even if the original ask fell back to local order.
                 if (routingIdentity)
-                  reportVaultRouting({
+                  routing.report({
                     ...routingIdentity,
                     kind: 'transient_backoff',
                     retryAtMs,
@@ -3289,14 +3254,14 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 credentials.domain === 'vault' &&
                 sendAdmission &&
                 sessionKey &&
-                hasVaultRoutingAccessor()
+                routing.hasAccessor()
               ) {
                 const group = resolveQuotaGroup(
                   family,
                   model,
                   account.cachedQuota,
                 )
-                exhaustion = reportVaultExhaustion({
+                exhaustion = reportVaultExhaustion(routing, {
                   identity: {
                     sessionId: sessionKey,
                     accountId: sendAdmission.accountIdentity,
@@ -3679,7 +3644,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 ) {
                   await showToast(
                     `${label} is not eligible for Antigravity and has been disabled. ` +
-                      'Recheck it from opencode auth login > Verify accounts.',
+                      `Recheck it from ${authCommand} > Verify accounts.`,
                     'warning',
                   )
                   accountManager.markToastShown(account.index)
@@ -3722,7 +3687,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                   accountManager.shouldShowAccountToast(account.index, 60000)
                 ) {
                   await showToast(
-                    `⚠ ${label} needs verification. Run 'opencode auth login' and use Verify accounts.`,
+                    `⚠ ${label} needs verification. Run '${authCommand}' and use Verify accounts.`,
                     'warning',
                   )
                   accountManager.markToastShown(account.index)
@@ -3870,8 +3835,8 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               sendAdmission &&
               sessionKey &&
               response.ok &&
-              hasVaultRoutingAccessor()
-                ? observeVaultUpstream(response, abortSignal)
+              routing.hasAccessor()
+                ? observeVaultUpstream(routing, response, abortSignal)
                 : undefined
             const transformedResponse = await deadline.wait(() =>
               wire.transformResponse(
@@ -3977,9 +3942,10 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               credentials.domain === 'vault' &&
               sendAdmission &&
               sessionKey &&
-              hasVaultRoutingAccessor() &&
+              routing.hasAccessor() &&
               response.ok
               ? observeVaultServed(
+                  routing,
                   {
                     sessionId: sessionKey,
                     accountId: sendAdmission.accountIdentity,
@@ -4233,19 +4199,22 @@ export function createRequestExecutor<A extends RequestAccountRow>(
           ? markUpstreamFailure(redacted)
           : redacted
       }
-      const pending = withRoutingWaitReports(cancellation.signal, (waits) =>
-        deadline.wait(() =>
-          execute(
-            input,
-            { ...init, signal: deadline.signal },
-            requestOptions ?? {},
-            selectedCredentials,
-            selectedProjectIds,
-            deadline,
-            waitPolicy,
-            waits,
+      const pending = withRoutingWaitReports(
+        routing,
+        cancellation.signal,
+        (waits) =>
+          deadline.wait(() =>
+            execute(
+              input,
+              { ...init, signal: deadline.signal },
+              requestOptions ?? {},
+              selectedCredentials,
+              selectedProjectIds,
+              deadline,
+              waitPolicy,
+              waits,
+            ),
           ),
-        ),
       )
         .catch((error: unknown) => {
           cancellation.signal.throwIfAborted()

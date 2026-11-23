@@ -44,12 +44,11 @@ import {
   type VaultRouteRef,
   type VaultStateAttribution,
 } from '@cortexkit/antigravity-auth-core'
-
-import type { VaultQuotaReason } from '../vault-quota-outcome'
 import type {
   RequestSendAdmission,
   VaultRequestCredentials,
-} from './request-services.ts'
+} from '@cortexkit/antigravity-auth-core/engine'
+import type { VaultQuotaReason } from '../vault-quota-outcome'
 
 /**
  * The vault account source operations a vault request path uses. A source

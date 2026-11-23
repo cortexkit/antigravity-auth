@@ -9,6 +9,13 @@
  * Based on oh-my-opencode/src/hooks/session-recovery/index.ts
  */
 
+import {
+  detectErrorType,
+  getErrorMessage,
+} from '@cortexkit/antigravity-auth-core/engine'
+
+export { detectErrorType } from '@cortexkit/antigravity-auth-core/engine'
+
 import type { AntigravityConfig } from './config'
 import { logToast } from './debug'
 import { createLogger } from './logger'
@@ -24,7 +31,6 @@ import type {
   MessageData,
   MessageInfo,
   MessagePart,
-  RecoveryErrorType,
   ResumeConfig,
 } from './recovery/types'
 import type { PluginClient } from './types'
@@ -40,37 +46,6 @@ const RECOVERY_RESUME_TEXT = '[session recovered - continuing previous task]'
 // =============================================================================
 
 /**
- * Extract a normalized error message string from an unknown error.
- */
-function getErrorMessage(error: unknown): string {
-  if (!error) return ''
-  if (typeof error === 'string') return error.toLowerCase()
-
-  const errorObj = error as Record<string, unknown>
-  const paths = [
-    errorObj.data,
-    errorObj.error,
-    errorObj,
-    (errorObj.data as Record<string, unknown>)?.error,
-  ]
-
-  for (const obj of paths) {
-    if (obj && typeof obj === 'object') {
-      const msg = (obj as Record<string, unknown>).message
-      if (typeof msg === 'string' && msg.length > 0) {
-        return msg.toLowerCase()
-      }
-    }
-  }
-
-  try {
-    return JSON.stringify(error).toLowerCase()
-  } catch {
-    return ''
-  }
-}
-
-/**
  * Extract the message index from an error message (e.g., "messages.79").
  */
 function extractMessageIndex(error: unknown): number | null {
@@ -78,44 +53,6 @@ function extractMessageIndex(error: unknown): number | null {
   const match = message.match(/messages\.(\d+)/)
   if (!match?.[1]) return null
   return parseInt(match[1], 10)
-}
-
-/**
- * Detect the type of recoverable error from an error object.
- */
-export function detectErrorType(error: unknown): RecoveryErrorType {
-  const message = getErrorMessage(error)
-  const hasExpectedFoundThinkingOrder =
-    (message.includes('expected thinking') ||
-      message.includes('expected a thinking')) &&
-    message.includes('found')
-
-  // tool_result_missing: Happens when ESC is pressed during tool execution
-  if (message.includes('tool_use') && message.includes('tool_result')) {
-    return 'tool_result_missing'
-  }
-
-  // thinking_block_order: Happens when thinking blocks are corrupted
-  if (
-    message.includes('thinking') &&
-    (message.includes('first block') ||
-      message.includes('must start with') ||
-      message.includes('preceeding') ||
-      message.includes('preceding') ||
-      hasExpectedFoundThinkingOrder)
-  ) {
-    return 'thinking_block_order'
-  }
-
-  // thinking_disabled_violation: Thinking in non-thinking model
-  if (
-    message.includes('thinking is disabled') &&
-    message.includes('cannot contain')
-  ) {
-    return 'thinking_disabled_violation'
-  }
-
-  return null
 }
 
 /**

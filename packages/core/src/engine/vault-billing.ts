@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import {
-  type BillingRequestKind,
-  type BillingUsage,
-  reportRouting,
-} from '../../common-auth-embedded/routing-accessor/index.js'
-import type { RequestSendAdmission } from './request-services'
+import type { RequestSendAdmission } from './request-services.ts'
+import type {
+  BillingRequestKind,
+  BillingUsage,
+  RequestRouting,
+} from './routing-port.ts'
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -51,6 +51,7 @@ export class VaultBillingAttempt {
   private readonly aborted = () => this.end(false)
 
   constructor(
+    private readonly report: RequestRouting['report'],
     private readonly sessionId: string,
     private readonly receipt: Pick<
       RequestSendAdmission,
@@ -173,7 +174,7 @@ export class VaultBillingAttempt {
     this.reported = true
     this.signal?.removeEventListener('abort', this.aborted)
     const usage = geminiBillingUsage(this.metadata)
-    reportRouting({
+    this.report({
       sessionId: this.sessionId,
       kind: 'billing',
       attemptId: this.attemptId,

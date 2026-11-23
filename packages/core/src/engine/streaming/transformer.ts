@@ -1,12 +1,11 @@
-import { processImageData } from '../../image-saver'
-import { responseHasFinishReason } from './terminal-event'
+import { responseHasFinishReason } from './terminal-event.ts'
 import type {
   SignatureStore,
   StreamingCallbacks,
   StreamingOptions,
   StreamingUsageMetadata,
   ThoughtBuffer,
-} from './types'
+} from './types.ts'
 
 /**
  * Simple string hash for thinking deduplication.
@@ -65,6 +64,7 @@ export function deduplicateThinkingText(
   response: unknown,
   sentBuffer: ThoughtBuffer,
   displayedThinkingHashes?: Set<string>,
+  processImageData?: StreamingCallbacks['processImageData'],
 ): unknown {
   if (!response || typeof response !== 'object') return response
 
@@ -85,7 +85,7 @@ export function deduplicateThinkingText(
           // Handle image data - save to disk and return file path
           if (p.inlineData) {
             const inlineData = p.inlineData as Record<string, unknown>
-            const result = processImageData({
+            const result = processImageData?.({
               mimeType: inlineData.mimeType as string | undefined,
               data: inlineData.data as string | undefined,
             })
@@ -359,6 +359,7 @@ function transformSseLineWithMetadata(
         parsed.response,
         sentThinkingBuffer,
         options.displayedThinkingHashes,
+        callbacks.processImageData,
       )
 
       if (

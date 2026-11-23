@@ -37,6 +37,10 @@
       "types": "./dist/settings/index.d.ts",
       "import": "./dist/settings/index.js"
     },
+    "./engine": {
+      "types": "./dist/engine/index.d.ts",
+      "import": "./dist/engine/index.js"
+    },
     "./common-auth/store": {
       "types": "./dist/common-auth-embedded/store/index.d.ts",
       "import": "./dist/common-auth-embedded/store/index.js"

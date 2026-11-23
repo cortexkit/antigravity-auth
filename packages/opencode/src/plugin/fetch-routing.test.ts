@@ -7,7 +7,7 @@ import {
   isCapacityRetryBudgetExhausted,
   toUrlString,
   toWarmupStreamUrl,
-} from './fetch-routing'
+} from '@cortexkit/antigravity-auth-core/engine'
 
 const GEMINI_URL =
   'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:generateContent'

@@ -15,6 +15,10 @@ import {
   sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
 import {
+  createRequestWireLocation,
+  type LocalRequestCredentials,
+} from '@cortexkit/antigravity-auth-core/engine'
+import {
   createPublicCommandInspector,
   inspectPublicCommandScope,
   type PublicCommandScope,
@@ -33,14 +37,13 @@ import {
 } from '../ga-location-services'
 import { createGeminiDumpState } from '../gemini-dump'
 import { createLocationLogger } from '../logger'
-import { createRequestWire, createRequestWireLocation } from '../request'
+import { createRequestWire } from '../request'
 import { AgySessionRegistry } from '../session-context'
 import { createSignatureStore } from '../stores/signature-store'
 import {
   createRequestExecutor,
-  type LocalRequestCredentials,
   type RequestServicesDeps,
-} from './request-services'
+} from './request-executor'
 
 const TOKEN_A = 'synthetic-access-before'
 const TOKEN_B = 'synthetic-access-after'

@@ -1,5 +1,5 @@
-import type { AccountModelFamily as ModelFamily } from '@cortexkit/antigravity-auth-core'
-import type { LocationDebug } from './debug'
+import type { AccountModelFamily as ModelFamily } from '../index.ts'
+import type { RequestDebug } from './ports.ts'
 
 export const MAX_TOTAL_CAPACITY_RETRIES = 4
 export const CAPACITY_BACKOFF_TIERS_MS = [5000, 10000, 20000, 30000, 60000]
@@ -57,7 +57,7 @@ export function extractModelFromUrl(urlString: string): string | null {
  */
 export function getModelFamilyFromUrl(
   urlString: string,
-  debug?: Pick<LocationDebug, 'isDebugEnabled' | 'logModelFamily'>,
+  debug?: Pick<RequestDebug, 'isDebugEnabled' | 'logModelFamily'>,
 ): ModelFamily {
   const model = extractModelFromUrl(urlString)
   let family: ModelFamily = 'gemini'

@@ -5,6 +5,13 @@ import {
   HostRefusalError,
   hostFailure,
 } from '@cortexkit/antigravity-auth-core'
+import type { RegisterResponseHandoff } from '@cortexkit/antigravity-auth-core/engine'
+import {
+  createLocalQuotaRefresh,
+  isGenerativeLanguageRequest,
+  type LocalRequestCredentials,
+  type RequestRoutingEntry,
+} from '@cortexkit/antigravity-auth-core/engine'
 import { upsertSidebarActiveRouting } from '../sidebar-state'
 import { extractAccountAccessErrorDetails } from './account-access'
 import {
@@ -27,19 +34,14 @@ import {
   buildThinkingWarmupBody,
   getImageModelLocalTitle,
   getLastCacheStats,
-  isGenerativeLanguageRequest,
   prepareAntigravityRequest,
   transformAntigravityResponse,
 } from './request'
 import type { AgySessionRegistry } from './session-context'
-import type { RegisterResponseHandoff } from './shared/after-handoff.ts'
 import {
-  createLocalQuotaRefresh,
   createRequestExecutor,
-  type LocalRequestCredentials,
-  type RequestRoutingEntry,
   type RequestServicesDeps,
-} from './shared/request-services'
+} from './shared/request-executor'
 import {
   createVaultAccountPool,
   type VaultAccountPool,

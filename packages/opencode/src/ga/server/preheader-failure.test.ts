@@ -12,7 +12,7 @@ import {
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
 import { expectNoOpenCodeRetryHints } from '../../plugin/__fixtures__/opencode-retry-hints.test.ts'
 import { transformAntigravityResponse } from '../../plugin/request.ts'
-import { createNativeGoogleErrorResponse } from '../../plugin/request-helpers.ts'
+import { createNativeGoogleErrorResponse } from '../../plugin/request-helper-effects'
 import {
   decideGaRetry,
   type GaBridgeJob,

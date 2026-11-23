@@ -32,7 +32,7 @@ import {
   type SettingsHandle,
   SettingsRefusal,
 } from '@cortexkit/antigravity-auth-core/common-auth/settings'
-
+import type { FloorKeying } from '@cortexkit/antigravity-auth-core/engine'
 import {
   getProjectConfigPath,
   getUserConfigPath,
@@ -43,7 +43,6 @@ import {
   OperatorSettingsSchema,
 } from '../plugin/config/operator-settings-schema'
 import { type AntigravityConfig, DEFAULT_CONFIG } from '../plugin/config/schema'
-import type { FloorKeying } from '../plugin/killswitch'
 import {
   createOperatorSettingsController,
   type OperatorSettingsController,

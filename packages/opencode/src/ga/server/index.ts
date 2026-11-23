@@ -36,6 +36,14 @@ import {
   redactProjectIdText,
   type refreshAntigravityToken,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  collectForwardedHeaders,
+  deriveRetryHeaderPairFromMs,
+  isCanonicalGoogleOrigin,
+  isQuotaError,
+  normalizeResetDuration,
+  resolveRetryMetadata,
+} from '@cortexkit/antigravity-auth-core/engine'
 import type { Model, Plugin } from '@opencode/plugin'
 import type { ProviderEditor } from '@opencode/plugin/promise/provider'
 import type { Registration } from '@opencode/plugin/promise/registration'
@@ -46,18 +54,9 @@ import type {
   SessionRequestKind,
   SessionRetry,
 } from '@opencode/plugin/promise/session'
-
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
 import { createGaLocationServices } from '../../plugin/ga-location-services.ts'
-import { isCanonicalGoogleOrigin } from '../../plugin/google-origin.ts'
 import type { persistAccountPool } from '../../plugin/persist-account-pool.ts'
-import {
-  collectForwardedHeaders,
-  deriveRetryHeaderPairFromMs,
-  isQuotaError,
-  normalizeResetDuration,
-  resolveRetryMetadata,
-} from '../../plugin/request-helpers.ts'
 import { openCodeRetryHint } from '../../plugin/shared/opencode-retry-hints.ts'
 import {
   createLocationRuntime,

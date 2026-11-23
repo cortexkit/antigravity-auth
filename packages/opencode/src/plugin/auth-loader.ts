@@ -13,6 +13,11 @@ import {
   loadCommonAuthStoreModules,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  isGenerativeLanguageRequest,
+  publishResponse,
+  type RegisterResponseHandoff,
+} from '@cortexkit/antigravity-auth-core/engine'
 import { RuntimeLayoutRefusal } from '../runtime-layout.ts'
 import {
   buildSidebarMachineStateFromAccounts,
@@ -40,11 +45,6 @@ import {
   createProactiveRefreshQueue,
   type ProactiveRefreshQueue,
 } from './refresh-queue'
-import { isGenerativeLanguageRequest } from './request'
-import {
-  publishResponse,
-  type RegisterResponseHandoff,
-} from './shared/after-handoff.ts'
 import {
   AccountStorageUnreadableError,
   type AccountStoreOpening,

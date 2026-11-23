@@ -1,28 +1,6 @@
-import type {
-  QuotaGroup,
-  QuotaGroupSummary,
-} from '@cortexkit/antigravity-auth-core'
-import {
-  type RoutingCandidate,
-  reportRouting,
-} from '../../common-auth-embedded/routing-accessor/index.js'
-import { isTerminalSseLine } from '../core/streaming/terminal-event'
-
-/** The bridge may arrive or disappear after plugin load; never cache its presence. */
-export function hasVaultRoutingAccessor(): boolean {
-  try {
-    return (
-      typeof Reflect.get(globalThis, Symbol.for('cortexkit.routing')) ===
-      'function'
-    )
-  } catch {
-    return false
-  }
-}
-
-export interface RoutingIdentity extends RoutingCandidate {
-  sessionId: string
-}
+import type { QuotaGroup, QuotaGroupSummary } from '../index.ts'
+import type { RequestRouting, RoutingIdentity } from './routing-port.ts'
+import { isTerminalSseLine } from './streaming/terminal-event.ts'
 
 export function routingQuotaScope(
   group: QuotaGroup,
@@ -70,6 +48,7 @@ export interface VaultExhaustionProof {
  * pool's window on the account, never the account's other models.
  */
 export function reportVaultExhaustion(
+  routing: Pick<RequestRouting, 'hasAccessor' | 'report'>,
   input: {
     identity: RoutingIdentity
     status: number
@@ -80,12 +59,12 @@ export function reportVaultExhaustion(
     signal?: AbortSignal | null
     singleReport?: boolean
   },
-  report: typeof reportRouting = reportRouting,
+  report: RequestRouting['report'] = routing.report,
 ): VaultExhaustionProof | undefined {
   const observedAtMs = input.observedAt
   const now = Date.now()
   if (
-    !hasVaultRoutingAccessor() ||
+    !routing.hasAccessor() ||
     input.signal?.aborted ||
     input.status !== 429 ||
     input.reason !== 'QUOTA_EXHAUSTED' ||
@@ -159,10 +138,11 @@ export interface VaultUpstreamObservation {
  * are not inspected. A non-SSE body completes at a clean EOF.
  */
 export function observeVaultUpstream(
+  routing: Pick<RequestRouting, 'hasAccessor'>,
   response: Response,
   signal?: AbortSignal | null,
 ): VaultUpstreamObservation | undefined {
-  if (!hasVaultRoutingAccessor() || !response.ok || signal?.aborted)
+  if (!routing.hasAccessor() || !response.ok || signal?.aborted)
     return undefined
   let completed = false
   return {
@@ -179,18 +159,18 @@ export function observeVaultUpstream(
 
 /** Observe only the body the caller consumes; cancellation and failed reads never count as served. */
 export function observeVaultServed(
+  routing: Pick<RequestRouting, 'hasAccessor' | 'report'>,
   identity: RoutingIdentity,
   response: Response,
   signal?: AbortSignal | null,
   upstream?: VaultUpstreamObservation,
 ): Response {
-  if (!hasVaultRoutingAccessor() || !response.ok || signal?.aborted)
-    return response
+  if (!routing.hasAccessor() || !response.ok || signal?.aborted) return response
   const report = () => {
     if (
       signal?.aborted ||
       (upstream && !upstream.completedSuccessfully()) ||
-      !hasVaultRoutingAccessor()
+      !routing.hasAccessor()
     )
       return
     const headers: Record<string, string> = {}
@@ -198,7 +178,7 @@ export function observeVaultServed(
       const value = response.headers.get(name)
       if (value !== null) headers[name] = value
     }
-    reportRouting({ ...identity, outcome: 'served', headers })
+    routing.report({ ...identity, outcome: 'served', headers })
   }
   return observeBody(response, report)
 }

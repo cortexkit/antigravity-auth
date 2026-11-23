@@ -1,17 +1,12 @@
 import { describe, expect, it } from 'bun:test'
 import { redactCredentialResponse } from '@cortexkit/antigravity-auth-core'
 import {
-  createThoughtBuffer,
-  deduplicateThinkingText,
-} from './core/streaming/transformer'
-import { transformAntigravityResponse } from './request'
-import {
   cleanJSONSchemaForAntigravity,
   collectForwardedHeaders,
-  createNativeGoogleErrorResponse,
   createSyntheticTextResponse,
+  createThoughtBuffer,
   DEFAULT_THINKING_BUDGET,
-  deepFilterThinkingBlocks,
+  deduplicateThinkingText,
   deriveRetryHeaderPairFromMs,
   deriveRetryHeaderPairFromSeconds,
   extractAntigravityError,
@@ -20,11 +15,8 @@ import {
   extractUsageFromSsePayload,
   extractUsageMetadata,
   extractVariantThinkingConfig,
-  filterMessagesThinkingBlocks,
-  filterUnsignedThinkingBlocks,
   findOrphanedToolUseIds,
   fixClaudeToolPairing,
-  fixToolResponseGrouping,
   formatResetDuration,
   injectParameterSignatures,
   injectToolHardeningInstruction,
@@ -35,17 +27,25 @@ import {
   parseAntigravityApiBody,
   parseDurationToMs,
   parseDurationToMsBigInt,
-  recursivelyParseJsonStrings,
   resolveRetryMetadata,
   resolveThinkingConfig,
   rewriteAntigravityPreviewAccessError,
-  transformThinkingParts,
   validateAndFixClaudeToolPairing,
   validateRetryAfterMs,
   validateRetryAfterMsBigInt,
   validateRetryAfterSeconds,
   validateRetryAfterSecondsBigInt,
-} from './request-helpers'
+} from '@cortexkit/antigravity-auth-core/engine'
+import { transformAntigravityResponse } from './request'
+import {
+  createNativeGoogleErrorResponse,
+  deepFilterThinkingBlocks,
+  filterMessagesThinkingBlocks,
+  filterUnsignedThinkingBlocks,
+  fixToolResponseGrouping,
+  recursivelyParseJsonStrings,
+  transformThinkingParts,
+} from './request-helper-effects'
 
 describe('sanitizeThinkingPart (covered via filtering)', () => {
   it('extracts wrapped text and strips SDK fields for Gemini-style thought blocks', () => {

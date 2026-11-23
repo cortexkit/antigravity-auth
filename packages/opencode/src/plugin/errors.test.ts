@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'bun:test'
-import { EmptyResponseError, ToolIdMismatchError } from './errors'
+import {
+  EmptyResponseError,
+  ToolIdMismatchError,
+} from '@cortexkit/antigravity-auth-core/engine'
 
 // ─── EmptyResponseError ───────────────────────────────────────────────────────
 

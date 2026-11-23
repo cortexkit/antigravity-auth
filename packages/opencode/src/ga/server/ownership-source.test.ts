@@ -23,6 +23,7 @@ import {
   readAccountStoreAdmission,
   VAULT_ACCOUNT_REMEDY,
 } from '@cortexkit/antigravity-auth-core'
+import { createRequestCancellation } from '@cortexkit/antigravity-auth-core/engine'
 import { placeholderSecret } from '../../common-auth-embedded/opencode2/index.js'
 import {
   createGaLocalRequestPipeline,
@@ -31,8 +32,7 @@ import {
 } from '../../plugin/ga-location-services.ts'
 import type { LocationLogRecord } from '../../plugin/neutral-types.ts'
 import * as advisoryRepositoryModule from '../../plugin/shared/advisory-repository.ts'
-import { createRequestCancellation } from '../../plugin/shared/request-cancellation.ts'
-import * as requestServicesModule from '../../plugin/shared/request-services.ts'
+import * as requestServicesModule from '../../plugin/shared/request-executor'
 import { createLocationRuntime } from '../../plugin/shared/runtime.ts'
 import {
   createOpenCodeVaultCustody,

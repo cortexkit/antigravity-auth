@@ -21,8 +21,8 @@
 
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync } from 'node:fs'
+import type { FloorKeying } from '@cortexkit/antigravity-auth-core/engine'
 import { z } from 'zod'
-
 import { canonicalizeOwnedPath } from './config/loader'
 import {
   emptyOperatorSettings,
@@ -30,7 +30,6 @@ import {
   OperatorSettingsSchema,
 } from './config/operator-settings-schema'
 import { writeOperatorConfig, writeOperatorConfigAt } from './config/writer'
-import type { FloorKeying } from './killswitch'
 
 // Loaded operator slices may be incomplete (older config files, partial
 // user edits); the merge-with-defaults step below fills any gaps.

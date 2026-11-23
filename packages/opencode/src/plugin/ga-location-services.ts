@@ -64,7 +64,14 @@ import {
   type VaultProviderStateFile,
   type VaultRouteRef,
 } from '@cortexkit/antigravity-auth-core'
-
+import {
+  type AntigravityRequestExecutor,
+  createLocalQuotaRefresh,
+  createRequestCancellation,
+  type LocalRequestCredentials,
+  type RequestRoutingEntry,
+  retiredModelResponse,
+} from '@cortexkit/antigravity-auth-core/engine'
 import { GA_POOL_PASTE_PROMPT } from '../auth-method-labels.ts'
 import type {
   AntigravityRpcScope,
@@ -135,15 +142,7 @@ import {
 import { type OAuthListener, startOAuthListener } from './server.ts'
 import { AgySessionRegistry } from './session-context.ts'
 import { createAdvisoryRepositoryOwner } from './shared/advisory-repository.ts'
-import { createRequestCancellation } from './shared/request-cancellation.ts'
-import {
-  type AntigravityRequestExecutor,
-  createLocalQuotaRefresh,
-  createRequestExecutor,
-  type LocalRequestCredentials,
-  type RequestRoutingEntry,
-  retiredModelResponse,
-} from './shared/request-services.ts'
+import { createRequestExecutor } from './shared/request-executor'
 import {
   createMemoryQuotaSnapshots,
   type LocationRuntime,

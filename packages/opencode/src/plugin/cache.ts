@@ -23,6 +23,7 @@
 // ============================================================================
 
 import { createHash } from 'node:crypto'
+import type { SignatureStore } from '@cortexkit/antigravity-auth-core/engine'
 import {
   getSignatureCacheFilePath,
   SignatureCache,
@@ -30,7 +31,6 @@ import {
 } from './cache/signature-cache'
 import type { SignatureCacheConfig } from './config'
 import { canonicalizeOwnedPath } from './config/loader'
-import type { SignatureStore } from './core/streaming/types'
 import type { Clock } from './neutral-types'
 import { createSignatureStore } from './stores/signature-store'
 

@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from 'bun:test'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { createRequestExecutor } from './request-services'
+import { createRequestExecutor } from './request-executor'
 import {
   CHAT_INIT,
   disposePools,

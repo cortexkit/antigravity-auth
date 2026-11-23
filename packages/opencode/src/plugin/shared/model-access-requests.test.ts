@@ -16,7 +16,11 @@ import {
   type ManagedAccount,
   TokenBucketTracker,
 } from '@cortexkit/antigravity-auth-core'
-
+import {
+  type RequestSendAdmission,
+  type RequestWire,
+  TITLE_FALLBACK_MODEL,
+} from '@cortexkit/antigravity-auth-core/engine'
 import { compileModelAccess } from '../../settings/core-settings'
 import { createProtectionStore } from '../../settings/protection'
 import {
@@ -40,11 +44,8 @@ import {
 import { AgySessionRegistry } from '../session-context'
 import {
   createRequestExecutor,
-  type RequestSendAdmission,
   type RequestServicesDeps,
-  type RequestWire,
-  TITLE_FALLBACK_MODEL,
-} from './request-services'
+} from './request-executor'
 
 const WIRE: RequestWire = {
   prepare: prepareAntigravityRequest,

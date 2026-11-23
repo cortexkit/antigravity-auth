@@ -2,7 +2,7 @@ import type {
   SignatureStore,
   SignedThinking,
   ThoughtBuffer,
-} from '../core/streaming/types'
+} from '@cortexkit/antigravity-auth-core/engine'
 
 export function createSignatureStore(): SignatureStore {
   const store = new Map<string, SignedThinking>()

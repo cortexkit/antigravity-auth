@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'bun:test'
 
-import { createWarmupState } from './warmup'
+import { createWarmupState } from '@cortexkit/antigravity-auth-core/engine'
 
 describe('WarmupState', () => {
   let state: ReturnType<typeof createWarmupState>

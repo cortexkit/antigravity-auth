@@ -1,3 +1,5 @@
+import type { SaveResponseImage } from '../ports.ts'
+
 export interface SignedThinking {
   text: string
   signature: string
@@ -18,6 +20,7 @@ export interface StreamingUsageMetadata {
 }
 
 export interface StreamingCallbacks {
+  processImageData?: SaveResponseImage
   onCacheSignature?: (
     sessionKey: string,
     text: string,

@@ -1,12 +1,11 @@
 import { describe, expect, it } from 'bun:test'
-
-import { createStreamingTransformer } from './transformer.ts'
 import type {
   SignatureStore,
   SignedThinking,
   StreamingCallbacks,
   StreamingUsageMetadata,
-} from './types'
+} from '@cortexkit/antigravity-auth-core/engine'
+import { createStreamingTransformer } from '@cortexkit/antigravity-auth-core/engine'
 
 /**
  * Minimal in-memory SignatureStore — characterization tests use this rather

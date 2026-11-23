@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
 
-import { createDisplayedThinkingRegistry } from './displayed-thinking'
+import { createDisplayedThinkingRegistry } from '@cortexkit/antigravity-auth-core/engine'
 
 describe('displayed thinking registry', () => {
   it('gives each session its own set and none without a session key', () => {

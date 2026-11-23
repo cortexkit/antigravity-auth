@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
 
-import { createRetryState } from './retry-state'
+import { createRetryState } from '@cortexkit/antigravity-auth-core/engine'
 
 describe('RetryState', () => {
   let state: ReturnType<typeof createRetryState>

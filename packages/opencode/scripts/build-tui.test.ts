@@ -535,6 +535,36 @@ test('graph.vault_host_server_library_only', async () => {
   }
 })
 
+test('graph.request_engine_server_library_only', async () => {
+  const engine = '@cortexkit/antigravity-auth-core/engine'
+  const serverPaths = [
+    'src/plugin/request.ts',
+    'src/plugin/request-helper-effects.ts',
+    'src/plugin/shared/request-executor.ts',
+    'src/plugin/shared/engine-routing.ts',
+  ].map((path) => join(PACKAGE_ROOT, path))
+  const library = await auditGraph(join(PACKAGE_ROOT, 'index.ts'), {
+    tui: false,
+  })
+  expect(library.externals).toContain(engine)
+  for (const path of serverPaths) {
+    expect(library.files).toContain(path)
+    await expect(auditGraph(path)).rejects.toThrow('forbidden TUI source')
+  }
+  const root = await fixture(true)
+  for (const profile of TUI_ROOTS) {
+    const renderer = await auditGraph(join(PACKAGE_ROOT, profile.entry))
+    expect(renderer.externals).not.toContain(engine)
+    for (const path of serverPaths) expect(renderer.files).not.toContain(path)
+
+    const entry = join(root, profile.entry)
+    const original = await readFile(entry, 'utf8')
+    await writeFile(entry, `${original}\nimport '${engine}'\n`)
+    await expect(auditGraph(entry)).rejects.toThrow('forbidden TUI external')
+    await writeFile(entry, original)
+  }
+})
+
 test('graph.server_cli', async () => {
   const manifest = JSON.parse(
     await readFile(join(PACKAGE_ROOT, 'package.json'), 'utf8'),

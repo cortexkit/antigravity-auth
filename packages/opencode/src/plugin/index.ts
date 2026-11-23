@@ -16,6 +16,7 @@ import { RuntimeLayoutRefusal } from '../runtime-layout.ts'
 /** The `/antigravity` menu, as the shared core factory builds it. */
 type CommandMenu = ReturnType<CommonAuthCommandsModule['createCommandMenu']>
 
+import type { RequestRoutingEntry } from '@cortexkit/antigravity-auth-core/engine'
 import { cliAccountOf } from '../cli'
 import { ANTIGRAVITY_PROVIDER_ID } from '../constants'
 import { createAutoUpdateCheckerHook } from '../hooks/auto-update-checker'
@@ -117,7 +118,6 @@ import {
   initTokenTracker,
 } from './rotation'
 import { AgySessionRegistry } from './session-context'
-import type { RequestRoutingEntry } from './shared/request-services'
 import { createSourceSidebarPublisher } from './shared/source-sidebar'
 import { createVaultAccountMenuSections } from './shared/vault-menu'
 import {

@@ -10,6 +10,10 @@ import {
   type OAuthAuthDetails,
   TokenBucketTracker,
 } from '@cortexkit/antigravity-auth-core'
+import type {
+  RequestSendAdmission,
+  RequestWire,
+} from '@cortexkit/antigravity-auth-core/engine'
 import { extractAccountAccessErrorDetails } from '../account-access'
 import { DEFAULT_CONFIG } from '../config'
 import { createLocationDebug } from '../debug'
@@ -23,11 +27,7 @@ import {
   transformAntigravityResponse,
 } from '../request'
 import { AgySessionRegistry } from '../session-context'
-import type {
-  RequestSendAdmission,
-  RequestServicesDeps,
-  RequestWire,
-} from './request-services'
+import type { RequestServicesDeps } from './request-executor'
 
 export const WIRE: RequestWire = {
   prepare: prepareAntigravityRequest,

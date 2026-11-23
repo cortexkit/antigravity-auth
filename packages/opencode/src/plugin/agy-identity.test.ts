@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'bun:test'
 import {
+  createRequestWireLocation,
+  prepareAgyWireRequest,
+} from '@cortexkit/antigravity-auth-core/engine'
+import {
   assertIdentity,
   assertUserAgent,
   captures,
@@ -9,13 +13,8 @@ import {
 import { DEFAULT_CONFIG } from './config'
 import { createLocationDebug } from './debug'
 import { createLocationLogger } from './logger'
-import {
-  createRequestWire,
-  createRequestWireLocation,
-  prepareAntigravityRequest,
-} from './request'
+import { createRequestWire, prepareAntigravityRequest } from './request'
 import { AgySessionRegistry } from './session-context'
-import { prepareAgyWireRequest } from './shared/request-services'
 import { createSignatureStore } from './stores/signature-store'
 
 describe('agy 1.5.8 identity through OpenCode request builders', () => {

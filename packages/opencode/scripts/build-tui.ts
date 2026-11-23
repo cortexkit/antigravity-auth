@@ -229,12 +229,20 @@ const externalLeaves = new Set([
   'solid-js',
   'solid-js/store',
 ])
+const ENGINE_EXTERNAL = '@cortexkit/antigravity-auth-core/engine'
+const ENGINE_SERVER_SOURCE =
+  /(?:\/core\/(?:src|dist)\/engine\/|\/plugin\/(?:request|request-helper-effects|image-saver)\.[jt]s$|\/plugin\/shared\/(?:request-executor|engine-routing)\.[jt]s$)/
 function checkExternal(specifier: string, tui: boolean, types: boolean) {
   const name = specifier.startsWith('opentui:runtime-module:')
     ? decodeURIComponent(specifier.slice('opentui:runtime-module:'.length))
     : specifier
   if (name.startsWith('@cortexkit/opencode-sidebar'))
     throw new Error(`graph: forbidden sidebar import ${specifier}`)
+  if (
+    tui &&
+    (name === ENGINE_EXTERNAL || name.startsWith(`${ENGINE_EXTERNAL}/`))
+  )
+    throw new Error(`graph: forbidden TUI external ${specifier}`)
   if (name.startsWith('node:')) return
   if (
     name.startsWith('@cortexkit/common-auth') ||
@@ -292,6 +300,8 @@ export async function auditGraph(
       throw new Error(`graph: forbidden sidebar source ${path}`)
     const rel = relative(rootDir, path)
     const candidate = `/${portable(rel)}`
+    if (tui && ENGINE_SERVER_SOURCE.test(portable(path)))
+      throw new Error(`graph: forbidden TUI source ${path}`)
     const embedded = candidate.split('/common-auth-embedded/')[1]
     if (
       embedded &&

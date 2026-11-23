@@ -1,5 +1,8 @@
 import { expect, it } from 'bun:test'
-import { createAfterHandoff, publishResponse } from './after-handoff.ts'
+import {
+  createAfterHandoff,
+  publishResponse,
+} from '@cortexkit/antigravity-auth-core/engine'
 
 it('tracks dormant work and acknowledges it once after public availability', async () => {
   const work = new Set<Promise<void>>()

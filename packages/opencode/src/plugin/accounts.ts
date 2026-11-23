@@ -9,14 +9,13 @@ import {
   type RowRef,
   sameRowRef,
 } from '@cortexkit/antigravity-auth-core'
-
-import { debugLogToFile } from './debug'
-import { ensureProjectContext } from './project'
 import {
   type CapturedLocalGrant,
   LocalGrantSupersededError,
   StaleLocalGrantError,
-} from './shared/local-grant'
+} from '@cortexkit/antigravity-auth-core/engine'
+import { debugLogToFile } from './debug'
+import { ensureProjectContext } from './project'
 import {
   getStoragePath,
   loadAccounts,

@@ -5,7 +5,7 @@ import { dirname, join, relative, resolve } from 'node:path'
 /**
  * Static import-graph guards for the shared request engine.
  *
- * The GA location reaches `shared/request-services.ts`; nothing it loads,
+ * The core request executor is shared by both server adapters; nothing it loads,
  * including type-only imports, may pull in the OpenCode host SDK, a host
  * client binding, the sidebar file, account storage adapters or the
  * OpenCode 1 interceptor.
@@ -13,7 +13,9 @@ import { dirname, join, relative, resolve } from 'node:path'
 
 const pluginDir = resolve(import.meta.dir, '..')
 const srcDir = resolve(pluginDir, '..')
-const ROOT = join(pluginDir, 'shared', 'request-services.ts')
+const coreSrc = resolve(srcDir, '../../core/src')
+const engineDir = join(coreSrc, 'engine')
+const ROOT = join(engineDir, 'request-services.ts')
 
 // One static import/export statement per match. The clause cannot contain
 // quotes, parentheses, `=` or `;`, so a match never runs on from an unrelated
@@ -108,15 +110,6 @@ const FORBIDDEN_FILES = [
   'sidebar-state.ts',
 ]
 
-/**
- * Type-only edges into a forbidden file that exist today and have a named
- * owner outside this engine. `request.ts` takes `detectErrorType` from the
- * session-recovery module, whose own `PluginClient` parameter types reach
- * `types.ts`; that module's owner moves the classifier to a neutral module.
- * Anything else that reaches a forbidden file fails.
- */
-const KNOWN_TYPE_ONLY_EDGES = ['plugin/recovery.ts -> plugin/types.ts']
-
 describe('shared request engine import graph', () => {
   const graph = walkGraph(ROOT)
 
@@ -128,21 +121,21 @@ describe('shared request engine import graph', () => {
       .filter((edge) => !edge.typeOnly && edge.to.startsWith('@opencode-ai/'))
       .map((edge) => `${rel(edge.from)} -> ${edge.to}`)
 
-    expect(graph.valueFiles.has(join(pluginDir, 'fetch-routing.ts'))).toBe(true)
+    expect(graph.valueFiles.has(join(engineDir, 'fetch-routing.ts'))).toBe(true)
     expect(forbiddenValues).toEqual([])
     expect(sdkValueImports).toEqual([])
   })
 
-  it('reaches a forbidden file through types only on the recorded edges', () => {
+  it('does not reach OpenCode files even through type imports', () => {
     const forbiddenEdges = graph.edges
-      .filter((edge) => FORBIDDEN_FILES.includes(rel(edge.to)))
+      .filter((edge) => edge.to.startsWith(`${srcDir}/`))
       .map((edge) => `${rel(edge.from)} -> ${rel(edge.to)}`)
     const sdkFromAllowedFiles = graph.external
       .filter((edge) => edge.to.startsWith('@opencode-ai/'))
       .map((edge) => rel(edge.from))
       .filter((file) => !FORBIDDEN_FILES.includes(file))
 
-    expect([...new Set(forbiddenEdges)].sort()).toEqual(KNOWN_TYPE_ONLY_EDGES)
+    expect([...new Set(forbiddenEdges)].sort()).toEqual([])
     expect(sdkFromAllowedFiles).toEqual([])
   })
 
@@ -165,35 +158,7 @@ describe('shared request engine import graph', () => {
 
     expect(imports).toEqual({
       'node:crypto': ['createHash', 'randomUUID'],
-      './after-handoff.ts': [
-        'createAfterHandoff',
-        'type RegisterResponseHandoff',
-      ],
-      './request-cancellation': [
-        'createRequestCancellation',
-        'retainResponseLifetime',
-      ],
-      '../../common-auth-embedded/claustrum/host.js': ['hasVaultHost'],
-      '../../common-auth-embedded/routing-accessor/index.js': [
-        'askRouting',
-        'askRoutingUntilCapacity',
-        'reportRouting as reportVaultRouting',
-        'type AskRoutingInput',
-        'type BillingRequestKind',
-        'type RoutingCandidate',
-        'type RoutingRefusal',
-      ],
-      './vault-billing': ['VaultBillingAttempt'],
-      './vault-routing': [
-        'hasVaultRoutingAccessor',
-        'observeVaultServed',
-        'observeVaultUpstream',
-        'reportVaultExhaustion',
-        'type RoutingIdentity',
-        'type VaultExhaustionProof',
-      ],
-      './vault-routing-purpose': ['isTitleVaultRequest'],
-      '@cortexkit/antigravity-auth-core': [
+      '../index.ts': [
         'HostRefusalError',
         'MAX_UNCONFIRMED_RATE_LIMIT_RETRIES',
         'PRE_RESPONSE_DEADLINE_MS',
@@ -240,21 +205,19 @@ describe('shared request engine import graph', () => {
         'type VaultConditionOutcome',
         'unconfirmedRateLimitDelayMs',
       ],
-      '../../constants': [
+      '../constants.ts': [
         'ANTIGRAVITY_ENDPOINT_DAILY',
         'ANTIGRAVITY_ENDPOINT_FALLBACKS',
       ],
-      '../../settings/core-settings': ['type ModelAccessPolicy'],
-      '../config': ['type AntigravityConfig'],
-      '../debug': ['type LocationDebug'],
-      '../errors': ['AntigravityKillswitchError'],
-      '../fetch/retry-state': [
+      '../model-access.ts': ['type ModelAccessPolicy'],
+      './errors.ts': ['AntigravityKillswitchError'],
+      './fetch/retry-state.ts': [
         'createRetryState',
         'type RateLimitBackoffResult',
         'type RetryState',
       ],
-      '../fetch/warmup': ['createWarmupState', 'type WarmupState'],
-      '../fetch-routing': [
+      './fetch/warmup.ts': ['createWarmupState', 'type WarmupState'],
+      './fetch-routing.ts': [
         'MAX_TOTAL_CAPACITY_RETRIES',
         'extractModelFromUrl',
         'getModelFamilyFromUrl',
@@ -262,36 +225,63 @@ describe('shared request engine import graph', () => {
         'toUrlString',
         'toWarmupStreamUrl',
       ],
-      '../gemini-dump': ['noteGeminiDumpResponse', 'type GeminiDumpState'],
-      '../killswitch': ['evaluateKillswitchForAccount', 'throwIfAllKilled'],
-      '../logger': ['type Logger'],
-      '../operator-settings': ['type OperatorSettingsController'],
-      '../request': [
-        'type PrepareRequestOptions',
-        'type buildThinkingWarmupBody',
-        'type getImageModelLocalTitle',
-        'type getLastCacheStats',
-        'type prepareAntigravityRequest',
-        'type transformAntigravityResponse',
+      './killswitch.ts': ['evaluateKillswitchForAccount', 'throwIfAllKilled'],
+      './ports.ts': [
+        'type RequestConfig',
+        'type RequestDebug',
+        'type RequestDump',
+        'type RequestLogger',
+        'type RequestOperatorSettings',
+        'type RequestSessionIdentity',
+        'type RequestSessions',
       ],
-      '../request-helpers': [
-        'createNativeGoogleErrorResponse',
+      './request.ts': ['type PrepareRequestOptions', 'type RequestWire'],
+      './request-helpers.ts': [
         'createSyntheticTextResponse',
-        'extractAntigravityError',
         'isEmptyResponseBody',
+      ],
+      './retry-metadata.ts': [
+        'createNativeGoogleErrorResponse as nativeErrorResponse',
+        'extractAntigravityError',
         'resolveRetryMetadata',
       ],
-      '../session-context': [
-        'extractOpenCodeSessionIdentity',
-        'type AgySessionRegistry',
-        'type OpenCodeSessionIdentity',
+      './after-handoff.ts': [
+        'createAfterHandoff',
+        'type RegisterResponseHandoff',
       ],
-      './local-grant': [
+      './local-grant.ts': [
         'LocalGrantSupersededError',
         'isLocalGrantError',
         'type CapturedLocalGrant',
       ],
+      './request-cancellation.ts': [
+        'createRequestCancellation',
+        'retainResponseLifetime',
+      ],
+      './routing-port.ts': [
+        'type BillingRequestKind',
+        'type RequestRouting',
+        'type RoutingCandidate',
+        'type RoutingExhaustion',
+        'type RoutingIdentity',
+        'type RoutingRefusal',
+      ],
+      './vault-billing.ts': ['VaultBillingAttempt'],
+      './vault-routing.ts': [
+        'observeVaultServed',
+        'observeVaultUpstream',
+        'reportVaultExhaustion',
+        'type VaultExhaustionProof',
+      ],
     })
+  })
+
+  it('keeps the core root from loading the engine', () => {
+    const core = walkGraph(join(coreSrc, 'index.ts'))
+    const engineImports = [...core.valueFiles].filter((file) =>
+      file.startsWith(`${engineDir}/`),
+    )
+    expect(engineImports).toEqual([])
   })
 
   it('keeps content endpoint failover in the request engine and quota on daily', () => {
@@ -312,8 +302,9 @@ describe('shared request engine import graph', () => {
       }
     }
     walk(srcDir)
+    walk(engineDir)
 
-    expect(importers.sort()).toEqual(['plugin/shared/request-services.ts'])
+    expect(importers.sort()).toEqual([rel(ROOT)])
     expect(readFileSync(join(srcDir, 'plugin/quota.ts'), 'utf8')).toContain(
       'ANTIGRAVITY_QUOTA_ENDPOINT',
     )

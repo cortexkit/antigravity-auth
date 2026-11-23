@@ -19,9 +19,15 @@ import type {
   AccountModelFamily as ModelFamily,
   QuotaGroup,
   QuotaGroupSummary,
-} from '@cortexkit/antigravity-auth-core'
-import { AntigravityKillswitchError } from './errors'
-import type { OperatorSettings } from './operator-settings'
+} from '../index.ts'
+import { AntigravityKillswitchError } from './errors.ts'
+export interface KillswitchSettings {
+  killswitch: {
+    enabled: boolean
+    minimum_remaining_percent: number
+    accounts?: Readonly<Record<string, number>>
+  }
+}
 
 export interface KillswitchAccountSnapshot {
   index: number
@@ -151,7 +157,7 @@ export function floorKeyForAccount(
 export function evaluateKillswitchForAccount(
   account: KillswitchAccountSnapshot,
   family: ModelFamily,
-  settings: OperatorSettings,
+  settings: KillswitchSettings,
   options: KillswitchEvaluateOptions = {},
 ): KillswitchDecision {
   if (!settings.killswitch.enabled) {
@@ -248,7 +254,7 @@ function clampPercent(value: number): number {
 export function summarizeKillswitchOutcomes(
   accounts: readonly KillswitchAccountSnapshot[],
   family: ModelFamily,
-  settings: OperatorSettings,
+  settings: KillswitchSettings,
   options: KillswitchEvaluateOptions = {},
 ): Array<{
   accountKey: string
@@ -285,7 +291,7 @@ export function throwIfAllKilled(input: {
   family: ModelFamily
   model: string
   accounts: readonly KillswitchAccountSnapshot[]
-  settings: OperatorSettings
+  settings: KillswitchSettings
   now?: number
   cacheTtlMs?: number
   /** Optional model to scope per-account evaluation to a single quota group. */

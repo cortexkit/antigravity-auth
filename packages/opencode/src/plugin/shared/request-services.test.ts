@@ -25,6 +25,17 @@ import {
   type VaultConditionInput,
   type VaultConditionOutcome,
 } from '@cortexkit/antigravity-auth-core'
+import {
+  createRequestWireLocation,
+  type LocalRequestCredentials,
+  prepareAgyWireRequest,
+  publishResponse,
+  type RequestSendAdmission,
+  type RequestWire,
+  retiredModelResponse,
+  routeTitleModel,
+  TITLE_FALLBACK_MODEL,
+} from '@cortexkit/antigravity-auth-core/engine'
 import { runCommandBytes } from '../../../../../test/support/run-command.ts'
 import { vaultWaitClock } from '../../../../../test/support/vault-wait-clock.test.ts'
 import identityProjection from '../../../../../test-fixtures/agy-cli-1.5.8/identity-projection.json'
@@ -47,26 +58,15 @@ import { createLocationLogger } from '../logger'
 import { createLocationProactiveRefreshQueue } from '../refresh-queue'
 import {
   createRequestWire,
-  createRequestWireLocation,
   getLastCacheStats,
   prepareAntigravityRequest,
 } from '../request'
-import { createNativeGoogleErrorResponse } from '../request-helpers'
+import { createNativeGoogleErrorResponse } from '../request-helper-effects'
 import { AgySessionRegistry } from '../session-context'
 import { createSignatureStore } from '../stores/signature-store'
 import type { GetAuth } from '../types'
 import { openCodeEmptyVaultRosterRefusal } from '../vault-custody'
-import { publishResponse } from './after-handoff.ts'
-import {
-  createRequestExecutor,
-  type LocalRequestCredentials,
-  prepareAgyWireRequest,
-  type RequestSendAdmission,
-  type RequestWire,
-  retiredModelResponse,
-  routeTitleModel,
-  TITLE_FALLBACK_MODEL,
-} from './request-services'
+import { createRequestExecutor } from './request-executor'
 import {
   CHAT_INIT,
   CLAUDE_URL,

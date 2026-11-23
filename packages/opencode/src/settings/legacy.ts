@@ -8,12 +8,12 @@
  * move calls these readers while it holds the operator writer's lock.
  */
 
+import { accountKeyForRefreshToken } from '@cortexkit/antigravity-auth-core/engine'
 import { z } from 'zod'
 import {
   type AntigravityConfig,
   AntigravityConfigSchema,
 } from '../plugin/config/schema'
-import { accountKeyForRefreshToken } from '../plugin/killswitch'
 import { RETIRED_SETTINGS } from './core-settings'
 
 /** The old `operator` block as the old operator reader accepted it. */

@@ -3,6 +3,13 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { redactCredentialError } from '@cortexkit/antigravity-auth-core'
+import type {
+  SignatureStore,
+  StreamingCallbacks,
+  StreamingOptions,
+  ThoughtBuffer,
+} from '@cortexkit/antigravity-auth-core/engine'
+import { isGenerativeLanguageRequest } from '@cortexkit/antigravity-auth-core/engine'
 import opusLow from '../../../../test-fixtures/agy-cli-1.3.3/native-opus-low.json'
 import sonnetLow from '../../../../test-fixtures/agy-cli-1.3.3/native-sonnet-low.json'
 import carbonLow from '../../../../test-fixtures/agy-cli-1.5.5/native-carbon-low.json'
@@ -11,12 +18,6 @@ import neon from '../../../../test-fixtures/agy-cli-1.5.9/neon-evidence.json'
 import { SKIP_THOUGHT_SIGNATURE } from '../constants'
 import * as config from './config'
 import { DEFAULT_CONFIG } from './config'
-import type {
-  SignatureStore,
-  StreamingCallbacks,
-  StreamingOptions,
-  ThoughtBuffer,
-} from './core/streaming/types'
 import {
   closeDebugLog,
   initializeDebug,
@@ -28,11 +29,10 @@ import {
   buildThinkingWarmupBody,
   getImageModelLocalTitle,
   getPluginSessionId,
-  isGenerativeLanguageRequest,
   prepareAntigravityRequest,
   transformAntigravityResponse,
 } from './request'
-import { transformThinkingParts } from './request-helpers'
+import { transformThinkingParts } from './request-helper-effects'
 
 // Current request identity follows agy 1.5.8; older captures remain historical.
 const AGY_WIRE_FIXTURE = identityProjection.runs.r2[0]!

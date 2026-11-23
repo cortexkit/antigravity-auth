@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'bun:test'
-import { geminiBillingUsage, VaultBillingAttempt } from './vault-billing'
+import { geminiBillingUsage } from '@cortexkit/antigravity-auth-core/engine'
+import { VaultBillingAttempt } from '../__fixtures__/engine-routing.test'
 
 const symbol = Symbol.for('cortexkit.routing')
 const previous = Object.getOwnPropertyDescriptor(globalThis, symbol)

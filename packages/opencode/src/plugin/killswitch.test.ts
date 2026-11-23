@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'bun:test'
-import { AntigravityKillswitchError } from './errors'
 import {
+  AntigravityKillswitchError,
   accountKeyForRefreshToken,
   evaluateKillswitchForAccount,
   summarizeKillswitchOutcomes,
   throwIfAllKilled,
-} from './killswitch'
+} from '@cortexkit/antigravity-auth-core/engine'
 import {
   emptyOperatorSettings,
   type OperatorSettings,
