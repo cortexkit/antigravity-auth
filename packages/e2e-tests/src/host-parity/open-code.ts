@@ -240,7 +240,7 @@ function repository(): AccountRepository {
     },
     readAccountIssues: async () => [],
     selectAccount: async () => {},
-    writeMetadata: async () => ({ ref: row.ref }),
+    updateMetadata: async () => ({ ref: row.ref }),
     writeQuota: async () => ({ ref: row.ref }),
     recordFingerprint: async () => ({ ref: row.ref }),
     settled: async () => {},
@@ -256,7 +256,10 @@ export async function openCode2(
 ) {
   initRuntimeConfig(config())
   const settings = config(input.options.keepThinking)
-  const logger = { debug: noop, info: noop, warn: noop, error: noop }
+  const log = (...parts: unknown[]) => {
+    if (process.env.PARITY_DEBUG) console.error(...parts)
+  }
+  const logger = { debug: log, info: log, warn: log, error: log }
   const runtime = {
     config: { config: settings, keepThinking: settings.keep_thinking },
     settings: { modelAccess: () => undefined },
@@ -269,7 +272,17 @@ export async function openCode2(
       hashedLogLabel: () => 'parity',
     },
   } as unknown as Parameters<typeof createGaLocalRequestPipeline>[0]['runtime']
-  const common = { runtime, overrides: {}, routes: createGaRouteBook() }
+  const common = {
+    runtime,
+    overrides: {
+      ensureProjectContext: async () => ({
+        auth,
+        effectiveProjectId: credential.projectId,
+      }),
+      observeRawSenderSignal: () => log('GA raw send started'),
+    },
+    routes: createGaRouteBook(),
+  }
   const trace = (message: string) => {
     if (process.env.PARITY_DEBUG) console.error(message)
   }
