@@ -65,8 +65,8 @@ const REQUIRED_PUBLIC_MODEL_FIELDS = [
 
 describe('model registry', () => {
   it('preserves the remaining pre-Carbon public catalog', () => {
-    // Pin the older definitions separately from Carbon, Hydrogen and Neon.
-    // The expected hash removes only the retired image model from that snapshot.
+    // The pre-Carbon snapshot omits Carbon, Hydrogen and Neon, covered below.
+    // The pinned hash also removes the retired Gemini 3.1 Flash Image entry.
     const baseline = Object.fromEntries(
       Object.entries(getPublicModelDefinitions()).filter(
         ([id]) =>
