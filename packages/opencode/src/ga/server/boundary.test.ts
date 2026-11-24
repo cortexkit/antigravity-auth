@@ -874,7 +874,13 @@ describe('disposal and stale activations', () => {
         read: ({ signal }) => {
           readSignal = signal
           return new Promise((_, reject) => {
-            release = () => reject(signal.reason)
+            signal.addEventListener(
+              'abort',
+              () => {
+                release = () => reject(signal.reason)
+              },
+              { once: true },
+            )
           })
         },
       },
@@ -882,17 +888,18 @@ describe('disposal and stale activations', () => {
       generation: 'gen',
     })
     const pending = activation.handlers.state(stateInput('gen', SESSION_A, 0))
-    const answer = expect(pending).resolves.toEqual({
-      version: 1,
-      kind: 'disposed',
-      generation: 'gen',
-    })
+    const answer = pending.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    )
     const disposal = activation.dispose()
     expect(readSignal.aborted).toBe(true)
     release()
+    expect(await answer).toEqual({
+      value: { version: 1, kind: 'disposed', generation: 'gen' },
+    })
     await disposal
-    await answer
-  })
+  }, 5_000)
 
   it('answers disposed when disposal aborts a running apply', async () => {
     let release!: () => void
@@ -902,23 +909,30 @@ describe('disposal and stale activations', () => {
       commands: makeCommands(({ signal }) => {
         applySignal = signal
         return new Promise((_, reject) => {
-          release = () => reject(signal.reason)
+          signal.addEventListener(
+            'abort',
+            () => {
+              release = () => reject(signal.reason)
+            },
+            { once: true },
+          )
         })
       }),
       generation: 'gen',
     })
     const pending = activation.handlers.apply(applyInput('gen'))
-    const answer = expect(pending).resolves.toEqual({
-      version: 1,
-      kind: 'disposed',
-      generation: 'gen',
-    })
+    const answer = pending.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    )
     const disposal = activation.dispose()
     expect(applySignal.aborted).toBe(true)
     release()
+    expect(await answer).toEqual({
+      value: { version: 1, kind: 'disposed', generation: 'gen' },
+    })
     await disposal
-    await answer
-  })
+  }, 5_000)
 
   it('preserves a state read error when the activation is not disposed', async () => {
     const error = new Error('state read failed')
