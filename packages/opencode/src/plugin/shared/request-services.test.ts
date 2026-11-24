@@ -9081,7 +9081,7 @@ describe('createRequestExecutor optional vault routing', () => {
                     '2f2356140c2cd8af8736936b20bd139c2476755cde212f6342705c48d57e2b6e',
                 },
               },
-              { deadlineMs: 2000 },
+              { deadlineMs: 2000, signal: expect.any(AbortSignal) },
             ],
           ])
           expect(wireBearers(h).at(-1)).toBe('Bearer vault-token-2')
@@ -10546,7 +10546,10 @@ describe('createRequestExecutor optional vault routing', () => {
               request_id: expect.any(String),
               waits_for_capacity: true,
             })
-            expect(asks[0]?.[1]).toEqual({ deadlineMs: 2_000 })
+            expect(asks[0]?.[1]).toEqual({
+              deadlineMs: 2_000,
+              signal: expect.any(AbortSignal),
+            })
             expect(asks[1]).toEqual(asks[0])
           } finally {
             await executor.dispose()
@@ -10643,6 +10646,65 @@ describe('createRequestExecutor optional vault routing', () => {
       }
     })
   }
+
+  it('user cancel during a capacity wait ends the request in under a second without another ask', async () => {
+    const waitMs = 10_321
+    const date = spyOn(Date, 'now').mockReturnValue(FIXED_NOW)
+    const waiting = Promise.withResolvers<void>()
+    const setTimer = globalThis.setTimeout
+    const timer = spyOn(globalThis, 'setTimeout').mockImplementation(((
+      callback: () => void,
+      delay: number,
+    ) => {
+      const handle = setTimer(callback, delay)
+      if (delay === waitMs) waiting.resolve()
+      return handle
+    }) as typeof setTimeout)
+    const caller = new AbortController()
+    const reason = new Error('user cancelled')
+    try {
+      await routing(
+        async ({ asks }) => {
+          const h = placementHarness()
+          const executor = createRequestExecutor(
+            vaultDeps(h, async (account) => admission(account)),
+          )
+          try {
+            const request = executor.execute(
+              NON_STREAM_URL,
+              CHAT_INIT(caller.signal),
+              session('capacity-user-cancel'),
+            )
+            await Promise.race([
+              waiting.promise,
+              request.then(() => {
+                throw new Error(
+                  'request completed without waiting for capacity',
+                )
+              }),
+            ])
+            const start = performance.now()
+            caller.abort(reason)
+            await expect(request).rejects.toBe(reason)
+            expect(performance.now() - start).toBeLessThan(1_000)
+            expect(asks).toHaveLength(1)
+            expect(h.calls).toEqual([])
+          } finally {
+            await executor.dispose()
+          }
+        },
+        async () => ({
+          refused: {
+            code: 'concurrency_full',
+            resets_at_ms: FIXED_NOW + waitMs,
+          },
+        }),
+      )
+    } finally {
+      timer.mockRestore()
+      date.mockRestore()
+    }
+  })
 
   it('cancels a short first-placement refusal wait without another ask or send', async () => {
     const caller = new AbortController()

@@ -131,6 +131,18 @@ function applyHeaderEditsTo(target, edits) {
  * retries through `retrySameAccount` do not select an account and remain allowed.
  */
 export async function installOpenCode2Auth(ctx, adapter, options = {}) {
+    const registrations = [];
+    try {
+        return await installAuth(ctx, adapter, options, registrations);
+    }
+    catch (error) {
+        // A failed install leaves no handle for the caller to clean up. A disposal
+        // failure must neither skip another hook nor hide the installation error.
+        await Promise.allSettled(registrations.map(async (registration) => registration.dispose()));
+        throw error;
+    }
+}
+async function installAuth(ctx, adapter, options, registrations) {
     const { providerID } = adapter;
     const ownership = options.gateOnPlaceholder;
     const owns = (headers) => ownership === undefined ||
@@ -751,7 +763,6 @@ export async function installOpenCode2Auth(ctx, adapter, options = {}) {
         return open[0] ?? pool.at(-1);
     };
     const scoped = { providerID };
-    const registrations = [];
     registrations.push(await ctx.session.hook('model.request', (draft) => {
         if (ownership)
             return;

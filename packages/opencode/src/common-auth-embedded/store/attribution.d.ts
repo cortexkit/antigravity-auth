@@ -22,6 +22,13 @@ export interface Attribution {
     credentialEpoch: number;
     identity?: string;
 }
+/** An attribution fence for `replace`. */
+export interface ReplaceAttribution extends Attribution {
+    /** Require the row to still hold no credential, even if its epoch and identity match. */
+    expect?: {
+        credential: 'absent';
+    };
+}
 export declare function assertQuotaEpoch(id: string, attribution: Attribution): void;
 export declare function assertQuotaRow(id: string, attribution: Attribution, row: PoolRow | undefined): asserts row is PoolRow;
 export declare function mergedQuota(ctx: StoreContext, id: string, stored: unknown, observation: unknown): unknown;

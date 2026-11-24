@@ -10,10 +10,19 @@ export function defineSettings(definition) {
         if (name === 'sidebar' && declaration.value.kind !== 'object') {
             throw new TypeError('The sidebar setting must use an object descriptor');
         }
-        if (declaration.overrides !== undefined &&
+        const { overrides } = declaration;
+        if (overrides !== undefined &&
             (declaration.value.kind === 'object' ||
                 declaration.value.kind === 'record')) {
             throw new TypeError(`Object and record settings cannot use overrides: ${name}`);
+        }
+        if (overrides?.isolatedHosts !== undefined &&
+            (overrides.host !== true ||
+                overrides.model === true ||
+                !Array.isArray(overrides.isolatedHosts) ||
+                overrides.isolatedHosts.length === 0 ||
+                !Array.from(overrides.isolatedHosts).every((host) => typeof host === 'string'))) {
+            throw new TypeError(`isolatedHosts must be a non-empty array of host names and requires host overrides without model overrides: ${name}`);
         }
         if (!Object.hasOwn(declaration, 'default') ||
             !validateValue(declaration.value, declaration.default, {

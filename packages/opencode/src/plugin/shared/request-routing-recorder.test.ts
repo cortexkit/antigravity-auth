@@ -47,7 +47,7 @@ type Call =
   | {
       method: 'accountFor'
       sessionId: string
-      args: [Ask, { deadlineMs: number }]
+      args: [Ask, { deadlineMs: number; signal?: { aborted: boolean } }]
       answer: Answer
     }
   | { method: 'report'; sessionId: string; args: [Record<string, unknown>] }
@@ -64,12 +64,21 @@ async function captureRouting<T>(
   Object.defineProperty(globalThis, ROUTING, {
     configurable: true,
     value: (sessionId: string) => ({
-      async accountFor(...args: [Ask, { deadlineMs: number }]) {
+      async accountFor(
+        ask: Ask,
+        { signal, ...options }: { deadlineMs: number; signal?: AbortSignal },
+      ) {
         const answer = answers[askIndex++]
         calls.push({
           method: 'accountFor',
           sessionId,
-          args: structuredClone(args),
+          // Record the signal's state at the ask without cloning the live signal.
+          args: [
+            structuredClone(ask),
+            signal
+              ? { ...options, signal: { aborted: signal.aborted } }
+              : options,
+          ],
           answer,
         })
         return answer
@@ -249,6 +258,14 @@ it('records proved quota exhaustion and a successful continuation', async () => 
     'exhausted',
     'continue',
     'served',
+  ])
+  expect(
+    sample.calls.flatMap((call) =>
+      call.method === 'accountFor' ? [call.args[1]] : [],
+    ),
+  ).toEqual([
+    { deadlineMs: 2_000, signal: { aborted: false } },
+    { deadlineMs: 2_000 },
   ])
   expect(sample.calls).toContainEqual(
     expect.objectContaining({

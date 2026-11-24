@@ -12,15 +12,15 @@ import { fileURLToPath } from 'node:url'
 import { gunzipSync } from 'node:zlib'
 
 export const inputPath =
-  'tools/common-auth-build/inputs/cortexkit-common-auth-0.57.0.tgz'
-export const producerVersion = '0.57.0'
+  'tools/common-auth-build/inputs/cortexkit-common-auth-0.59.0.tgz'
+export const producerVersion = '0.59.0'
 export const artifactStatus = 'published'
 export const outputPath = 'packages/opencode/src/common-auth-embedded'
 export const productionPin = Object.freeze({
-  archiveBytes: 507983,
-  shasum: 'a5b6882e995c7ca746afb640576055ad57723b6e',
-  sha256: '970ceb8cd5db97c15f568e70a016e0a759dbe6a0784aa6b80e4b3136d5f52e37',
-  sri: 'sha512-Edl0qBo1sDRCnk+XfNohIYkvX4NC2Wi/jIIRcQeDIn+bRrMJMu+6yRK8nvmt5pbxQBuKI2GK9qedDvDbO8EdMA==',
+  archiveBytes: 508683,
+  shasum: '2bd214dc6ba9c99c083c9f4f7de91d6cc45fa7b2',
+  sha256: '5965d48a94eac8c093b28926d6d02680874ce0e7f01b5bf4e611dc62ab2de091',
+  sri: 'sha512-u1mfeY1/9+k4RAZ88HWHTEwxYAwT3RJqwJe7O5PLH9S4FrrL4y0FWIsogphOVwuPrV8XPk49aiq985PcBjwjkQ==',
 })
 export const publicRoots = {
   './rpc': { types: './dist/rpc/index.d.ts', import: './dist/rpc/index.js' },
@@ -653,8 +653,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'opencode2/install.js',
-    67892,
-    'd4e704c52db78e24161f4de3b01125d7e77278cbab081617e49fdf7e3ee12adb',
+    68364,
+    'edd68af7b88418a514783fbe4ed91e95071340187979cf643c6e8b5e60f3afd7',
   ],
   [
     'opencode2/integration.d.ts',
@@ -908,13 +908,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'settings/define.d.ts',
-    1692,
-    'e2ce7ef1694e7118efdaacc742aac7033d0032f473449b90dffb82cfb03c82e7',
+    1744,
+    '60cad56d82cd806425e2a1ce89d2c8aaad4a533c81e475d3a0cb1680e7b50dd6',
   ],
   [
     'settings/define.js',
-    2404,
-    '27b948deb5efbbebb368156dc39074f1a3d8bc41072bb9530b2839f8d7696c2d',
+    2948,
+    'e29a12e53013863a513c604e898bee7b10c378a88a66cf29cbb7525167e9b9e9',
   ],
   [
     'settings/descriptors.d.ts',
@@ -1013,8 +1013,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'settings/resolve.js',
-    2220,
-    'e668ba20892288a22aea2346e19c3178b7d001c2155b9e3d7c704745cf36edfd',
+    2346,
+    '79426a5f19eee5a1ccba957eeae3aa96ac146c81e0314cb4b510720e48b7c4d4',
   ],
   [
     'settings/schema.d.ts',
@@ -1173,8 +1173,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/attribution.d.ts',
-    1951,
-    '16919a55fe944b459ff511c125ac2ba34714949d38db006c8ab047dd48ab51a6',
+    2200,
+    '8eb2f32a8e2e29a75abb69e1d3af9157fcdcc59b375f8707c3ac7234f46a8be0',
   ],
   [
     'store/attribution.js',
@@ -1213,8 +1213,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/index.d.ts',
-    2185,
-    'a5d088d5b80d7b06a6a32c59be3ca5586f28998319a7bb65e8e515f34097c462',
+    2221,
+    '5018d3b5a1387b881f286475cba959a18059685f06fc7026e69706d4b182e932',
   ],
   [
     'store/index.js',
@@ -1243,8 +1243,8 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/pool.d.ts',
-    12757,
-    '4152f047fa002292537349445230a175a8fc8d63298c9449d0d1daf0bc285fa0',
+    12766,
+    '2fc3e6771c84158a366e789b20dc1b954406d714facb7e19e71d6674e16f4d2f',
   ],
   [
     'store/pool.js',
@@ -1313,13 +1313,13 @@ const canonical: readonly (readonly [string, number, string])[] = [
   ],
   [
     'store/rows.d.ts',
-    15754,
-    '4b3e06eeedfb46700409f6e1e6293e1f1b8c5574d2f18bd5006c404fd6d48c51',
+    15999,
+    'ea03fd284e8dc07215dbe59df2d593665893d07235acf882178cf7da527fc377',
   ],
   [
     'store/rows.js',
-    61491,
-    '6daf7b972b423d7c73283efebbba9af9473c566dd54a050699561e8e14d0ea96',
+    61869,
+    'e368ce903f36bbdc0d9b4dd812798b109ab1833832c298e005a8a98269ac6a56',
   ],
   [
     'store/runtime.d.ts',
@@ -1437,15 +1437,15 @@ const routingAccessorCanonical: readonly CanonicalEntry[] = [
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.d.ts',
     output: 'routing-accessor/index.d.ts',
-    bytes: 11314,
-    hash: 'cddcfe78b1cf9e66cae96dab4ff825e155e47408b1dc89800bced597fc0b9841',
+    bytes: 11504,
+    hash: 'c4fd60763ebcf2600021364a6fd8cf4ddc7153eb2dc07deb7dd6f9856317f975',
   },
   {
     kind: 'dist',
     source: 'package/dist/routing-accessor/index.js',
     output: 'routing-accessor/index.js',
-    bytes: 26451,
-    hash: '9b5895bd2fa1249b9c6e587339d89916a9796b7aff7f68a198077df106ac4e02',
+    bytes: 27102,
+    hash: '4e74d0a0284cc04924e176b2c88eefa8dd97feac601b55893c3dc5fdb3dc9207',
   },
 ]
 
@@ -1584,7 +1584,7 @@ export function validatePublication(
   }
   if (
     sha256(entries.get('package/package.json') ?? '') !==
-    'b2ec06df6bb33963c2ac26b4839e344ba275403447f484dcf8b7685934e62d49'
+    'fe29778ea4b13fb1a0c0209548d0709c4ce79a438bd4b8108769d6295a23f721'
   )
     throw new Error('publication: manifest bytes')
 }

@@ -6,6 +6,7 @@ export interface SettingDeclaration<D extends ValueDescriptor = ValueDescriptor>
     readonly overrides?: {
         readonly host?: true;
         readonly model?: true;
+        readonly isolatedHosts?: readonly string[];
     };
     readonly project?: 'user-only' | 'allowed';
     readonly legacy?: readonly {

@@ -4,10 +4,13 @@ function valueAtLevel(declaration, name, snapshot, options) {
     if (!snapshot || !Object.hasOwn(snapshot.settings, name))
         return undefined;
     const value = snapshot.settings[name];
-    if (declaration.overrides === undefined || !isJsonObject(value))
-        return value;
+    const { overrides } = declaration;
     const { model, host } = options;
-    if (declaration.overrides.model &&
+    const isolated = overrides?.isolatedHosts?.includes(host);
+    if (overrides === undefined || !isJsonObject(value)) {
+        return isolated ? undefined : value;
+    }
+    if (overrides.model &&
         model !== undefined &&
         model !== 'default' &&
         model !== 'opencode' &&
@@ -15,12 +18,14 @@ function valueAtLevel(declaration, name, snapshot, options) {
         Object.hasOwn(value, model)) {
         return value[model];
     }
-    if (declaration.overrides.host &&
+    if (overrides.host &&
         (host === 'opencode' || host === 'pi') &&
         Object.hasOwn(value, host)) {
         return value[host];
     }
-    return Object.hasOwn(value, 'default') ? value.default : undefined;
+    return !isolated && Object.hasOwn(value, 'default')
+        ? value.default
+        : undefined;
 }
 /** Snapshot validation has already removed unusable values and unknown fields. */
 function resolveValue(descriptor, levels) {

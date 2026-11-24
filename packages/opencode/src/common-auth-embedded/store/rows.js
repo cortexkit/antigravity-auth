@@ -229,14 +229,15 @@ export function validateAttribution(operation, id, fence) {
         throw refusal(operation, id, 'invalid-input', 'the attribution must name a credential epoch that is a positive safe integer');
 }
 /** Exact recorded identity, including absence, is part of a credential fence. */
-export function assertRowAttribution(operation, id, row, fence) {
+export function assertRowAttribution(operation, id, row, fence, expect) {
     if (!row)
         throw unknownRow(operation, id);
     // A row that failed validation has no usable credential epoch to compare.
     if (row.invalid)
         throw refusal(operation, id, 'invalid-row', `row ${id} failed validation`);
     if ((row.credentialEpoch ?? 1) !== fence.credentialEpoch ||
-        row.identity !== fence.identity)
+        row.identity !== fence.identity ||
+        (expect?.credential === 'absent' && row.credential !== undefined))
         throw refusal(operation, id, 'attribution', `the ${operation} of ${id} was issued for a credential or account the row no longer holds`, true);
 }
 /** The row is recorded for another account than the one given. */
@@ -685,6 +686,10 @@ export async function replaceRow(rt, id, credential, input = {}, options = {}) {
     const result = await runOperation(ctx, 'replace', id, options.onFailure, async (locks, progress) => {
         checkInput('replace', id, credential);
         validateAttribution('replace', id, options.attribution);
+        const expected = options.attribution?.expect;
+        if (expected !== undefined &&
+            (!isRecord(expected) || expected.credential !== 'absent'))
+            throw refusal('replace', id, 'invalid-input', "the attribution's credential expectation must be 'absent'");
         const incoming = input.providerState === undefined
             ? undefined
             : acceptProviderState(ctx.providerState, 'replace', id, input.providerState);
@@ -701,7 +706,7 @@ export async function replaceRow(rt, id, credential, input = {}, options = {}) {
                 // the fence with that row before finishing the interrupted write
                 // on disk, so a stale caller does not even complete a replacement
                 // it was never issued for.
-                assertRowAttribution('replace', id, tx.row(id), options.attribution);
+                assertRowAttribution('replace', id, tx.row(id), options.attribution, expected);
                 await tx.completeTorn();
             }
             const row = requireUsableRow('replace', id, tx.row(id), credential);

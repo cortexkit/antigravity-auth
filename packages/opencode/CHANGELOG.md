@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Updated the shared library to common-auth 0.59.0.
+
 ## [3.2.0] - 2026-11-24
 
 - Removed the plugin's `google_search` tool and every Antigravity image-generation model, on both OpenCode hosts. A saved `googleSearch` model option or a retired model in `account_models` is ignored with a warning. Attaching images to a prompt still works.

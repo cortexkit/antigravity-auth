@@ -1,4 +1,4 @@
-import type { Attribution } from './attribution.js';
+import type { Attribution, ReplaceAttribution } from './attribution.js';
 import { PoolOperationError } from './errors.js';
 import { type Transaction } from './mutate.js';
 import { type ProviderStateWrite, type RowTransitionMutator, type UpdateProviderStateResult } from './provider-state.js';
@@ -60,6 +60,10 @@ export interface RowWriteOptions extends RowOperationOptions {
      * `recordQuota` and `updateProviderState` take the same fence.
      */
     attribution?: Attribution;
+}
+/** Options of `replace`, including a fence for a row last seen without a credential. */
+export interface ReplaceOptions extends RowWriteOptions {
+    attribution?: ReplaceAttribution;
 }
 /**
  * Options of `disable`, `enable` and `remove`. The provider-wide lock guards
@@ -207,9 +211,9 @@ declare function planRotationIn(rt: StoreRuntime, tx: Transaction, id: string, g
 export declare function rotateIn(rt: StoreRuntime, tx: Transaction, id: string, given: RotateCredential, extra?: Parameters<typeof planRotationIn>[4]): Promise<StoredCredential>;
 export declare function validateAttribution(operation: PoolOperationError['operation'], id: string, fence: Attribution | undefined): void;
 /** Exact recorded identity, including absence, is part of a credential fence. */
-export declare function assertRowAttribution(operation: PoolOperationError['operation'], id: string, row: PoolRow | undefined, fence: Attribution): void;
+export declare function assertRowAttribution(operation: PoolOperationError['operation'], id: string, row: PoolRow | undefined, fence: Attribution, expect?: ReplaceAttribution['expect']): void;
 export declare function addRow(rt: StoreRuntime, input: AddInput, options?: AddOptions): Promise<AddResult>;
-export declare function replaceRow(rt: StoreRuntime, id: string, credential: PoolCredential, input?: CredentialWriteInput, options?: RowWriteOptions): Promise<{
+export declare function replaceRow(rt: StoreRuntime, id: string, credential: PoolCredential, input?: CredentialWriteInput, options?: ReplaceOptions): Promise<{
     id: string;
     credential: StoredCredential;
     credentialEpoch: number;

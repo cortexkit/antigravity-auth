@@ -8,6 +8,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { isCacheWarmStopReason, } from './cache-policy.js';
 import { routingHandle } from './handle.js';
 const REQUEST_ID_MAX_LENGTH = 128;
+// Give the bridge time to abandon the ask without waiting forever on a broken bridge.
+const ASK_JOIN_GRACE_MS = 500;
 export { CACHE_WARM_STOP_REASONS, isCacheWarmStopReason, reportCacheTouch, reportCacheWarmStopped, sessionCachePolicy, sessionToolWait, } from './cache-policy.js';
 /** Keep this closed list aligned with the routing contract when adding a reason. */
 export const PLUGIN_WAIT_REASONS = [
@@ -253,8 +255,13 @@ export function askRouting(input) {
     return askRoutingOnce(input, false);
 }
 async function askRoutingOnce(input, waitsForCapacity) {
+    const interrupted = Symbol();
+    let signal;
     let timer;
+    let onAbort;
     try {
+        signal = input.signal;
+        signal?.throwIfAborted();
         const request = {
             provider: input.provider,
             modelId: input.modelId,
@@ -284,8 +291,13 @@ async function askRoutingOnce(input, waitsForCapacity) {
         const deadlineMs = Number.isNaN(requested)
             ? 1500
             : Math.min(2000, Math.max(1, requested));
-        const expired = new Promise((resolve) => {
-            timer = setTimeout(() => resolve(undefined), deadlineMs);
+        const stopped = new Promise((resolve) => {
+            const stop = () => resolve(interrupted);
+            if (signal) {
+                onAbort = stop;
+                signal.addEventListener('abort', onAbort, { once: true });
+            }
+            timer = setTimeout(stop, deadlineMs);
             timer.unref();
         });
         const cap = input.holdWaitMaxS;
@@ -308,10 +320,22 @@ async function askRoutingOnce(input, waitsForCapacity) {
         // missing view would let it hand back the refused account.
         if (candidates.accounts.length > 0 || request.mode === 'continue')
             request.candidates = candidates;
-        const pending = accountFor.call(handle, request, { deadlineMs });
+        signal?.throwIfAborted();
+        const pending = accountFor.call(handle, request, signal ? { deadlineMs, signal } : { deadlineMs });
         if (!isObject(pending) || typeof pending.then !== 'function')
             return undefined;
-        const answer = await Promise.race([pending, expired]);
+        const bridge = Promise.resolve(pending);
+        const answer = await Promise.race([bridge, stopped]);
+        if (answer === interrupted) {
+            clearTimeout(timer);
+            const grace = new Promise((resolve) => {
+                timer = setTimeout(resolve, ASK_JOIN_GRACE_MS);
+                timer.unref();
+            });
+            await Promise.race([bridge, grace]);
+            return undefined;
+        }
+        signal?.throwIfAborted();
         if (input.refusals === true && isObject(answer) && 'refused' in answer) {
             return refusalFor(answer.refused);
         }
@@ -323,6 +347,9 @@ async function askRoutingOnce(input, waitsForCapacity) {
     }
     finally {
         clearTimeout(timer);
+        if (onAbort)
+            signal?.removeEventListener('abort', onAbort);
+        signal?.throwIfAborted();
     }
 }
 async function sleepForCapacity(ms, signal) {
@@ -356,44 +383,38 @@ async function sleepForCapacity(ms, signal) {
  * cannot wait does not send past the cap.
  */
 export async function askRoutingUntilCapacity(input, options) {
-    const { signal, now = Date.now, sleep = sleepForCapacity } = options;
+    const { signal = input.signal, now = Date.now, sleep = sleepForCapacity, } = options;
     signal?.throwIfAborted();
     const request = input.mode === 'continue'
-        ? { ...input, refusals: true }
+        ? { ...input, refusals: true, signal }
         : {
             ...input,
             refusals: true,
+            signal,
             requestId: isBoundedControlFreeString(input.requestId, REQUEST_ID_MAX_LENGTH)
                 ? input.requestId
                 : randomUUID(),
         };
-    async function askUntilReady() {
-        while (true) {
-            signal?.throwIfAborted();
-            const answer = await askRoutingOnce(request, true);
-            signal?.throwIfAborted();
-            if (answer && 'refused' in answer) {
-                const { code, resetsAtMs } = answer.refused;
-                if (code === 'concurrency_full' && resetsAtMs !== undefined) {
-                    const remainingMs = resetsAtMs - now();
-                    signal?.throwIfAborted();
+    while (true) {
+        signal?.throwIfAborted();
+        const answer = await askRoutingOnce(request, true);
+        signal?.throwIfAborted();
+        if (answer && 'refused' in answer) {
+            const { code, resetsAtMs } = answer.refused;
+            if (code === 'concurrency_full' && resetsAtMs !== undefined) {
+                const remainingMs = resetsAtMs - now();
+                signal?.throwIfAborted();
+                try {
                     await sleep(remainingMs < 0 ? 1000 : remainingMs, signal);
-                    continue;
                 }
+                finally {
+                    signal?.throwIfAborted();
+                }
+                continue;
             }
-            return answer;
         }
+        return answer;
     }
-    if (!signal)
-        return askUntilReady();
-    // An in-flight routing ask or an injected sleep may not observe the signal.
-    return new Promise((resolve, reject) => {
-        const onAbort = () => reject(signal.reason);
-        signal.addEventListener('abort', onAbort, { once: true });
-        void askUntilReady()
-            .finally(() => signal.removeEventListener('abort', onAbort))
-            .then(resolve, reject);
-    });
 }
 /**
  * Report a vault request, account backoff, billing result, plugin wait or

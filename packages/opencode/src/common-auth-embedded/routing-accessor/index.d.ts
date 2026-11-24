@@ -46,6 +46,8 @@ export type AskRoutingInput<Candidate extends RoutingCandidate = RoutingCandidat
     candidates: readonly Candidate[];
     /** Defaults to 1500 ms, above routing's normal tail; clamped to 1–2000 ms. */
     deadlineMs?: number;
+    /** Cancels the ask and rejects with the signal's abort reason. */
+    signal?: AbortSignal;
     /** Opt in to refusals, which stop the request instead of using a local choice. */
     refusals?: Refusals;
     /**
@@ -230,9 +232,10 @@ export declare function turnNotes(sessionId: string): readonly {
     text: string;
 }[];
 /**
- * Ask routing for an eligible vault route. Any failure or unfamiliar answer
- * yields undefined so the plugin can keep its own choice. Opted-in routing
- * refusals instead withhold selection. This does not admit routes. Callers never
+ * Ask routing for an eligible vault route. Bridge failures and unfamiliar answers
+ * yield undefined so the plugin can keep its own choice. Aborting rejects with
+ * the signal's reason after the bridge settles or the join grace passes.
+ * Opted-in routing refusals withhold selection. This does not admit routes. Callers never
  * pass an account the vault refused. Beyond that, a plugin may leave accounts
  * out only under a user-configured eligibility rule, such as a killswitch floor
  * the user turned on (the minimum share of a quota window an account must keep

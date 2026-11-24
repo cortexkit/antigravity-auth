@@ -9,7 +9,7 @@ import { type PublicationReceipt, type PublishOptions, type PublishPlan, type Pu
 import { type PullHook } from './pull.js';
 import { type ProviderRefresh, type RefreshOptions, type RefreshOutcome } from './refresh.js';
 import { type LockEnvironment, type PoolLockOptions, type PoolLockSpec } from './refresh-lock.js';
-import { type AddInput, type AddOptions, type AddResult, type CredentialWriteInput, type RemoveOptions, type RemoveResult, type ReorderOptions, type ReorderResult, type RowOperationOptions, type RowToggleOptions, type RowTransitionOptions, type RowTransitionResult, type RowWriteOptions } from './rows.js';
+import { type AddInput, type AddOptions, type AddResult, type CredentialWriteInput, type RemoveOptions, type RemoveResult, type ReorderOptions, type ReorderResult, type ReplaceOptions, type RowOperationOptions, type RowToggleOptions, type RowTransitionOptions, type RowTransitionResult, type RowWriteOptions } from './rows.js';
 import { type PoolCredential, type PoolRow, type ProviderStateCodec, type QuotaCodec, type RotateCredential, type StoredCredential } from './schema.js';
 import { type SettingsMutator, type SettingsRead, type UpdateSettingsOptions, type UpdateSettingsResult } from './settings.js';
 export interface OpenPoolStoreOptions {
@@ -132,9 +132,9 @@ export interface PoolStore {
      * row's provider state is whatever `ProviderStateCodec.onReplace` returns;
      * without that hook it is `input.providerState`, else cleared.
      * Optional `attribution` fences the write on the prior credential under the
-     * locks, before any write or replacement hook; see `RowWriteOptions`.
+     * locks, before any write or replacement hook; see `ReplaceOptions`.
      */
-    replace(id: string, credential: PoolCredential, input?: CredentialWriteInput, options?: RowWriteOptions): Promise<{
+    replace(id: string, credential: PoolCredential, input?: CredentialWriteInput, options?: ReplaceOptions): Promise<{
         id: string;
         credential: StoredCredential;
         credentialEpoch: number;
@@ -144,7 +144,7 @@ export interface PoolStore {
      * endpoint. Since 0.4.1 an API key may leave out `baseURL` and `authHeader`
      * to keep the row's, and one that gives another is refused
      * (`endpoint-mismatch`) before writing: that is a `replace`.
-     * Takes the same optional attribution fence as `replace` (`RowWriteOptions`).
+     * Accepts an optional epoch and identity fence (`RowWriteOptions`).
      */
     rotate(id: string, credential: RotateCredential, input?: CredentialWriteInput, options?: RowWriteOptions): Promise<{
         id: string;
