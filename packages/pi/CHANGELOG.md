@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.2.0] - 2026-11-24
+
 ### Added
 
 - Pi reads supported request settings from the user `antigravity-auth.jsonc` file. For example, `keep_thinking` can preserve Claude's thinking across turns; OpenCode's account rotation and quota controls do not apply.

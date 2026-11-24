@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.2.0] - 2026-11-24
+
 - Removed the plugin's `google_search` tool and every Antigravity image-generation model, on both OpenCode hosts. A saved `googleSearch` model option or a retired model in `account_models` is ignored with a warning. Attaching images to a prompt still works.
 - Refusals now name their cause with fixed text: Google suspending Antigravity access for an account, Google asking you to slow down, an unreachable vault, or a vault that hasn't granted the account. Other Google refusals point to the plugin log, which keeps the details without credentials.
 - `failure_ttl_seconds` now also limits how long a cache-first wait remembers a failed account.
