@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Updated the shared library to common-auth 0.59.0.
+- Changelog note missing from 3.2.0: on OpenCode 2, a reply that sends no bytes at all for 180 seconds now stops, down from 300 seconds. 3.2.0 gives all three hosts one limit, and OpenCode 1 and Pi already used 180 seconds. Streamed thinking text resets the timer, and the wait before a reply starts keeps its own 10-minute limit (issue #85).
 
 ## [3.2.0] - 2026-11-24
 
