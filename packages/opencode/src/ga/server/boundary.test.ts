@@ -866,6 +866,91 @@ describe('disposal and stale activations', () => {
     expect(activation.notify(SESSION_A, toast('late'))).toBeNull()
   })
 
+  it('answers disposed when disposal aborts a running state read', async () => {
+    let release!: () => void
+    let readSignal!: AbortSignal
+    const activation = activate({
+      state: {
+        read: ({ signal }) => {
+          readSignal = signal
+          return new Promise((_, reject) => {
+            signal.addEventListener(
+              'abort',
+              () => {
+                release = () => reject(signal.reason)
+              },
+              { once: true },
+            )
+          })
+        },
+      },
+      commands: makeCommands(),
+      generation: 'gen',
+    })
+    const pending = activation.handlers.state(stateInput('gen', SESSION_A, 0))
+    const answer = pending.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    )
+    const disposal = activation.dispose()
+    expect(readSignal.aborted).toBe(true)
+    release()
+    expect(await answer).toEqual({
+      value: { version: 1, kind: 'disposed', generation: 'gen' },
+    })
+    await disposal
+  }, 5_000)
+
+  it('answers disposed when disposal aborts a running apply', async () => {
+    let release!: () => void
+    let applySignal!: AbortSignal
+    const activation = activate({
+      state: makeState(),
+      commands: makeCommands(({ signal }) => {
+        applySignal = signal
+        return new Promise((_, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => {
+              release = () => reject(signal.reason)
+            },
+            { once: true },
+          )
+        })
+      }),
+      generation: 'gen',
+    })
+    const pending = activation.handlers.apply(applyInput('gen'))
+    const answer = pending.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    )
+    const disposal = activation.dispose()
+    expect(applySignal.aborted).toBe(true)
+    release()
+    expect(await answer).toEqual({
+      value: { version: 1, kind: 'disposed', generation: 'gen' },
+    })
+    await disposal
+  }, 5_000)
+
+  it('preserves a state read error when the activation is not disposed', async () => {
+    const error = new Error('state read failed')
+    const activation = activate({
+      state: {
+        read: async () => {
+          throw error
+        },
+      },
+      commands: makeCommands(),
+      generation: 'gen',
+    })
+    await expect(
+      activation.handlers.state(stateInput('gen', SESSION_A, 0)),
+    ).rejects.toBe(error)
+    await activation.dispose()
+  })
+
   it('aborts and awaits a running apply; its late result is reported as disposed', async () => {
     let release: (() => void) | undefined
     let serviceSignal: AbortSignal | undefined
