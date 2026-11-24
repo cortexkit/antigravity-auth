@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [3.2.1] - 2026-11-24
+
+- Updated the shared library to common-auth 0.59.0. Nothing changes for Pi users.
+
 ## [3.2.0] - 2026-11-24
 
 ### Added
