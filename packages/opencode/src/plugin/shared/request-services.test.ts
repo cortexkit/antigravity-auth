@@ -10332,22 +10332,32 @@ describe('createRequestExecutor optional vault routing', () => {
   }
 
   for (const status of [401, 403, 404, 503, 429]) {
-    it(`does not report a terminal ${status} refusal`, async () =>
+    const unexplained = status === 429
+    const name = unexplained
+      ? 'reports only a transient backoff for each unexplained 429 before terminal refusal'
+      : `does not report a terminal ${status} refusal`
+    it(name, async () =>
       routing(async (state) => {
         const clock = vaultWaitClock()
+        const date = unexplained
+          ? spyOn(Date, 'now').mockImplementation(clock.now)
+          : undefined
         const timer = spyOn(globalThis, 'setTimeout').mockImplementation(
           clock.setTimeoutImpl as typeof setTimeout,
         )
         const clear = spyOn(globalThis, 'clearTimeout').mockImplementation(
           clock.clearTimeoutImpl as typeof clearTimeout,
         )
+        const sendTimes: number[] = []
         const h = harness({
           config: { max_account_switches: 0, max_rate_limit_wait_seconds: 0 },
-          respond: async () =>
-            new Response(
+          respond: async () => {
+            sendTimes.push(Date.now())
+            return new Response(
               JSON.stringify({ error: { code: status, message: 'refused' } }),
               { status, headers: { 'retry-after': '1' } },
-            ),
+            )
+          },
         })
         const executor = createRequestExecutor(
           vaultDeps(h, async (account) => admission(account)),
@@ -10362,6 +10372,7 @@ describe('createRequestExecutor optional vault routing', () => {
               ),
             )
           ).text()
+          if (unexplained) expect(sendTimes).toHaveLength(3)
           // Wait reports describe retries, not terminal routing outcomes.
           expect(
             state.reports.filter(
@@ -10371,13 +10382,24 @@ describe('createRequestExecutor optional vault routing', () => {
                 !('kind' in report) ||
                 report.kind !== 'wait',
             ),
-          ).toEqual([])
+          ).toEqual(
+            unexplained
+              ? sendTimes.map((sentAt) => ({
+                  kind: 'transient_backoff',
+                  account_id: 'identity-0',
+                  credential_id: 'credential-0',
+                  retry_at_ms: sentAt + 1000,
+                }))
+              : [],
+          )
         } finally {
           await executor.dispose()
           timer.mockRestore()
           clear.mockRestore()
+          date?.mockRestore()
         }
-      }))
+      }),
+    )
   }
 
   for (const [label, remainingFraction, expected] of [

@@ -34,7 +34,7 @@ import {
 const baselineDigest =
   '191b5d83aa7b69f54d580ac4686e16a98543c8b3ca941160ba83d27bea965ee2'
 const owners = ['pi', 'opencode2', 'engine', 'removals', 'settings'] as const
-type CaptureRevision = { ledger: string; wire: Wire[] }
+export type CaptureRevision = { ledger: string; wire: Wire[] }
 
 const file = (path: string) => Bun.file(new URL(path, import.meta.url))
 
@@ -80,6 +80,23 @@ export function admittedCapture(
   return revision.wire
 }
 
+export function requestReference(
+  input: Conversation,
+  requests: Record<string, Captured>,
+  revisions: Record<string, CaptureRevision>,
+) {
+  const oracleId =
+    input.options.raw === true
+      ? 'Claude tool reply ending the history: wrapped'
+      : input.id
+  const key = caseKey(oracleId, input.oracle, 'local')
+  const oracle = requests[key]
+  if (!oracle?.wire?.length)
+    throw new Error(`Missing designated request oracle for ${input.id}`)
+  const oracleInput = requestCases.find(({ id }) => id === oracleId) ?? input
+  return admittedCapture(oracleInput, input.oracle, oracle.wire, revisions[key])
+}
+
 export async function checkCorpus() {
   const known = await readKnown()
   const requests: Record<string, Captured> = await file(
@@ -101,20 +118,7 @@ export async function checkCorpus() {
     throw new Error('The default wire comparison must have no masks')
 
   for (const input of requestCases) {
-    const oracleId =
-      input.options.raw === true
-        ? 'Claude tool reply ending the history: wrapped'
-        : input.id
-    const oracle = requests[caseKey(oracleId, input.oracle, 'local')]
-    if (!oracle?.wire?.length)
-      throw new Error(`Missing designated request oracle for ${input.id}`)
-    const oracleInput = requestCases.find(({ id }) => id === oracleId) ?? input
-    const oracleWire = admittedCapture(
-      oracleInput,
-      input.oracle,
-      oracle.wire,
-      revisions[caseKey(oracleId, input.oracle, 'local')],
-    )
+    const oracleWire = requestReference(input, requests, revisions)
 
     if (input.id.endsWith('xhigh')) {
       const { actual, expected } = wireSemantics(input, oracleWire)

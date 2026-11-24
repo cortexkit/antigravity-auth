@@ -3218,7 +3218,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
               response.status === 429 &&
               boundedRefusal !== undefined &&
               boundedRefusal.text === undefined
-            const servedRoutingIdentity =
+            const servedRoutingIdentity = () =>
               sendAdmission && sessionKey && routing.hasAccessor()
                 ? {
                     sessionId: sessionKey,
@@ -3226,10 +3226,11 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                     credentialId: sendAdmission.credentialId,
                   }
                 : undefined
-            const routingIdentity =
+            const needsRoutingIdentity =
               routedPlacement || vaultCredentials?.boundRoute || unreadableLimit
-                ? servedRoutingIdentity
-                : undefined
+            const routingIdentity = needsRoutingIdentity
+              ? servedRoutingIdentity()
+              : undefined
             const routedIdentity = routedPlacement ? routingIdentity : undefined
             if (sessionKey) {
               const routingEntry: RequestRoutingEntry = {
@@ -3324,9 +3325,12 @@ export function createRequestExecutor<A extends RequestAccountRow>(
                 }
                 // The served vault login needs a short backoff even when the
                 // plugin selected it without a routing placement.
-                if (servedRoutingIdentity)
+                const backoffIdentity = needsRoutingIdentity
+                  ? routingIdentity
+                  : servedRoutingIdentity()
+                if (backoffIdentity)
                   routing.report({
-                    ...servedRoutingIdentity,
+                    ...backoffIdentity,
                     kind: 'transient_backoff',
                     retryAtMs,
                   })
