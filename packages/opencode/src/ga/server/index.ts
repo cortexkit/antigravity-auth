@@ -1387,9 +1387,15 @@ export function createGaRpcActivation(
     if (!parsed.ok) throw new GaRpcInputError(parsed.issues)
     if (disposed) return disposedOutput()
     const request = parsed.value
-    const read = await track(signal, (readSignal) =>
-      options.state.read({ scope: request.scope, signal: readSignal }),
-    )
+    let read: GaStateRead
+    try {
+      read = await track(signal, (readSignal) =>
+        options.state.read({ scope: request.scope, signal: readSignal }),
+      )
+    } catch (error) {
+      if (disposed) return disposedOutput()
+      throw error
+    }
     // A read that finishes after disposal is not reported.
     if (disposed) return disposedOutput()
     if (!Number.isSafeInteger(read.readSeq) || read.readSeq <= lastReadSeq) {
@@ -1477,13 +1483,19 @@ export function createGaRpcActivation(
         { path: ['request'], message: 'not a menu action the menu accepts' },
       ])
     }
-    const result: CommandApplyResult = await track(signal, (applySignal) =>
-      options.commands.apply({
-        request: menuRequest,
-        scope: request.scope,
-        signal: applySignal,
-      }),
-    )
+    let result: CommandApplyResult
+    try {
+      result = await track(signal, (applySignal) =>
+        options.commands.apply({
+          request: menuRequest,
+          scope: request.scope,
+          signal: applySignal,
+        }),
+      )
+    } catch (error) {
+      if (disposed) return disposedOutput()
+      throw error
+    }
     // A completion that arrives after disposal is not reported as applied.
     if (disposed) return disposedOutput()
     const checked = AntigravityApplyResultSchema.parse(result)

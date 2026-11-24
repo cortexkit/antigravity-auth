@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- On OpenCode 2, reloading the plugin while the Antigravity sidebar or menu is loading no longer shows a disposal error (issue #84, thanks @iceteaSA).
+
 ## [3.2.0] - 2026-11-24
 
 - Removed the plugin's `google_search` tool and every Antigravity image-generation model, on both OpenCode hosts. A saved `googleSearch` model option or a retired model in `account_models` is ignored with a warning. Attaching images to a prompt still works.
