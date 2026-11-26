@@ -618,7 +618,19 @@ describe('vault provider-state with the real common-auth locks', () => {
     const reading = {
       kind: 'quota-reading' as const,
       checkedAt: 200,
-      quota: { gemini: { remainingFraction: 1, modelCount: 1 } },
+      quota: {
+        gemini: {
+          remainingFraction: 1,
+          modelCount: 1,
+          windows: [
+            {
+              window: 'weekly' as const,
+              remainingFraction: 1,
+              resetTime: new Date(99_000_000).toISOString(),
+            },
+          ],
+        },
+      },
     }
     const clear = () =>
       commitVaultProviderState({

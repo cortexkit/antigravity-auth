@@ -1717,8 +1717,13 @@ describe('issue69 pool-file reading persistence', () => {
     })
     try {
       now++
+      const resetTime = new Date(now + 99_000_000).toISOString()
       manager.updateQuotaCache(0, {
-        gemini: { remainingFraction: 1, modelCount: 1 },
+        gemini: {
+          remainingFraction: 1,
+          modelCount: 1,
+          windows: [{ window: 'weekly', remainingFraction: 1, resetTime }],
+        },
       })
       await manager.saveToDiskReplace()
       expect(memory.mutations()).toBe(1)

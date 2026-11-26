@@ -16,13 +16,32 @@ import type {
   AccountStorageV4,
   CooldownReason,
 } from './account-types.ts'
+import { aggregateQuotaSummary } from './quota-manager.ts'
 import { HealthScoreTracker, TokenBucketTracker } from './rotation.ts'
 
 describe('issue69 dated quota evidence', () => {
   const start = Date.UTC(2026, 9, 7)
   const long = 65 * 60 * 60 * 1000
+  const hour = 60 * 60 * 1000
   const model = 'gemini-3.8-flash'
   const key = `gemini:${model}`
+  const windowWithQuota = (window: '5h' | 'weekly', remainingFraction = 1) => ({
+    window,
+    remainingFraction,
+    resetTime: new Date(
+      start + (window === 'weekly' ? long : 5 * hour),
+    ).toISOString(),
+  })
+  const geminiBucket = (window: '5h' | 'weekly', disabled = false) => ({
+    ...windowWithQuota(window),
+    bucketId: `gemini-${window}`,
+    displayName: window,
+    disabled,
+  })
+  const geminiQuota = (...buckets: ReturnType<typeof geminiBucket>[]) =>
+    aggregateQuotaSummary({ groups: [{ displayName: 'Gemini', buckets }] })
+      .groups
+
   function manager(fraction?: number, dated = true, legacy = false) {
     let now = start
     const pool = new AccountManager(
@@ -194,12 +213,81 @@ describe('issue69 dated quota evidence', () => {
           remainingFraction: 0.9,
           modelCount: 1,
           resetTime: new Date(start + long).toISOString(),
+          windows: [windowWithQuota('weekly', 0.9)],
         },
       })
       expect(pool.isRateLimited(row, 'gemini', model)).toBe(false)
       expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
     })
   }
+
+  it.each([
+    'missing',
+    'disabled',
+  ] as const)('weekly mark stays when the weekly bucket is %s, then clears when enabled with quota', (weekly) => {
+    const { pool, row, advance } = manager()
+    pool.markRateLimited(row, long, 'gemini', model)
+    advance(1)
+    const partial =
+      weekly === 'disabled'
+        ? geminiQuota(geminiBucket('5h'), geminiBucket('weekly', true))
+        : geminiQuota(geminiBucket('5h'))
+    pool.updateQuotaCache(0, partial)
+    expect(row.rateLimitResetTimes[key]).toBe(start + long)
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBeNull()
+
+    advance(1)
+    pool.updateQuotaCache(0, geminiQuota(geminiBucket('weekly')))
+    expect(row.rateLimitResetTimes[key]).toBeUndefined()
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
+  })
+
+  it('a five-hour mark clears with five-hour quota, not weekly quota', () => {
+    const { pool, row, advance } = manager()
+    pool.markRateLimited(row, 5 * hour, 'gemini', model)
+    advance(1)
+    pool.updateQuotaCache(0, geminiQuota(geminiBucket('weekly')))
+    expect(row.rateLimitResetTimes[key]).toBe(start + 5 * hour)
+
+    advance(1)
+    pool.updateQuotaCache(0, geminiQuota(geminiBucket('5h')))
+    expect(row.rateLimitResetTimes[key]).toBeUndefined()
+  })
+
+  it('classifies the limiting window at the reading time, not when it is processed', () => {
+    const { pool, row, advance } = manager()
+    pool.markRateLimited(row, 6 * hour, 'gemini', model)
+    advance(2 * hour)
+    pool.updateQuotaCache(
+      0,
+      geminiQuota(geminiBucket('5h')),
+      undefined,
+      start + 1,
+    )
+    expect(row.rateLimitResetTimes[key]).toBe(start + 6 * hour)
+  })
+
+  it('a short Argon mark still needs Argon weekly quota to clear', () => {
+    const { pool, row, advance } = manager()
+    const argon = 'gemini-4-argon-medium'
+    const argonKey = `gemini:${argon}`
+    pool.markRateLimited(row, hour, 'gemini', argon)
+    advance(1)
+    pool.updateQuotaCache(0, {
+      'gemini-argon': { remainingFraction: 1, modelCount: 1 },
+    })
+    expect(row.rateLimitResetTimes[argonKey]).toBe(start + hour)
+
+    advance(1)
+    pool.updateQuotaCache(0, {
+      'gemini-argon': {
+        remainingFraction: 1,
+        modelCount: 1,
+        windows: [windowWithQuota('weekly')],
+      },
+    })
+    expect(row.rateLimitResetTimes[argonKey]).toBeUndefined()
+  })
 
   it('issue69 a later dated empty reading walls through its own reset', () => {
     const { pool, advance, row } = manager(1)
@@ -241,7 +329,11 @@ describe('issue69 dated quota evidence', () => {
     pool.markRateLimited(row, long, 'gemini', model)
     advance(1)
     pool.updateQuotaCache(0, {
-      gemini: { remainingFraction: 1, modelCount: 1 },
+      gemini: {
+        remainingFraction: 1,
+        modelCount: 1,
+        windows: [windowWithQuota('weekly')],
+      },
       'gemini-argon': { remainingFraction: 0, modelCount: 1 },
     })
     expect(pool.isRateLimited(row, 'gemini', model)).toBe(false)
@@ -250,7 +342,11 @@ describe('issue69 dated quota evidence', () => {
       true,
     )
     pool.updateQuotaCache(0, {
-      gemini: { remainingFraction: 1, modelCount: 1 },
+      gemini: {
+        remainingFraction: 1,
+        modelCount: 1,
+        windows: [windowWithQuota('weekly')],
+      },
     })
     expect(pool.isRateLimited(row, 'gemini', argon)).toBe(false)
     expect(

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- On OpenCode 2 in vault mode, a workspace now sees rate limits recorded by another workspace and stops routing requests to the affected account until its limit resets ([issue #86](https://github.com/cortexkit/antigravity-auth/issues/86), thanks @iceteaSA).
+- A quota check that only reports the five-hour allowance no longer clears a weekly rate limit. The weekly allowance must also be reported with quota remaining ([issue #86](https://github.com/cortexkit/antigravity-auth/issues/86), thanks @iceteaSA).
 - A slow vault read no longer blocks later background quota checks or hangs plugin shutdown (issue #87, thanks @iceteaSA).
 - On OpenCode 2, a failed Antigravity menu action no longer says the change was saved (issue #89, thanks @iceteaSA).
 
