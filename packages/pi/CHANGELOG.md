@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.2.2] - 2026-11-26
+
 - Claude now receives text and attachments sent alongside tool results instead of silently losing them ([issue #88](https://github.com/cortexkit/antigravity-auth/issues/88), thanks @iceteaSA).
 
 ## [3.2.1] - 2026-11-24
