@@ -672,6 +672,74 @@ describe('GA menu command service', () => {
     await service.open({ scope, signal: new AbortController().signal })
     expect(queued).toEqual([{ scope, entry: payload }])
   })
+
+  for (const { ok, name } of [
+    {
+      ok: false,
+      name: 'a failed action skips refresh and emits no saved warning',
+    },
+    { ok: true, name: 'a successful action warns if refreshing routing fails' },
+  ]) {
+    it(name, async () => {
+      const scope = { kind: 'session', sessionID: 'ses-routing' } as const
+      const result = {
+        command: 'antigravity',
+        ok,
+        text: ok ? 'Done.' : 'The action failed.',
+        ...(!ok ? { code: 'action-failed' } : {}),
+        menu: { command: 'antigravity', title: 'Antigravity', sections: [] },
+      }
+      const queued: unknown[] = []
+      let refreshes = 0
+      const service = createGaMenuCommandService({
+        isConnected: () => true,
+        menu: {
+          command: 'antigravity',
+          open: async () => {
+            throw new Error('not used')
+          },
+          apply: async () => result,
+        },
+        afterApply: async () => {
+          refreshes++
+          throw new Error('Routing refresh failed')
+        },
+        notify: (scope, entry) => {
+          queued.push({ scope, entry })
+          return 1
+        },
+      })
+      const response = await service.apply({
+        request: {
+          command: 'antigravity',
+          sectionId: 'limits',
+          actionId: 'set',
+        },
+        scope,
+        signal: new AbortController().signal,
+      })
+
+      expect(response).toBe(result)
+      expect(queued).toEqual(
+        ok
+          ? [
+              {
+                scope,
+                entry: {
+                  command: 'antigravity',
+                  notify: {
+                    message:
+                      'The change was saved, but routing has not picked it up yet.',
+                    kind: 'warning',
+                  },
+                },
+              },
+            ]
+          : [],
+      )
+      expect(refreshes).toBe(ok ? 1 : 0)
+    })
+  }
 })
 
 describe('GA request pipeline pieces', () => {

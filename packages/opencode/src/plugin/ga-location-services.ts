@@ -749,9 +749,9 @@ export interface GaMenuCommandService extends GaCommandService {
  * The menu service over the location's menu. Each request (already accepted
  * by the library's own parser) runs through the menu with an invocation for
  * its scope, whose notices are queued for that scope; once the activation's
- * signal aborts, no new action starts. After every apply, `afterApply`
- * brings the routing state up to date with what the action wrote; its
- * failure is reported to the scope but does not change the menu's answer.
+ * signal aborts, no new action starts. After a successful apply, `afterApply`
+ * brings routing up to date. A refresh failure is reported to the scope
+ * without changing the menu's answer.
  */
 export function createGaMenuCommandService(input: {
   readonly menu: GaCommandMenu
@@ -768,7 +768,7 @@ export function createGaMenuCommandService(input: {
         request,
         scopeInvocation(scope, input.notify),
       )
-      if (input.afterApply) {
+      if (result.ok && input.afterApply) {
         try {
           await input.afterApply()
         } catch {

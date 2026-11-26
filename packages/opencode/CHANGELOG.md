@@ -3,6 +3,7 @@
 ## Unreleased
 
 - A slow vault read no longer blocks later background quota checks or hangs plugin shutdown (issue #87, thanks @iceteaSA).
+- On OpenCode 2, a failed Antigravity menu action no longer says the change was saved (issue #89, thanks @iceteaSA).
 
 ## [3.2.1] - 2026-11-24
 
