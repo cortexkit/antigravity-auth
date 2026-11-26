@@ -1,7 +1,11 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, jest } from 'bun:test'
 import { existsSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import {
+  setTimeout as delay,
+  setImmediate as nextTurn,
+} from 'node:timers/promises'
 import type {
   VaultAccountState,
   VaultProviderStateFile,
@@ -422,6 +426,79 @@ describe('BackgroundVaultQuotaRefresh', () => {
 })
 
 describe('vault poller fences and lifecycle', () => {
+  for (const operation of [
+    'currentVaultPool',
+    'readProviderState',
+    'transport',
+  ] as const) {
+    it(`releases the fence at the deadline while ${operation} is stalled`, async () => {
+      const f = fixture()
+      const entered = deferred()
+      const answer = deferred()
+      const watchdog = new AbortController()
+      let readSignal: AbortSignal | undefined
+      const stall =
+        <T>(read: () => Promise<T>) =>
+        async (signal?: AbortSignal) => {
+          readSignal = signal
+          entered.resolve()
+          await answer.promise
+          return read()
+        }
+      const poller = new BackgroundVaultQuotaRefresh({
+        ...f.options,
+        currentVaultPool:
+          operation === 'currentVaultPool'
+            ? stall(f.options.currentVaultPool)
+            : f.options.currentVaultPool,
+        readProviderState:
+          operation === 'readProviderState'
+            ? stall(f.options.readProviderState)
+            : f.options.readProviderState,
+        transport:
+          operation === 'transport'
+            ? (url, init, extra) => {
+                const response = f.options.transport(url, init, extra)
+                return stall(() => response)(extra.signal ?? undefined)
+              }
+            : f.options.transport,
+      })
+      const lockFile = `${f.stateFile}.bg-vault-quota-poll.lock`
+      jest.useFakeTimers()
+      try {
+        const tick = poller.tick()
+        await entered.promise
+        expect(existsSync(lockFile)).toBe(true)
+        jest.advanceTimersByTime(60_001)
+        jest.useRealTimers()
+        // The watchdog makes a regression fail without stranding the lock in cleanup.
+        expect(
+          await Promise.race([
+            tick.then(() => 'finished'),
+            delay(1_000, 'still waiting on the read', {
+              signal: watchdog.signal,
+            }),
+          ]),
+        ).toBe('finished')
+        expect(f.outcomes).toMatchObject([{ reason: 'deadline' }])
+        expect(existsSync(lockFile)).toBe(false)
+        expect(readSignal?.aborted).toBe(true)
+        await poller.dispose()
+        answer.resolve()
+        await nextTurn()
+        expect(f.physical).toBe(operation === 'transport' ? 1 : 0)
+        expect(f.writes).toBe(0)
+        expect(f.publishes).toBe(0)
+      } finally {
+        jest.useRealTimers()
+        watchdog.abort()
+        answer.resolve()
+        await poller.dispose()
+        await f.cleanup()
+      }
+    })
+  }
+
   it('cancels its first roster wait on disposal without cancelling discovery', async () => {
     const f = fixture()
     const entered = deferred()

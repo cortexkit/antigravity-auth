@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- A slow vault read no longer blocks later background quota checks or hangs plugin shutdown (issue #87, thanks @iceteaSA).
+
 ## [3.2.1] - 2026-11-24
 
 - On OpenCode 2, reloading the plugin while the Antigravity sidebar or menu is loading no longer shows a disposal error (issue #84, thanks @iceteaSA).

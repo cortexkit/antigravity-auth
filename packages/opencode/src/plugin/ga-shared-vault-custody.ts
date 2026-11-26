@@ -210,9 +210,11 @@ function sharedVaultQuota(
     )
   const logger = () => enabled().at(-1)?.logger
   // The same pool reuse OpenCode 1 uses: a replaced source gets a new pool.
-  const currentVaultPool = async () => {
+  const currentVaultPool = async (signal: AbortSignal) => {
     await custody.recycleStalledSource(VAULT_REFRESH_STALL_MS)
+    signal.throwIfAborted()
     const source = await custody.custodySource()
+    signal.throwIfAborted()
     if (current?.source === source) return current
     current = {
       source,

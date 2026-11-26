@@ -25,11 +25,11 @@ export interface BackgroundVaultQuotaRefreshOptions {
   intervalMs: number
   sidebarStateFile: string
   readAuthority: () => Promise<'vault' | 'local' | 'unreadable'>
-  currentVaultPool: () => Promise<{
+  currentVaultPool: (signal: AbortSignal) => Promise<{
     source: VaultQuotaSource
     pool: VaultAccountPool
   }>
-  readProviderState: () => Promise<VaultProviderStateFile>
+  readProviderState: (signal: AbortSignal) => Promise<VaultProviderStateFile>
   publishSidebar: () => Promise<void>
   transport: NonNullable<VaultQuotaCheckOptions['transport']>
   logger: VaultQuotaCheckOptions['logger']
@@ -40,6 +40,33 @@ export interface BackgroundVaultQuotaRefreshOptions {
     level: 'debug' | 'info' | 'warn',
     outcome: VaultQuotaOutcome,
   ) => void
+}
+
+// Stop waiting for reads even if they ignore cancellation. A started commit or
+// sidebar write must settle before the tick releases the poll lock.
+async function awaitTickRead<T>(
+  signal: AbortSignal,
+  read: () => Promise<T>,
+): Promise<T> {
+  signal.throwIfAborted()
+  let abort!: () => void
+  const cancelled = new Promise<never>((_resolve, reject) => {
+    abort = () => reject(signal.reason)
+    signal.addEventListener('abort', abort, { once: true })
+  })
+  try {
+    const value = await Promise.race([
+      cancelled,
+      Promise.resolve().then(() => {
+        signal.throwIfAborted()
+        return read()
+      }),
+    ])
+    signal.throwIfAborted()
+    return value
+  } finally {
+    signal.removeEventListener('abort', abort)
+  }
 }
 
 /** Vault-only quota producer. No local account, token refresh or repository is opened. */
@@ -193,18 +220,25 @@ export class BackgroundVaultQuotaRefresh {
   }
 
   private async assertActive(controller: AbortController): Promise<void> {
-    controller.signal.throwIfAborted()
+    const { signal } = controller
+    signal.throwIfAborted()
     if (this.disposed) controller.abort()
-    else if (!['host', 'vault'].includes(await this.options.readAuthority()))
+    else if (
+      !['host', 'vault'].includes(
+        await awaitTickRead(signal, () => this.options.readAuthority()),
+      )
+    )
       controller.abort({ kind: 'not-active' })
-    controller.signal.throwIfAborted()
+    signal.throwIfAborted()
   }
 
   private async runTick(
     controller: AbortController,
     outcome: VaultQuotaOutcome,
   ): Promise<void> {
+    const { signal } = controller
     await this.assertActive(controller)
+    signal.throwIfAborted()
     ensureSidebarStateDir(this.options.sidebarStateFile)
     outcome.stage = 'lock'
     const lock = await this.acquireLock({
@@ -214,6 +248,7 @@ export class BackgroundVaultQuotaRefresh {
       renew: true,
     })
     if (!lock) {
+      signal.throwIfAborted()
       outcome.reason = 'lock-busy'
       return
     }
@@ -226,19 +261,25 @@ export class BackgroundVaultQuotaRefresh {
       }
     })
     try {
+      const assertOwned = () => awaitTickRead(signal, () => lock.assertOwned())
       await this.assertActive(controller)
-      await lock.assertOwned()
+      await assertOwned()
       outcome.stage = 'roster'
-      const { source, pool } = await this.options.currentVaultPool()
+      const { source, pool } = await awaitTickRead(signal, () =>
+        this.options.currentVaultPool(signal),
+      )
       await this.assertActive(controller)
-      await pool.sync(controller.signal)
+      await awaitTickRead(signal, () => pool.sync(signal))
       await this.assertActive(controller)
       // Read durable observations inside the fence, including another process's
       // updates. Sidebar publication time must never postpone quota fetching.
       outcome.stage = 'state'
-      const state = await this.options.readProviderState()
+      const state = await awaitTickRead(signal, () =>
+        this.options.readProviderState(signal),
+      )
       await this.assertActive(controller)
-      await lock.assertOwned()
+      await assertOwned()
+      signal.throwIfAborted()
       const threshold = Math.max(
         this.intervalMs - 60_000,
         Math.floor(this.intervalMs / 2),
@@ -272,7 +313,7 @@ export class BackgroundVaultQuotaRefresh {
         {
           pool,
           routes: dueRoutes,
-          signal: controller.signal,
+          signal,
           now: this.now,
           onStage: (stage) => {
             outcome.stage = stage
@@ -292,7 +333,11 @@ export class BackgroundVaultQuotaRefresh {
               outcome.stage === 'commit' ? 'state-invalid' : 'fetch-failed',
             )
             outcome.reasons[reason] = (outcome.reasons[reason] ?? 0) + 1
-            if (outcome.reason !== 'deadline' && outcome.checked === 0)
+            if (
+              outcome.reason !== 'deadline' &&
+              outcome.reason !== 'lock-lost' &&
+              outcome.checked === 0
+            )
               outcome.reason = reason
             outcome.errorKind = vaultQuotaErrorKind(error)
           },
@@ -306,6 +351,7 @@ export class BackgroundVaultQuotaRefresh {
                 signal,
                 logger: this.options.logger,
                 onFailure: (error, refused) => {
+                  if (signal.aborted) return
                   const kind = vaultQuotaErrorKind(error)
                   if (kind !== 'unknown' || outcome.errorKind === undefined)
                     outcome.errorKind = kind
@@ -318,8 +364,8 @@ export class BackgroundVaultQuotaRefresh {
                 transport: async (url, init, extra) => {
                   // Re-check just before every physical request, including retries/fallbacks.
                   await this.assertActive(controller)
-                  await lock.assertOwned()
-                  controller.signal.throwIfAborted()
+                  await assertOwned()
+                  signal.throwIfAborted()
                   outcome.endpoint = String(url).includes(
                     'retrieveUserQuotaSummary',
                   )
@@ -328,38 +374,42 @@ export class BackgroundVaultQuotaRefresh {
                   try {
                     const response = await this.options.transport(
                       url,
-                      { ...init, signal: extra.signal ?? controller.signal },
+                      { ...init, signal: extra.signal ?? signal },
                       extra,
                     )
-                    outcome.status = response.status
+                    if (!signal.aborted) outcome.status = response.status
                     return response
                   } catch (error) {
-                    outcome.errorKind = vaultQuotaErrorKind(error)
+                    if (!signal.aborted)
+                      outcome.errorKind = vaultQuotaErrorKind(error)
                     throw error
                   }
                 },
               })
-            const reading = source.pollInsulaQuotaForRoute
-              ? await source.pollInsulaQuotaForRoute(
-                  ref,
-                  fallback,
-                  signal,
-                  (reason) => {
-                    rowFailure = `insula-${reason}`
-                  },
-                )
-              : await fallback()
+            const reading = await awaitTickRead(signal, () =>
+              source.pollInsulaQuotaForRoute
+                ? source.pollInsulaQuotaForRoute(
+                    ref,
+                    fallback,
+                    signal,
+                    (reason) => {
+                      rowFailure = `insula-${reason}`
+                    },
+                  )
+                : fallback(),
+            )
             if (reading === undefined && rowFailure === 'fetch-failed')
               rowFailure = 'insula-skipped'
             await this.assertActive(controller)
-            await lock.assertOwned()
+            await assertOwned()
             return reading
           },
         },
         async () => {
           outcome.stage = 'publish'
           await this.assertActive(controller)
-          await lock.assertOwned()
+          await assertOwned()
+          signal.throwIfAborted()
           await this.options.publishSidebar()
         },
       )

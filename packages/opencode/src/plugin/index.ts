@@ -325,11 +325,13 @@ const createAntigravityPluginRuntime =
           pool: VaultAccountPool
         }
       | undefined
-    const currentVaultPool = async () => {
+    const currentVaultPool = async (signal?: AbortSignal) => {
       // A source whose refresh has stalled is replaced first, so this plugin's
       // long-lived pool is rebuilt over a working source instead of reused.
       await vaultCustody.recycleStalledSource(VAULT_REFRESH_STALL_MS)
+      signal?.throwIfAborted()
       const source = await vaultCustody.custodySource()
+      signal?.throwIfAborted()
       if (vaultPool && vaultPool.source === source) return vaultPool
       vaultPool = {
         source,
