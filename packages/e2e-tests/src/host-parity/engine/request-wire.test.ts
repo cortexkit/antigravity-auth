@@ -104,3 +104,46 @@ test('OpenCode raw Claude tool results use the wrapped capture’s continuation 
   })
   expect(inner(wire[0]!).contents).toEqual(inner(expected.wire![0]!).contents)
 })
+
+test('Claude keeps a tool result and its image across hosts', async () => {
+  const original = requestCases.find(
+    ({ id }) => id === 'Claude tool reply ending the history: raw',
+  )!
+  const imageCase = requestCases.find(
+    ({ id }) => id === 'tool-result image: mixed',
+  )!
+  const image = imageCase.messages
+    .flatMap(({ parts }) => parts)
+    .flatMap((part) => (part.type === 'result' ? part.content : []))
+    .find((part) => part.type === 'image')!
+  const input = {
+    ...original,
+    id: 'Claude tool result with image',
+    messages: imageCase.messages.slice(0, -1),
+  }
+  const inlineData = { mimeType: image.mediaType, data: image.data }
+  for (const subject of ['opencode2', 'pi', 'opencode1'] as const) {
+    const { wire } = await runConversation({ subject, custody: 'local', input })
+    const contents = inner(wire[0]!).contents
+    const call = contents.at(-2)?.parts[0]?.functionCall as { id: string }
+    const response = {
+      id: call.id,
+      name: 'lookup',
+      response: { name: 'lookup', content: 'Found it.' },
+    }
+    // OpenCode 1's SDK emits the image as a sibling; the other hosts nest it.
+    expect(contents.at(-1)).toEqual({
+      role: 'user',
+      parts:
+        subject === 'opencode1'
+          ? [
+              { functionResponse: response },
+              { inlineData },
+              {
+                text: 'Tool executed successfully and returned this image as a response',
+              },
+            ]
+          : [{ functionResponse: { ...response, parts: [{ inlineData }] } }],
+    })
+  }
+})

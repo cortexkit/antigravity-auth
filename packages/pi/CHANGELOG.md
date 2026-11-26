@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Claude now receives text and attachments sent alongside tool results instead of silently losing them ([issue #88](https://github.com/cortexkit/antigravity-auth/issues/88), thanks @iceteaSA).
+
 ## [3.2.1] - 2026-11-24
 
 - Updated the shared library to common-auth 0.59.0. Nothing changes for Pi users.
