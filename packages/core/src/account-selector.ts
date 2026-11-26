@@ -111,6 +111,8 @@ export interface SelectionSink<A> {
   /** A rate-limit reset time was set for `key`, or (`'clear'`) dropped. */
   rateLimit?(row: A, key: QuotaKey, resetAt: number | 'clear'): void
   readingUpdate?(row: A, reading: RateLimitReadingUpdate): void
+  /** A reading removed a mark in memory, even when it is persisted elsewhere. */
+  quotaReadingCleared?(row: A, key: QuotaKey, writtenAt: number): void
   /** A cooldown was set, or (`null`) cleared. */
   cooldown?(row: A, value: CooldownObservation): void
   /** The row was switched to for `reason`. */
@@ -337,8 +339,10 @@ export function reconcileManualLimitClear(
   }
 }
 
+const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000
+
 /** Re-evaluate the write-time fence on the state held under the writer's lock.
- * Positive quota removes a mark; empty quota extends an existing mark only.
+ * Positive quota in the limiting window removes a mark; empty quota only extends it.
  */
 export function reconcileRateLimitsFromReading(
   account: Pick<
@@ -347,6 +351,7 @@ export function reconcileRateLimitsFromReading(
   >,
   reading: RateLimitReadingUpdate,
   now: number,
+  onClear?: (key: QuotaKey, writtenAt: number) => void,
 ): string[] {
   const at = reading.checkedAt
   if (at === undefined || !Number.isFinite(at) || at <= 0 || at > now) return []
@@ -375,15 +380,33 @@ export function reconcileRateLimitsFromReading(
       }
       continue
     }
+    const reset = account.rateLimitResetTimes[key]
     if (
+      reset === undefined ||
       quota?.remainingFraction === undefined ||
       !Number.isFinite(quota.remainingFraction) ||
       quota.remainingFraction <= 0
     )
       continue
+    // An omitted window says nothing about the quota that caused the mark.
+    // Argon has only a weekly window, even when its reset is close.
+    const window =
+      group === 'gemini-argon' || reset - at > FIVE_HOUR_WINDOW_MS
+        ? 'weekly'
+        : '5h'
+    if (
+      !quota.windows?.some(
+        (entry) =>
+          entry.window === window &&
+          Number.isFinite(entry.remainingFraction) &&
+          entry.remainingFraction > 0,
+      )
+    )
+      continue
     delete account.rateLimitResetTimes[key]
     if (account.rateLimitWrittenAt) delete account.rateLimitWrittenAt[key]
     cleared.push(key)
+    onClear?.(key as QuotaKey, writtenAt)
   }
   return cleared
 }
@@ -705,7 +728,15 @@ export class AccountSelector<A extends SelectableAccount> {
       checkedAt: account.cachedQuotaUpdatedAt,
       quota: account.cachedQuota,
     }
-    const cleared = reconcileRateLimitsFromReading(account, reading, this.now())
+    const cleared = reconcileRateLimitsFromReading(
+      account,
+      reading,
+      this.now(),
+      this.sink.quotaReadingCleared
+        ? (key, writtenAt) =>
+            this.sink.quotaReadingCleared?.(account, key, writtenAt)
+        : undefined,
+    )
     // Even an empty local map may hide a mark written by another process.
     if (
       persist &&

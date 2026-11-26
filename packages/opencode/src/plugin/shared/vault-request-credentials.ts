@@ -130,7 +130,7 @@ export function vaultAccountRowKey(row: VaultAccountRow): string {
 /**
  * Keeps a vault row's in-memory selection state across a roster re-read and
  * takes only the route's display fields from the fresh roster. The pool
- * reconciles newer shared quota readings and limit clears separately.
+ * reconciles newer shared quota readings, limit marks and clears separately.
  */
 export function refreshVaultAccountRow(
   prior: VaultAccountRow,
@@ -336,14 +336,10 @@ function durableSelectionOf(row: VaultAccountRow): DurableSelection {
   }
 }
 
-/** Puts stored selection fields onto a fresh row. */
-function applyDurableSelection(
+function loadDurableRateLimits(
   row: VaultAccountRow,
   metadata: VaultProviderMetadata,
 ): void {
-  row.lastUsed = metadata.lastUsed
-  const reason = present(metadata.lastSwitchReason)
-  if (reason !== undefined) row.lastSwitchReason = reason
   const resets = present(metadata.rateLimitResetTimes)
   if (resets !== undefined) {
     const copy: VaultAccountRow['rateLimitResetTimes'] = {}
@@ -357,6 +353,17 @@ function applyDurableSelection(
     ),
   )
   row.rateLimitClearedAt = metadata.rateLimitClearedAt ?? undefined
+}
+
+/** Puts stored selection fields onto a fresh row. */
+function applyDurableSelection(
+  row: VaultAccountRow,
+  metadata: VaultProviderMetadata,
+): void {
+  row.lastUsed = metadata.lastUsed
+  const reason = present(metadata.lastSwitchReason)
+  if (reason !== undefined) row.lastSwitchReason = reason
+  loadDurableRateLimits(row, metadata)
   const until = present(metadata.coolingDownUntil)
   const cooldownReason = present(metadata.cooldownReason)
   if (until !== undefined && cooldownReason !== undefined) {
@@ -697,9 +704,7 @@ export function createVaultSelectionState(
         if (state === undefined || !stateBelongsTo(state, row)) continue
         const kept = keptKeys?.has(vaultAccountRowKey(row))
         if (state.metadata !== undefined) {
-          if (kept)
-            row.rateLimitClearedAt =
-              state.metadata.rateLimitClearedAt ?? undefined
+          if (kept) loadDurableRateLimits(row, state.metadata)
           else applyDurableSelection(row, state.metadata)
         }
         const stamped = kept ? [] : stampRateLimitWrites(row, now())
@@ -900,11 +905,28 @@ export function createVaultAccountPool(
         ...(durable.onError ? { onError: durable.onError } : {}),
       })
     : undefined
+  // A newer partial reading can replace the evidence that removed a mark.
+  // Remember the removed mark's stamp for as long as its live row is kept.
+  const clearedByReading = new WeakMap<VaultAccountRow, Map<string, number>>()
   const selector = new AccountSelector<VaultAccountRow>({
     ...(options.now ? { now: options.now } : {}),
     ...(options.healthTracker ? { healthTracker: options.healthTracker } : {}),
     ...(options.tokenTracker ? { tokenTracker: options.tokenTracker } : {}),
-    ...(state ? { sink: state.sink } : {}),
+    ...(state
+      ? {
+          sink: {
+            ...state.sink,
+            quotaReadingCleared(row, key, writtenAt) {
+              let cleared = clearedByReading.get(row)
+              if (!cleared) {
+                cleared = new Map()
+                clearedByReading.set(row, cleared)
+              }
+              cleared.set(key, Math.max(writtenAt, cleared.get(key) ?? 0))
+            },
+          },
+        }
+      : {}),
   })
   const credentials = createVaultRequestCredentials(
     source,
@@ -931,6 +953,23 @@ export function createVaultAccountPool(
       prior.rateLimitClearedAt = clearedAt
       reconcileManualLimitClear(prior)
     }
+    let reconcileReading = false
+    for (const [key, reset] of Object.entries(fresh.rateLimitResetTimes)) {
+      const writtenAt = fresh.rateLimitWrittenAt?.[key]
+      if (
+        reset === undefined ||
+        writtenAt === undefined ||
+        writtenAt <= (prior.rateLimitClearedAt ?? 0) ||
+        writtenAt <= (prior.rateLimitWrittenAt?.[key] ?? 0) ||
+        writtenAt <= (clearedByReading.get(prior)?.get(key) ?? 0) ||
+        reset < (prior.rateLimitResetTimes[key] ?? 0)
+      )
+        continue
+      prior.rateLimitResetTimes[key] = reset
+      prior.rateLimitWrittenAt ??= {}
+      prior.rateLimitWrittenAt[key] = writtenAt
+      reconcileReading = true
+    }
     const checkedAt = fresh.cachedQuotaUpdatedAt
     if (
       fresh.cachedQuota !== undefined &&
@@ -940,8 +979,10 @@ export function createVaultAccountPool(
     ) {
       prior.cachedQuota = fresh.cachedQuota
       prior.cachedQuotaUpdatedAt = checkedAt
-      selector.reconcileQuotaReading(prior, false)
+      reconcileReading = true
     }
+    // The live row's existing reading may already invalidate an imported mark.
+    if (reconcileReading) selector.reconcileQuotaReading(prior, false)
   }
 
   let hydratedSignature: string | null = null

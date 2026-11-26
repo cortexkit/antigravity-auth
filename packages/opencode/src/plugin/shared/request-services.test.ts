@@ -2774,11 +2774,13 @@ describe('createRequestExecutor quota reset text', () => {
       await blocked.body?.cancel()
       expect(h.calls).toHaveLength(0)
       now += 1
+      const resetTime = new Date(now + 65 * 60 * 60 * 1000).toISOString()
       h.pool.updateQuotaCache(0, {
         gemini: {
           remainingFraction: 1,
           modelCount: 1,
-          resetTime: new Date(now + 65 * 60 * 60 * 1000).toISOString(),
+          resetTime,
+          windows: [{ window: 'weekly', remainingFraction: 1, resetTime }],
         },
       })
       const response = await executor.execute(url, CHAT_INIT())

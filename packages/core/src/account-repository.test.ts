@@ -145,6 +145,7 @@ describe('issue69 locked reading clears', () => {
             rateLimitWrittenAt: { [key]: at },
           }),
         )
+        const resetTime = new Date(at + 65 * 60 * 60 * 1000).toISOString()
         const reading = {
           schemaVersion: 1 as const,
           cachedQuotaUpdatedAt: at + 1,
@@ -152,7 +153,14 @@ describe('issue69 locked reading clears', () => {
             gemini: {
               remainingFraction: 0.8,
               modelCount: 1,
-              resetTime: new Date(at + 65 * 60 * 60 * 1000).toISOString(),
+              resetTime,
+              windows: [
+                {
+                  window: 'weekly' as const,
+                  remainingFraction: 0.8,
+                  resetTime,
+                },
+              ],
             },
           },
         }
@@ -3695,7 +3703,17 @@ describe('issue69 legacy local upgrade', () => {
               )
             now++
             manager.updateQuotaCache(0, {
-              gemini: { remainingFraction: 1, modelCount: 1 },
+              gemini: {
+                remainingFraction: 1,
+                modelCount: 1,
+                windows: [
+                  {
+                    window: 'weekly',
+                    remainingFraction: 1,
+                    resetTime: new Date(now + 99_000_000).toISOString(),
+                  },
+                ],
+              },
             })
             // Let recordQuota clear persisted state before the older queued mark lands.
             expect((await repository.flush()).failures).toEqual([])
@@ -3743,7 +3761,17 @@ describe('issue69 legacy local upgrade', () => {
           ).toBe(now)
           now += 1
           manager.updateQuotaCache(0, {
-            gemini: { remainingFraction: 1, modelCount: 1 },
+            gemini: {
+              remainingFraction: 1,
+              modelCount: 1,
+              windows: [
+                {
+                  window: 'weekly',
+                  remainingFraction: 1,
+                  resetTime: new Date(now + 65 * 60 * 60 * 1000).toISOString(),
+                },
+              ],
+            },
           })
           await manager.flushSaveToDisk()
           expect(

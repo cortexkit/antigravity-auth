@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- On OpenCode 2 in vault mode, a workspace now sees rate limits recorded by another workspace and stops routing requests to the affected account until its limit resets ([issue #86](https://github.com/cortexkit/antigravity-auth/issues/86), thanks @iceteaSA).
+- A quota check that only reports the five-hour allowance no longer clears a weekly rate limit. The weekly allowance must also be reported with quota remaining ([issue #86](https://github.com/cortexkit/antigravity-auth/issues/86), thanks @iceteaSA).
+
 ## [3.2.1] - 2026-11-24
 
 - On OpenCode 2, reloading the plugin while the Antigravity sidebar or menu is loading no longer shows a disposal error (issue #84, thanks @iceteaSA).
