@@ -114,11 +114,7 @@ if [[ "$mode" == --full-here ]]; then
 fi
 
 phase=fast
-step=cortexkit-tracking
-tracked_ignored=$(git ls-files -ci --exclude-standard -- .cortexkit)
-[[ -z "$tracked_ignored" ]] || fail "ignored .cortexkit files are tracked:
-$tracked_ignored"
-echo 'PREPUSH_EXIT phase=fast step=cortexkit-tracking exit=0'
+run_step cortexkit-tracking bash scripts/check-cortexkit-layout.sh
 # Real frozen installs: they refuse lockfile drift as the dry runs did, and
 # give a fresh checkout the dependencies the embed check, formatter and
 # linter need. CI checks the embedding input before every compiler install.

@@ -19,6 +19,9 @@ jobs:
           # a shallow checkout cannot provide that commit to git archive.
           fetch-depth: 0
 
+      - name: Check tracked CortexKit layout
+        run: bash scripts/check-cortexkit-layout.sh
+
       - name: Setup Node.js
         uses: actions/setup-node@v5
         with:

@@ -41,11 +41,12 @@ async function fixture() {
   roots.push(root)
   mkdirSync(join(root, 'scripts'))
   mkdirSync(join(root, 'bin'))
-  cpSync(
-    join(sourceRoot, 'scripts/prepush.sh'),
-    join(root, 'scripts/prepush.sh'),
+  for (const script of ['prepush.sh', 'check-cortexkit-layout.sh'])
+    cpSync(join(sourceRoot, 'scripts', script), join(root, 'scripts', script))
+  writeFileSync(
+    join(root, '.gitignore'),
+    `bin/\ncalls\n${readFileSync(join(sourceRoot, '.gitignore'), 'utf8')}`,
   )
-  writeFileSync(join(root, '.gitignore'), 'bin/\ncalls\n.cortexkit/\n')
   for (const [name, body] of Object.entries({
     bun: `
 if [[ "$*" == --version ]]; then echo "\${BUN_VERSION:-1.4.2}"; exit; fi
@@ -148,12 +149,15 @@ test('prepush refuses dirty tracked files and tracked ignored CortexKit files', 
   writeFileSync(join(root, '.gitignore'), 'bin/\ncalls\n')
   await git(root, 'add', '.cortexkit', '.gitignore')
   await git(root, 'commit', '-m', 'tracked private fixture')
-  writeFileSync(join(root, '.gitignore'), 'bin/\ncalls\n.cortexkit/\n')
+  writeFileSync(
+    join(root, '.gitignore'),
+    `bin/\ncalls\n${readFileSync(join(sourceRoot, '.gitignore'), 'utf8')}`,
+  )
   await git(root, 'add', '.gitignore')
   await git(root, 'commit', '-m', 'ignore private fixture')
   result = await command(root, ['bash', 'scripts/prepush.sh', '--fast'], env)
   expect(result.exitCode).toBe(1)
-  expect(result.stderr).toContain('ignored .cortexkit files are tracked')
+  expect(result.stderr).toContain('tracked files under .cortexkit/ outside')
 })
 
 test('prepush submits exactly one sequential Linux job and certifies the commit', async () => {
