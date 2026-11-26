@@ -32,7 +32,7 @@ if ! all="$(git ls-files -- .cortexkit)"; then
   echo "BLIND: git ls-files failed, so the tracked files under .cortexkit/ are unknown" >&2
   exit 2
 fi
-tracked="$(printf '%s\n' "$all" | grep -vE '^\.cortexkit/(release-notes/|skills/|rules/|WORKER\.md$|[^/]+\.jsonc$)' | grep -v '^$')"
+tracked="$(printf '%s\n' "$all" | grep -vE '^\.cortexkit/(release-notes/|skills/|rules/|WORKER\.md$|[a-z0-9-]+\.jsonc$)' | grep -v '^$')"
 if [ -n "$tracked" ]; then
   echo "tracked files under .cortexkit/ outside release-notes/, skills/, rules/, WORKER.md and <module>.jsonc:" >&2
   printf '%s\n' "$tracked" | sed 's/^/  /' >&2
