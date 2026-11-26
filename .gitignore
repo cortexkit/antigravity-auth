@@ -49,6 +49,8 @@ antigravity-debug-*.log
 !.cortexkit/rules/
 !.cortexkit/WORKER.md
 !.cortexkit/*.jsonc
+# Machine-specific prefrontal worktree settings contain machine paths.
+.cortexkit/prefrontal.jsonc
 .hive/
 .omo/
 .opencode/

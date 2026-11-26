@@ -89,6 +89,28 @@ test('allows tracked public folders, WORKER.md and top-level settings', async ()
   expect(result.exitCode, result.stderr).toBe(0)
 })
 
+test('ignores machine-specific settings but not other top-level settings', async () => {
+  const root = await fixture()
+  const machine = await command(
+    root,
+    'git',
+    'check-ignore',
+    '-q',
+    '--no-index',
+    '.cortexkit/prefrontal.jsonc',
+  )
+  expect(machine.exitCode, machine.stderr).toBe(0)
+  const project = await command(
+    root,
+    'git',
+    'check-ignore',
+    '-q',
+    '--no-index',
+    '.cortexkit/antigravity-auth.jsonc',
+  )
+  expect(project.exitCode, project.stderr).toBe(1)
+})
+
 test('reports BLIND when either ignore control is broken', async () => {
   const root = await fixture()
   writeFileSync(join(root, '.gitignore'), '')
