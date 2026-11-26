@@ -1816,6 +1816,10 @@ export function fixToolResponseGrouping(
   }
 
   const newContents: any[] = []
+  // Insert results after their calls without shifting the indices of pending groups.
+  const responsesAfter = new Map<number, any>()
+  let lastNonUserIdx = -1
+  let keptCompanionParts = false
 
   // Track pending tool call groups that need responses
   const pendingGroups: Array<{
@@ -1843,6 +1847,7 @@ export function fixToolResponseGrouping(
     const responseParts = parts.filter((p: any) => p?.functionResponse)
 
     if (responseParts.length > 0) {
+      let companionParts = parts.filter((p: any) => !p?.functionResponse)
       // Collect responses by ID (skip duplicates)
       for (const resp of responseParts) {
         const respId = resp.functionResponse?.id || ''
@@ -1870,12 +1875,38 @@ export function fixToolResponseGrouping(
             collectedResponses.delete(id)
             return resp
           })
-          newContents.push({ parts: groupResponses, role: 'user' })
+          if (
+            group.insertAfterIdx === lastNonUserIdx &&
+            (keptCompanionParts || companionParts.length > 0)
+          ) {
+            // Claude needs the results first, even when an earlier partial
+            // result turn carried user text or attachments.
+            for (const turn of newContents.splice(group.insertAfterIdx + 1)) {
+              groupResponses.push(...(turn.parts ?? []))
+            }
+            groupResponses.push(...companionParts)
+            companionParts = []
+            keptCompanionParts = false
+          }
+          responsesAfter.set(group.insertAfterIdx, {
+            parts: groupResponses,
+            role: 'user',
+          })
           pendingGroups.splice(i, 1)
           break // Only satisfy one group at a time
         }
       }
-      continue // Don't add the original response message
+      // Keep the turn in place if no group could use its text or attachments.
+      if (companionParts.length > 0) {
+        newContents.push({ parts: companionParts, role: 'user' })
+        keptCompanionParts = true
+      }
+      continue
+    }
+
+    if (role !== 'user') {
+      lastNonUserIdx = newContents.length
+      keptCompanionParts = false
     }
 
     if (role === 'model') {
@@ -1925,7 +1956,6 @@ export function fixToolResponseGrouping(
   // from the latest model message backwards, which decides which orphan each
   // one receives; the recovered response turns are inserted afterwards.
   pendingGroups.sort((a, b) => b.insertAfterIdx - a.insertAfterIdx)
-  const insertedAfter = new Map<number, any>()
 
   for (const group of pendingGroups) {
     const groupResponses: any[] = []
@@ -2004,21 +2034,21 @@ export function fixToolResponseGrouping(
 
     if (groupResponses.length > 0) {
       // Inserted after the model message that made the calls
-      insertedAfter.set(group.insertAfterIdx, {
+      responsesAfter.set(group.insertAfterIdx, {
         parts: groupResponses,
         role: 'user',
       })
     }
   }
 
-  if (insertedAfter.size === 0) return newContents
-  const withRecovered: any[] = []
+  if (responsesAfter.size === 0) return newContents
+  const withResponses: any[] = []
   for (let i = 0; i < newContents.length; i++) {
-    withRecovered.push(newContents[i])
-    const recovered = insertedAfter.get(i)
-    if (recovered) withRecovered.push(recovered)
+    withResponses.push(newContents[i])
+    const responseTurn = responsesAfter.get(i)
+    if (responseTurn) withResponses.push(responseTurn)
   }
-  return withRecovered
+  return withResponses
 }
 
 type OrphanEntry = { id: string; arrival: number }

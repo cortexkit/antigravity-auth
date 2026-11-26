@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Claude now receives text and attachments sent alongside tool results instead of silently losing them ([issue #88](https://github.com/cortexkit/antigravity-auth/issues/88), thanks @iceteaSA).
+
 ## [3.2.1] - 2026-11-24
 
 - On OpenCode 2, reloading the plugin while the Antigravity sidebar or menu is loading no longer shows a disposal error (issue #84, thanks @iceteaSA).
