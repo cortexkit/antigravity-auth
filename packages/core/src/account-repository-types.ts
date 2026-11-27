@@ -244,6 +244,8 @@ export interface ProviderMetadata {
   rateLimitResetTimes?: StoredRateLimitResetTimes | null
   /** Per-key write time; older readers preserve it as an extension. */
   rateLimitWrittenAt?: StoredRateLimitResetTimes | null
+  rateLimitWindow?: Record<string, '5h' | 'weekly'>
+  rateLimitRemovedAt?: Record<string, number>
   /** Last operator clear; fences stale in-memory snapshots from resurrecting limits. */
   rateLimitClearedAt?: number | null
   coolingDownUntil?: number | null

@@ -665,6 +665,9 @@ function accountsSection(
                             ...metadata,
                             rateLimitResetTimes: {},
                             rateLimitWrittenAt: {},
+                            ...(metadata.rateLimitWindow
+                              ? { rateLimitWindow: {} }
+                              : {}),
                             rateLimitClearedAt: now(),
                           },
                         }

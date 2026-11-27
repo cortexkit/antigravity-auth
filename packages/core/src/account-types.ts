@@ -42,6 +42,8 @@ export interface AccountMetadataV3 {
   lastSwitchReason?: 'rate-limit' | 'initial' | 'rotation'
   rateLimitResetTimes?: RateLimitStateV3
   rateLimitWrittenAt?: RateLimitStateV3
+  rateLimitWindow?: Record<string, '5h' | 'weekly'>
+  rateLimitRemovedAt?: Record<string, number>
   rateLimitClearedAt?: number
   coolingDownUntil?: number
   cooldownReason?: CooldownReason

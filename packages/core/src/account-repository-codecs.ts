@@ -492,6 +492,8 @@ const metadataShape = {
   ),
   rateLimitResetTimes: optional(nullable(mapOf(nullable(finiteNumber)))),
   rateLimitWrittenAt: optional(nullable(mapOf(nullable(finiteNumber)))),
+  rateLimitWindow: optional(mapOf(enumOf(['weekly', '5h'] as const))),
+  rateLimitRemovedAt: optional(mapOf(finiteNumber)),
   rateLimitClearedAt: optional(nullable(finiteNumber)),
   coolingDownUntil: optional(nullable(finiteNumber)),
   cooldownReason: optional(

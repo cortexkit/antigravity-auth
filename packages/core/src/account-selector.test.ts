@@ -324,8 +324,9 @@ describe('issue69 dated quota evidence', () => {
     expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
   })
 
-  it('requires weekly quota for an unstamped legacy mark more than five hours from reset', () => {
+  it('requires weekly quota for a legacy mark more than five hours from reset', () => {
     const { pool, row, advance } = manager(undefined, true, true)
+    row.rateLimitWrittenAt = { [key]: start }
     advance(1)
     pool.updateQuotaCache(0, geminiQuota(geminiBucket('5h')))
     expect(row.rateLimitResetTimes[key]).toBe(start + long)

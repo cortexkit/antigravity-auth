@@ -29,10 +29,12 @@ import {
   applyRateLimitReadingUpdate,
   clearAccountLimits,
   type EmptyVaultRosterCause,
+  mergeRateLimitRemovalStamps,
   type QuotaState,
   type QuotaSummary,
   rateLimitReadingUpdateOf,
   reconcileManualLimitClear,
+  reconcileRemovedRateLimits,
   type SelectableAccount,
   type SelectionSink,
   stampRateLimitWrites,
@@ -241,6 +243,8 @@ type DurableSelection = Pick<
   | 'lastSwitchReason'
   | 'rateLimitResetTimes'
   | 'rateLimitWrittenAt'
+  | 'rateLimitWindow'
+  | 'rateLimitRemovedAt'
   | 'rateLimitClearedAt'
   | 'coolingDownUntil'
   | 'cooldownReason'
@@ -315,6 +319,12 @@ function durableSelectionOf(row: VaultAccountRow): DurableSelection {
       : {}),
     rateLimitResetTimes: storedResets(row.rateLimitResetTimes),
     rateLimitWrittenAt: storedResets(row.rateLimitWrittenAt ?? {}),
+    ...(row.rateLimitWindow
+      ? { rateLimitWindow: { ...row.rateLimitWindow } }
+      : {}),
+    ...(row.rateLimitRemovedAt
+      ? { rateLimitRemovedAt: { ...row.rateLimitRemovedAt } }
+      : {}),
     ...(row.rateLimitClearedAt !== undefined
       ? { rateLimitClearedAt: row.rateLimitClearedAt }
       : {}),
@@ -353,6 +363,13 @@ function loadDurableRateLimits(
     ),
   )
   row.rateLimitClearedAt = metadata.rateLimitClearedAt ?? undefined
+  row.rateLimitWindow = metadata.rateLimitWindow && {
+    ...metadata.rateLimitWindow,
+  }
+  row.rateLimitRemovedAt = metadata.rateLimitRemovedAt && {
+    ...metadata.rateLimitRemovedAt,
+  }
+  reconcileRemovedRateLimits(row)
 }
 
 /** Puts stored selection fields onto a fresh row. */
@@ -534,6 +551,7 @@ function stampLoadedLegacyLimits(
   for (const [key, stamp] of Object.entries(legacy)) {
     if (
       metadata.rateLimitResetTimes?.[key] === stamp.reset &&
+      metadata.rateLimitRemovedAt?.[key] === undefined &&
       written[key] == null
     ) {
       written[key] = stamp.writtenAt
@@ -588,6 +606,11 @@ export function createVaultSelectionState(
             ...selection,
             rateLimitResetTimes: current?.metadata?.rateLimitResetTimes,
             rateLimitWrittenAt: current?.metadata?.rateLimitWrittenAt,
+            rateLimitWindow: current?.metadata?.rateLimitWindow,
+            rateLimitRemovedAt: mergeRateLimitRemovalStamps(
+              current?.metadata?.rateLimitRemovedAt,
+              selection.rateLimitRemovedAt,
+            ),
             ...(Math.max(
               current?.metadata?.rateLimitClearedAt ?? 0,
               selection.rateLimitClearedAt ?? 0,
@@ -602,6 +625,7 @@ export function createVaultSelectionState(
           },
           selection.rateLimitResetTimes ?? {},
           selection.rateLimitWrittenAt ?? {},
+          selection.rateLimitWindow,
         )
         // Cooldown has no write time. Prefer the later expiry and its reason.
         if (
@@ -628,14 +652,19 @@ export function createVaultSelectionState(
         if (cleared) {
           const resets = { ...metadata.rateLimitResetTimes }
           const written = { ...metadata.rateLimitWrittenAt }
+          const windows = metadata.rateLimitWindow && {
+            ...metadata.rateLimitWindow,
+          }
           for (const key of cleared) {
             delete resets[key]
             delete written[key]
+            if (windows) delete windows[key]
           }
           metadata = {
             ...metadata,
             rateLimitResetTimes: resets,
             rateLimitWrittenAt: written,
+            rateLimitWindow: windows,
           }
         }
         if (current?.quota)
@@ -730,6 +759,7 @@ export function createVaultSelectionState(
                   if (
                     current.metadata.rateLimitResetTimes?.[key] ===
                       row.rateLimitResetTimes[key] &&
+                    current.metadata.rateLimitRemovedAt?.[key] === undefined &&
                     written[key] == null
                   )
                     written[key] = row.rateLimitWrittenAt?.[key] ?? now()
@@ -905,28 +935,11 @@ export function createVaultAccountPool(
         ...(durable.onError ? { onError: durable.onError } : {}),
       })
     : undefined
-  // A newer partial reading can replace the evidence that removed a mark.
-  // Remember the removed mark's stamp for as long as its live row is kept.
-  const clearedByReading = new WeakMap<VaultAccountRow, Map<string, number>>()
   const selector = new AccountSelector<VaultAccountRow>({
     ...(options.now ? { now: options.now } : {}),
     ...(options.healthTracker ? { healthTracker: options.healthTracker } : {}),
     ...(options.tokenTracker ? { tokenTracker: options.tokenTracker } : {}),
-    ...(state
-      ? {
-          sink: {
-            ...state.sink,
-            quotaReadingCleared(row, key, writtenAt) {
-              let cleared = clearedByReading.get(row)
-              if (!cleared) {
-                cleared = new Map()
-                clearedByReading.set(row, cleared)
-              }
-              cleared.set(key, Math.max(writtenAt, cleared.get(key) ?? 0))
-            },
-          },
-        }
-      : {}),
+    ...(state ? { sink: state.sink } : {}),
   })
   const credentials = createVaultRequestCredentials(
     source,
@@ -953,6 +966,11 @@ export function createVaultAccountPool(
       prior.rateLimitClearedAt = clearedAt
       reconcileManualLimitClear(prior)
     }
+    prior.rateLimitRemovedAt = mergeRateLimitRemovalStamps(
+      prior.rateLimitRemovedAt,
+      fresh.rateLimitRemovedAt,
+    )
+    reconcileRemovedRateLimits(prior)
     let reconcileReading = false
     for (const [key, reset] of Object.entries(fresh.rateLimitResetTimes)) {
       const writtenAt = fresh.rateLimitWrittenAt?.[key]
@@ -961,15 +979,21 @@ export function createVaultAccountPool(
         writtenAt === undefined ||
         writtenAt <= (prior.rateLimitClearedAt ?? 0) ||
         writtenAt <= (prior.rateLimitWrittenAt?.[key] ?? 0) ||
-        writtenAt <= (clearedByReading.get(prior)?.get(key) ?? 0) ||
+        writtenAt <= (prior.rateLimitRemovedAt?.[key] ?? 0) ||
         reset < (prior.rateLimitResetTimes[key] ?? 0)
       )
         continue
       prior.rateLimitResetTimes[key] = reset
       prior.rateLimitWrittenAt ??= {}
       prior.rateLimitWrittenAt[key] = writtenAt
+      const window = fresh.rateLimitWindow?.[key]
+      if (window !== undefined) {
+        prior.rateLimitWindow ??= {}
+        prior.rateLimitWindow[key] = window
+      } else if (prior.rateLimitWindow) delete prior.rateLimitWindow[key]
       reconcileReading = true
     }
+    reconcileRemovedRateLimits(prior)
     const checkedAt = fresh.cachedQuotaUpdatedAt
     if (
       fresh.cachedQuota !== undefined &&

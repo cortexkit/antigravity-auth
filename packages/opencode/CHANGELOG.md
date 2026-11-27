@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- A five-hour quota check no longer clears a Gemini weekly rate limit near its reset, and a weekly check with quota can clear a short retry wait (issue #86, thanks @iceteaSA).
+- An OpenCode workspace saving request activity no longer brings back a rate limit that a quota check cleared, even in another workspace or after a restart (issue #86, thanks @iceteaSA).
+
 ## [3.2.2] - 2026-11-26
 
 - On OpenCode 2 in vault mode, a workspace now sees rate limits recorded by another workspace and stops routing requests to the affected account until its limit resets ([issue #86](https://github.com/cortexkit/antigravity-auth/issues/86), thanks @iceteaSA).

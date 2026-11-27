@@ -26,6 +26,7 @@
 import { chmod, copyFile, mkdir, readFile, unlink } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { assertLegacyAccountStorageWritable } from './account-migration.ts'
+import { fenceRateLimitRemovals } from './account-selector.ts'
 import type {
   AccountMetadataV3,
   AccountStorageV3,
@@ -367,15 +368,41 @@ export function mergeAccountStorage(
         (existingAcc.eligibilityStateUpdatedAt ?? 0)
           ? acc
           : existingAcc
+      const rates = { ...existingAcc.rateLimitResetTimes }
+      const written =
+        existingAcc.rateLimitWrittenAt || acc.rateLimitWrittenAt
+          ? { ...existingAcc.rateLimitWrittenAt }
+          : undefined
+      const windows =
+        existingAcc.rateLimitWindow || acc.rateLimitWindow
+          ? { ...existingAcc.rateLimitWindow }
+          : undefined
+      for (const [key, reset] of Object.entries(
+        acc.rateLimitResetTimes ?? {},
+      )) {
+        const stamp = acc.rateLimitWrittenAt?.[key]
+        const prior = rates[key] === undefined ? undefined : written?.[key]
+        if (prior !== undefined && (stamp === undefined || stamp < prior))
+          continue
+        rates[key] = reset
+        if (written) {
+          if (stamp === undefined) delete written[key]
+          else written[key] = stamp
+        }
+        if (windows) {
+          const window = acc.rateLimitWindow?.[key]
+          if (window === undefined) delete windows[key]
+          else windows[key] = window
+        }
+      }
       const merged: AccountMetadataV3 = {
         ...existingAcc,
         ...acc,
         projectId: acc.projectId ?? existingAcc.projectId,
         managedProjectId: acc.managedProjectId ?? existingAcc.managedProjectId,
-        rateLimitResetTimes: {
-          ...existingAcc.rateLimitResetTimes,
-          ...acc.rateLimitResetTimes,
-        },
+        rateLimitResetTimes: rates,
+        rateLimitWrittenAt: written,
+        rateLimitWindow: windows,
         lastUsed: Math.max(existingAcc.lastUsed || 0, acc.lastUsed || 0),
         accountIneligible: eligibilitySource.accountIneligible,
         accountIneligibleAt: eligibilitySource.accountIneligibleAt,
@@ -385,7 +412,10 @@ export function mergeAccountStorage(
       if (merged.accountIneligible) {
         merged.enabled = false
       }
-      accountMap.set(acc.refreshToken, merged)
+      accountMap.set(
+        acc.refreshToken,
+        fenceRateLimitRemovals(merged, existingAcc.rateLimitRemovedAt),
+      )
     } else {
       accountMap.set(acc.refreshToken, acc)
     }
@@ -530,7 +560,9 @@ async function readAndNormalizeV4(path: string): Promise<StorageReadOutcome> {
     state: 'ok',
     storage: {
       version: 4,
-      accounts: deduplicatedAccounts,
+      accounts: deduplicatedAccounts.map((account) =>
+        fenceRateLimitRemovals(account),
+      ),
       activeIndex,
       activeIndexByFamily: storage.activeIndexByFamily,
     },
@@ -736,8 +768,19 @@ export async function mutateAccountStorage(
     // The mutator may be sync or async; awaiting its result lets long
     // mutators hold the lock for the duration of their work (the OS-level
     // create-lock + renewal keeps us exclusive that whole time).
-    const next = await mutate(existing)
-    const finalStorage: AccountStorageV4 = next ?? existing
+    const removals = new Map(
+      existing.accounts.map((account) => [
+        account.refreshToken,
+        account.rateLimitRemovedAt && { ...account.rateLimitRemovedAt },
+      ]),
+    )
+    const next = (await mutate(existing)) ?? existing
+    const finalStorage: AccountStorageV4 = {
+      ...next,
+      accounts: next.accounts.map((account) =>
+        fenceRateLimitRemovals(account, removals.get(account.refreshToken)),
+      ),
+    }
 
     await lock.assertOwned()
     await writeJsonAtomic(path, finalStorage)
