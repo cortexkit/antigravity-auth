@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## [3.2.3] - 2026-11-27
+
 - A five-hour quota check no longer clears a Gemini weekly rate limit near its reset, and a weekly check with quota can clear a short retry wait (issue #86, thanks @iceteaSA).
 - An OpenCode workspace saving request activity no longer brings back a rate limit that a quota check cleared, even in another workspace or after a restart (issue #86, thanks @iceteaSA).
 - On OpenCode 2.2.0 and later, the server plugin now asks the host for only session-deletion events instead of receiving every public event (issue #90, thanks @iceteaSA).

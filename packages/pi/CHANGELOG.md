@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [3.2.3] - 2026-11-27
+
+- No changes for Pi. This version keeps the Pi package in step with the OpenCode package.
+
 ## [3.2.2] - 2026-11-26
 
 - Claude now receives text and attachments sent alongside tool results instead of silently losing them ([issue #88](https://github.com/cortexkit/antigravity-auth/issues/88), thanks @iceteaSA).
