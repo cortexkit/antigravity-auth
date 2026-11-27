@@ -77,6 +77,8 @@ export const GA_RPC_VERSION = 1 as const
 
 /** How often the TUI pulls state and notifications for the visible route. */
 export const GA_SIDEBAR_PULL_MS = 1_000
+// One deadline covers location lookup and all state pulls in a sidebar tick.
+const GA_SIDEBAR_POLL_DEADLINE_MS = 10_000
 
 /** Pulls in one tick while the server reports more notifications waiting. */
 const MAX_PULLS_PER_TICK = 4
@@ -805,12 +807,34 @@ interface GaSnapshotDelivery {
   readonly onNotification: (notification: GaNotification) => boolean
 }
 
+/** Stop waiting for a host promise that cannot be cancelled at the source. */
+async function waitForGaPoll<T>(
+  pending: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  const aborted = Promise.withResolvers<never>()
+  const abort = () => aborted.reject(signal.reason)
+  signal.addEventListener('abort', abort, { once: true })
+  if (signal.aborted) abort()
+  try {
+    const result = await Promise.race([pending, aborted.promise])
+    signal.throwIfAborted()
+    return result
+  } finally {
+    signal.removeEventListener('abort', abort)
+  }
+}
+
 export interface GaLocationClient {
   /** The generation the client is bound to, or null before the first answer. */
   generation(): string | null
   /** The next cursor this client sends for `scope`. */
   cursor(scope: GaScope): number
-  pull(scope: GaScope, delivery?: GaSnapshotDelivery): Promise<GaPullResult>
+  pull(
+    scope: GaScope,
+    delivery?: GaSnapshotDelivery,
+    signal?: AbortSignal,
+  ): Promise<GaPullResult>
   apply(scope: GaScope, body: GaApplyBody): Promise<MenuApplyResult>
   dispose(): void
   disposed(): boolean
@@ -849,18 +873,23 @@ export function createGaLocationClient(options: {
   const pullNow = async (
     scope: GaScope,
     delivery?: GaSnapshotDelivery,
+    signal?: AbortSignal,
   ): Promise<GaPullResult> => {
     if (isDisposed) throw new GaClientDisposedError()
+    signal?.throwIfAborted()
     const sentEpoch = epoch
     const key = scopeKey(scope)
     const previous = cursors.get(key)
-    const raw = await call('state', {
+    const pending = call('state', {
       version: GA_RPC_VERSION,
       generation,
       scope,
       cursor: previous?.cursor ?? 0,
       queueID: previous?.queueID ?? null,
     })
+    // Release the serialized pull queue even if the host never replies.
+    const raw = await (signal ? waitForGaPoll(pending, signal) : pending)
+    signal?.throwIfAborted()
     if (isDisposed || sentEpoch !== epoch) return { kind: 'dropped' }
     const parsed = parseGaStateAnswer(raw)
     if (!parsed.ok) {
@@ -907,10 +936,11 @@ export function createGaLocationClient(options: {
       isDisposed = true
       epoch += 1
     },
-    pull(scope, delivery) {
-      const run = pullChain.then(() => pullNow(scope, delivery))
+    pull(scope, delivery, signal) {
+      const run = pullChain.then(() => pullNow(scope, delivery, signal))
       pullChain = run.catch(() => undefined)
-      return run
+      // The deadline also covers time spent waiting behind another pull.
+      return signal ? waitForGaPoll(run, signal) : run
     },
     async apply(scope, body) {
       if (isDisposed) throw new GaClientDisposedError()
@@ -1129,6 +1159,7 @@ export function currentScope(route: GaRoute): GaScope {
 
 export interface GaPollerOptions {
   readonly client: GaLocationClient
+  readonly signal?: AbortSignal
   readonly scope: () => GaScope
   readonly isCurrent: () => boolean
   readonly onSnapshot: (snapshot: GaSnapshot) => void
@@ -1149,18 +1180,22 @@ export async function pollGaOnce(options: GaPollerOptions): Promise<void> {
   for (let pulls = 0; pulls < MAX_PULLS_PER_TICK; pulls += 1) {
     let result: GaPullResult
     try {
-      result = await options.client.pull(scope, {
-        onSnapshot: (snapshot) => {
-          if (!options.isCurrent()) return false
-          options.onSnapshot(snapshot)
-          return true
+      result = await options.client.pull(
+        scope,
+        {
+          onSnapshot: (snapshot) => {
+            if (!options.isCurrent()) return false
+            options.onSnapshot(snapshot)
+            return true
+          },
+          onNotification: (notification) => {
+            if (!options.isCurrent()) return false
+            options.onNotification(notification, scope)
+            return true
+          },
         },
-        onNotification: (notification) => {
-          if (!options.isCurrent()) return false
-          options.onNotification(notification, scope)
-          return true
-        },
-      })
+        options.signal,
+      )
     } catch (error) {
       if (!(error instanceof GaClientDisposedError)) {
         options.logger?.warn('ga-pull-failed', {
@@ -1380,11 +1415,13 @@ export function setupGaTui(
   const refresh = async (
     client: GaLocationClient,
     scope: GaScope,
+    signal?: AbortSignal,
   ): Promise<void> => {
     await pollGaOnce({
       client,
+      ...(signal ? { signal } : {}),
       scope: () => scope,
-      isCurrent: () => isCurrent(client, scope),
+      isCurrent: () => !signal?.aborted && isCurrent(client, scope),
       onSnapshot: showSnapshot,
       onNotification: (notification) =>
         onNotification(client, notification, scope),
@@ -1502,14 +1539,19 @@ export function setupGaTui(
     })
   }
 
-  let inFlight = false
+  let inFlight: { scope: string; controller: AbortController } | undefined
   let shownScope = ''
   // Session locations are immutable; keep only the most recently viewed sessions.
   const sessionLocations = new Map<string, GaLocationRef>()
-  const sessionLocation = async (sessionID: string): Promise<GaLocationRef> => {
+  const sessionLocation = async (
+    sessionID: string,
+    signal: AbortSignal,
+  ): Promise<GaLocationRef> => {
     const location =
       sessionLocations.get(sessionID) ??
-      (await context.client.session.get({ sessionID })).location
+      (await waitForGaPoll(context.client.session.get({ sessionID }), signal))
+        .location
+    signal.throwIfAborted()
     if (active()) {
       sessionLocations.delete(sessionID)
       sessionLocations.set(sessionID, location)
@@ -1521,11 +1563,24 @@ export function setupGaTui(
     return location
   }
   const tick = () => {
-    if (inFlight || !active()) return
-    inFlight = true
+    if (!active()) return
+    const scope = currentScope(context.ui.router.current())
+    const nextScope = scopeKey(scope)
+    if (inFlight?.scope === nextScope) return
+    inFlight?.controller.abort(new GaClientDisposedError())
+    const controller = new AbortController()
+    const { signal } = controller
+    const poll = { scope: nextScope, controller }
+    inFlight = poll
+    const deadline = setTimeout(() => {
+      controller.abort(
+        new DOMException('Sidebar poll timed out', 'TimeoutError'),
+      )
+    }, GA_SIDEBAR_POLL_DEADLINE_MS)
+    const showingScope = () =>
+      active() &&
+      nextScope === scopeKey(currentScope(context.ui.router.current()))
     void (async () => {
-      const scope = currentScope(context.ui.router.current())
-      const nextScope = scopeKey(scope)
       if (shownScope !== nextScope) {
         setView(undefined)
         pendingLogin?.finish(false)
@@ -1534,24 +1589,22 @@ export function setupGaTui(
       // Session lookup is global; RPC queues remain local to its returned location.
       const location =
         scope.kind === 'session'
-          ? await sessionLocation(scope.sessionID)
+          ? await sessionLocation(scope.sessionID, signal)
           : context.location
-      if (
-        !active() ||
-        nextScope !== scopeKey(currentScope(context.ui.router.current()))
-      )
-        return
-      await refresh(clients.select(location), scope)
+      signal.throwIfAborted()
+      if (!showingScope()) return
+      await refresh(clients.select(location), scope, signal)
     })()
       .catch((error: unknown) => {
-        if (!active()) return
+        if (inFlight !== poll || !showingScope()) return
         clients.select(context.location)
         logger?.warn('ga-session-location-failed', {
           error: error instanceof Error ? error.name : typeof error,
         })
       })
       .finally(() => {
-        inFlight = false
+        clearTimeout(deadline)
+        if (inFlight === poll) inFlight = undefined
       })
   }
   const stop = (options.schedule ?? defaultSchedule)(tick, GA_SIDEBAR_PULL_MS)
@@ -1562,6 +1615,7 @@ export function setupGaTui(
     cleaned = true
     pendingLogin?.finish(false)
     stop()
+    inFlight?.controller.abort(new GaClientDisposedError())
     clients.dispose()
     sessionLocations.clear()
     releaseSlot()

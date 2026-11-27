@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'bun:test'
+import { describe, expect, it, jest } from 'bun:test'
 import {
   type GaLocationRef,
   type GaRoute,
@@ -54,14 +54,16 @@ async function settle() {
   for (let i = 0; i < 40; i += 1) await Promise.resolve()
 }
 
-function host(state?: (input: GaRpcCallInput) => Promise<unknown>) {
+type Lookup = (id: string) => Promise<{ location: GaLocationRef }>
+
+function host(
+  state?: (input: GaRpcCallInput) => Promise<unknown>,
+  initialLookup?: Lookup,
+) {
   let route: GaRoute = { type: 'session', sessionID: 'ses_b' }
   let tick = () => {}
-  let lookup: (id: string) => Promise<{ location: GaLocationRef }> = async (
-    id,
-  ) => ({
-    location: id === 'ses_b' ? B : A,
-  })
+  let lookup: Lookup =
+    initialLookup ?? (async (id) => ({ location: id === 'ses_b' ? B : A }))
   const calls: GaRpcCallInput[] = []
   const lookups: string[] = []
   const menus: string[] = []
@@ -169,6 +171,143 @@ describe('GA session location polling', () => {
       expect(attempts).toBe(2)
       expect(fake.calls).toHaveLength(3)
       expect(fake.lookups).toEqual(['ses_b', 'ses_retry', 'ses_retry'])
+    } finally {
+      await fake.cleanup()
+    }
+  })
+
+  it('refreshes the sidebar for a new session while the old lookup is pending', async () => {
+    const pending = Promise.withResolvers<{ location: GaLocationRef }>()
+    const fake = host(
+      async (input) => ({
+        output: { ...answer(input, false).output, cursor: 7 },
+      }),
+      async (id) => (id === 'ses_b' ? pending.promise : { location: A }),
+    )
+    try {
+      expect(fake.lookups).toEqual(['ses_b'])
+      fake.route({ type: 'session', sessionID: 'ses_new' })
+      fake.tick()
+      await settle()
+      fake.tick()
+      await settle()
+      expect(
+        fake.calls.map(({ location, input }) => ({ location, input })),
+      ).toMatchObject([
+        {
+          location: A,
+          input: {
+            scope: { kind: 'session', sessionID: 'ses_new' },
+            cursor: 0,
+          },
+        },
+        {
+          location: A,
+          input: {
+            scope: { kind: 'session', sessionID: 'ses_new' },
+            cursor: 7,
+          },
+        },
+      ])
+    } finally {
+      await fake.cleanup()
+      pending.resolve({ location: B })
+    }
+  })
+
+  it('retries a stalled session lookup only after the sidebar poll deadline', async () => {
+    jest.useFakeTimers()
+    const pending = Promise.withResolvers<{ location: GaLocationRef }>()
+    const fake = host(undefined, () => pending.promise)
+    try {
+      jest.advanceTimersByTime(9_999)
+      fake.tick()
+      await settle()
+      expect(fake.lookups).toEqual(['ses_b'])
+      expect(fake.warnings).toEqual([])
+
+      jest.advanceTimersByTime(1)
+      await settle()
+      expect(fake.warnings).toEqual(['ga-session-location-failed'])
+      fake.lookup(async () => ({ location: B }))
+      fake.tick()
+      await settle()
+      expect(fake.lookups).toEqual(['ses_b', 'ses_b'])
+      expect(fake.calls.map((call) => call.location)).toEqual([B])
+    } finally {
+      await fake.cleanup()
+      jest.useRealTimers()
+    }
+  })
+
+  it('retries a stalled state pull after the rest of the tick deadline', async () => {
+    jest.useFakeTimers()
+    const pendingLookup = Promise.withResolvers<{ location: GaLocationRef }>()
+    const pendingState = Promise.withResolvers<unknown>()
+    let pulls = 0
+    const fake = host(
+      async (input) =>
+        ++pulls === 1 ? pendingState.promise : answer(input, false),
+      () => pendingLookup.promise,
+    )
+    try {
+      jest.advanceTimersByTime(6_000)
+      pendingLookup.resolve({ location: B })
+      await settle()
+      jest.advanceTimersByTime(3_999)
+      fake.tick()
+      await settle()
+      expect(fake.calls).toHaveLength(1)
+      expect(fake.warnings).toEqual([])
+
+      jest.advanceTimersByTime(1)
+      await settle()
+      expect(fake.warnings).toEqual(['ga-pull-failed'])
+      fake.tick()
+      await settle()
+      expect(fake.calls).toHaveLength(2)
+      expect(fake.lookups).toEqual(['ses_b'])
+    } finally {
+      await fake.cleanup()
+      jest.useRealTimers()
+    }
+  })
+
+  it('drops an abandoned state answer even after returning to its session', async () => {
+    const pending = Promise.withResolvers<unknown>()
+    let pulls = 0
+    const fake = host(async (input) =>
+      ++pulls === 1 ? pending.promise : answer(input, false),
+    )
+    try {
+      await settle()
+      const [oldRequest] = fake.calls
+      if (!oldRequest) throw new Error('Expected a pending state request')
+      fake.lookup(async () => ({ location: B }))
+      fake.route({ type: 'session', sessionID: 'ses_other' })
+      fake.tick()
+      await settle()
+      expect(fake.calls[1]?.input).toMatchObject({
+        scope: { kind: 'session', sessionID: 'ses_other' },
+      })
+
+      fake.route({ type: 'session', sessionID: 'ses_b' })
+      fake.tick()
+      await settle()
+      expect(fake.calls[2]?.input).toMatchObject({
+        scope: { kind: 'session', sessionID: 'ses_b' },
+      })
+      pending.resolve({
+        output: { ...answer(oldRequest, true).output, generation: 'gen-old' },
+      })
+      await settle()
+      expect(fake.menus).toEqual([])
+      fake.tick()
+      await settle()
+      expect(fake.calls[3]?.input).toMatchObject({
+        generation: 'gen-b',
+        cursor: 0,
+      })
     } finally {
       await fake.cleanup()
     }
