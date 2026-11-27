@@ -1851,6 +1851,136 @@ describe('setup against a host context', () => {
     })
   })
 
+  // The host encodes every public bus event for an unfiltered subscriber,
+  // so on hosts that filter subscriptions by type the plugin asks for only
+  // the session.deleted events it acts on. Older hosts silently ignore the
+  // option, so they keep the unfiltered call.
+  async function sessionDeletedViaSubscription(
+    appVersion: string | undefined,
+  ): Promise<{
+    subscribeOptions: Record<string, unknown> | undefined
+    remainingSessions: number
+    subscriptionStopped: boolean
+  }> {
+    prepareRoot()
+    const hooks: HookCallbacks = {}
+    const log: string[] = []
+    type HostEvent =
+      ReturnType<
+        NonNullable<GaHostContext['event']>['subscribe']
+      > extends AsyncIterable<infer E>
+        ? E
+        : never
+    let controller!: ReadableStreamDefaultController<HostEvent>
+    let subscribeOptions: Record<string, unknown> | undefined
+    let stopped = false
+    let scopes = new AgySessionRegistry()
+    const factory = fakeServices(log)
+    const stream = new ReadableStream<HostEvent>({
+      start: (value) => {
+        controller = value
+      },
+    })
+    const host = fakeHost(
+      locationDirectory(`subscription-filter-${appVersion ?? 'missing'}`),
+      log,
+      {},
+      [],
+      hooks,
+    )
+    const cleanup = await server.setupGaActivation(
+      {
+        ...host,
+        ...(appVersion === undefined ? {} : { app: { version: appVersion } }),
+        event: {
+          subscribe: async function* (options) {
+            subscribeOptions = options ? { ...options } : undefined
+            options?.signal?.addEventListener(
+              'abort',
+              () => controller.close(),
+              { once: true },
+            )
+            try {
+              for await (const event of stream) yield event
+            } finally {
+              stopped = true
+            }
+          },
+        },
+      },
+      async (args) => {
+        const services = await factory(args)
+        return {
+          ...services,
+          start(input) {
+            scopes = input.runtime.agySessions ?? scopes
+            return services.start(input)
+          },
+        }
+      },
+    )
+    if (cleanup) cleanups.push(cleanup)
+    const identities = ['ses_prepared', 'ses_prepared#title'].map(
+      (sessionId) => ({ sessionId, parentSessionId: null }),
+    )
+    identities.map((identity) => scopes.getOrCreate(identity))
+    await hooks['http.request']?.(preparedEvent(placeholderSecret('google')))
+    controller.enqueue(
+      JSON.parse(
+        '{"type":"session.deleted","data":{"sessionID":"ses_prepared"}}',
+      ),
+    )
+    await new Promise((resolve) => setImmediate(resolve))
+    const remainingSessions = scopes.size
+    await cleanup?.()
+    return { subscribeOptions, remainingSessions, subscriptionStopped: stopped }
+  }
+
+  it('requests only session.deleted events from hosts that filter subscriptions by type', async () => {
+    const result = await sessionDeletedViaSubscription('2.2.0')
+    expect(result.subscribeOptions?.types).toEqual(['session.deleted'])
+    expect(result.subscribeOptions?.signal).toBeInstanceOf(AbortSignal)
+    expect(result.remainingSessions).toBe(0)
+    const signal = result.subscribeOptions?.signal
+    expect(signal instanceof AbortSignal && signal.aborted).toBe(true)
+    expect(result.subscriptionStopped).toBe(true)
+  })
+
+  it('keeps the unfiltered subscription on hosts that predate the types filter', async () => {
+    for (const appVersion of ['2.0.22', '2.2.0-beta.1', undefined]) {
+      const result = await sessionDeletedViaSubscription(appVersion)
+      expect(result.subscribeOptions).toBeDefined()
+      expect(
+        result.subscribeOptions !== undefined &&
+          'types' in result.subscribeOptions,
+      ).toBe(false)
+      expect(result.remainingSessions).toBe(0)
+      expect(result.subscriptionStopped).toBe(true)
+    }
+  })
+
+  it('treats only 2.2.0+ release versions as filtering event subscriptions by type', () => {
+    for (const version of ['2.2.0', '2.2.6', '2.4.2', '2.10.0', '3.0.0'])
+      expect(server.hostSupportsEventTypesFilter(version)).toBe(true)
+    for (const version of [
+      '2.0.22',
+      '2.1.4',
+      '2.1.99',
+      '1.99.99',
+      'unknown',
+      '',
+      'garbage',
+      '2',
+      '2.2',
+      '2.2.0-beta.1',
+      'local',
+    ])
+      expect(server.hostSupportsEventTypesFilter(version)).toBe(false)
+    expect(server.hostSupportsEventTypesFilter(undefined)).toBe(false)
+    expect(server.hostSupportsEventTypesFilter(null)).toBe(false)
+    expect(server.hostSupportsEventTypesFilter(123)).toBe(false)
+  })
+
   it('resolves undefined for a legacy context without building anything', async () => {
     const log: string[] = []
     const services = fakeServices(log)
