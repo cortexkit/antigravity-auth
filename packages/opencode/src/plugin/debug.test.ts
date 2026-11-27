@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test'
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+  spyOn,
+} from 'bun:test'
+import * as fs from 'node:fs'
 import {
   mkdirSync,
   readdirSync,
@@ -7,6 +16,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { Writable } from 'node:stream'
 import { DEFAULT_CONFIG } from './config'
 
 describe('debug sink policy', () => {
@@ -127,6 +137,58 @@ describe('debug sink redaction', () => {
       process.env.OPENCODE_ANTIGRAVITY_DEBUG_TUI = originalDebugTuiEnv
     }
     rmSync(logDir, { recursive: true, force: true })
+  })
+
+  it.each([
+    'Location',
+    'OpenCode 1',
+  ])('closes the %s debug log after its writer has already failed and closed', async (target) => {
+    const debug = await import('./debug')
+    const writeError = new Error('debug write failed')
+    const writer = new Writable({
+      write(_chunk, _encoding, done) {
+        done(writeError)
+      },
+    })
+    const createStream = spyOn(fs, 'createWriteStream').mockReturnValue(
+      writer as fs.WriteStream,
+    )
+    try {
+      const config = {
+        ...DEFAULT_CONFIG,
+        debug: true,
+        debug_tui: false,
+        log_dir: logDir,
+      }
+      const handle =
+        target === 'Location'
+          ? debug.createLocationDebug(config)
+          : {
+              close: debug.closeDebugLog,
+              debugLogToFile: debug.debugLogToFile,
+            }
+      if (target === 'OpenCode 1') debug.initializeDebug(config)
+      expect(createStream).toHaveBeenCalledTimes(1)
+      const closed = Promise.withResolvers<void>()
+      writer.once('close', closed.resolve)
+      handle.debugLogToFile('first debug line')
+      await closed.promise
+      expect(writer.errored).toBe(writeError)
+      expect(writer.closed).toBe(true)
+
+      jest.useFakeTimers()
+      const close = Promise.race([
+        handle.close().then(() => 'closed'),
+        new Promise((resolve) => setTimeout(() => resolve('deadline'), 1_000)),
+      ])
+      await Promise.resolve()
+      jest.advanceTimersByTime(1_000)
+      expect(await close).toBe('closed')
+    } finally {
+      jest.useRealTimers()
+      createStream.mockRestore()
+      if (target === 'OpenCode 1') debug.initializeDebug(DEFAULT_CONFIG)
+    }
   })
 
   it('masks full project IDs in debug logs', async () => {

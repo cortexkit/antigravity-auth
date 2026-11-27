@@ -244,6 +244,7 @@ function closeDebugStream(state: DebugState | null): Promise<void> {
   state.logStream = null
   state.logWriter = () => {}
   if (state.logFilePath) liveLogFilePaths.delete(state.logFilePath)
+  if (current.closed || current.destroyed) return Promise.resolve()
   return new Promise<void>((resolve) => {
     current.once('close', () => resolve())
     current.once('error', () => resolve())
@@ -745,6 +746,7 @@ export function closeDebugLog(): Promise<void> {
   // Detach the reference so reinitialization won't double-close.
   state.logStream = null
   if (state.logFilePath) liveLogFilePaths.delete(state.logFilePath)
+  if (current.closed || current.destroyed) return Promise.resolve()
   return new Promise<void>((resolve) => {
     current.once('close', () => resolve())
     current.once('error', () => resolve())
