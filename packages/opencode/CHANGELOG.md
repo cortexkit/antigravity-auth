@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- On OpenCode 2.2.0 and later, the server plugin now asks the host for only session-deletion events instead of receiving every public event (issue #90, thanks @iceteaSA).
+
 ## [3.2.2] - 2026-11-26
 
 - On OpenCode 2 in vault mode, a workspace now sees rate limits recorded by another workspace and stops routing requests to the affected account until its limit resets ([issue #86](https://github.com/cortexkit/antigravity-auth/issues/86), thanks @iceteaSA).

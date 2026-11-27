@@ -1848,12 +1848,41 @@ export function decideGaRetry(
 }
 
 /**
+ * Whether the host filters plugin event subscriptions by type at the bus.
+ * OpenCode 2.2.0 added the `types` subscribe option and honors it in the
+ * plugin host, so only those hosts receive a filtered subscription. Older
+ * hosts silently ignore the option and stream every public event, and an
+ * unknown or pre-release version may predate the release, so those keep the
+ * unfiltered call. The comparison parses dotted numbers; it is not a string
+ * comparison, so 2.10.0 counts as newer than 2.2.0.
+ */
+export function hostSupportsEventTypesFilter(version: unknown): boolean {
+  if (typeof version !== 'string') return false
+  const match = /^(\d+)\.(\d+)\.(\d+)(?:\+.*)?$/.exec(version.trim())
+  if (!match) return false
+  return (
+    Number(match[1]) > 2 || (Number(match[1]) === 2 && Number(match[2]) >= 2)
+  )
+}
+
+/**
+ * The `types` filter OpenCode 2.2.0 added to the plugin event subscription.
+ * The pinned 2.0.22 plugin types predate the option, so it is declared here
+ * structurally and spread into the subscribe options only for hosts whose
+ * reported version passes hostSupportsEventTypesFilter.
+ */
+export interface SessionDeletedEventFilter {
+  readonly types: readonly ['session.deleted']
+}
+
+/**
  * The parts of the host context setup uses, taken from the published
  * `Plugin.Context` type. Tests pass an object of this type; the host passes
  * its full context.
  */
 export interface GaHostContext {
   readonly location: Pick<Plugin.Context['location'], 'directory'>
+  readonly app?: Pick<Plugin.Context['app'], 'version'>
   readonly session: Pick<Plugin.Context['session'], 'hook'> &
     Partial<Pick<Plugin.Context['session'], 'get'>>
   readonly rpc: Pick<Plugin.Context['rpc'], 'register'>
@@ -2128,11 +2157,19 @@ async function setupGaActivationRuntime(
     const ownership = new GaRequestOwnership()
     const events = new AbortController()
     const eventSurface = context.event
+    // The bus filter exists only from OpenCode 2.2.0; older hosts would
+    // silently ignore it and stream every public event, so only new-enough
+    // hosts are asked for just the session deletions this loop acts on.
+    const sessionDeletedFilter: SessionDeletedEventFilter | undefined =
+      hostSupportsEventTypesFilter(context.app?.version)
+        ? { types: ['session.deleted'] as const }
+        : undefined
     const eventTask = eventSurface
       ? (async () => {
           try {
             for await (const event of eventSurface.subscribe({
               signal: events.signal,
+              ...sessionDeletedFilter,
             })) {
               if (event.type === 'session.deleted') {
                 const id = event.data.sessionID
