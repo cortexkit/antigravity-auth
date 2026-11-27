@@ -1860,10 +1860,8 @@ function createGaVaultStateSource(input: {
     if (signal.aborted) throw abortError(signal)
     readSeq = input.nextReadSeq?.() ?? readSeq + 1
     const overLimit = rows.length > ACCOUNT_LIMIT
-    // Each row's quota travels with the time that same reading was taken.
-    // A stored reading for the row's current route and credential wins over
-    // the quota the row was listed with; a reading without a time stays
-    // undated rather than borrowing the listed quota's time.
+    // Row sync can pick up a reading committed after the stored-state read.
+    // Keep the newer reading with its own time, using stored quota on ties.
     const quotaOf = (
       row: VaultAccountRow,
     ): Pick<
@@ -1874,12 +1872,17 @@ function createGaVaultStateSource(input: {
         ? quotaReadingForVaultRoute(row.route, stored)
         : undefined
       const storedQuota = reading ? cachedQuotaOf(reading) : undefined
-      const [cachedQuota, updatedAt] =
-        storedQuota !== undefined
-          ? [storedQuota, reading?.cachedQuotaUpdatedAt]
-          : [row.cachedQuota, row.cachedQuotaUpdatedAt]
+      const storedAt = readingTime(reading?.cachedQuotaUpdatedAt)
+      const rowAt = readingTime(row.cachedQuotaUpdatedAt)
+      const useStored =
+        storedQuota !== undefined &&
+        (row.cachedQuota === undefined ||
+          rowAt === null ||
+          (storedAt !== null && storedAt >= rowAt))
+      const [cachedQuota, at] = useStored
+        ? [storedQuota, storedAt]
+        : [row.cachedQuota, rowAt]
       if (cachedQuota === undefined) return {}
-      const at = readingTime(updatedAt)
       return {
         cachedQuota,
         ...(at !== null ? { cachedQuotaUpdatedAt: at } : {}),

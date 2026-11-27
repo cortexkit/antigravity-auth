@@ -8,6 +8,7 @@
 - Quota checks try the model list when Google's quota summary contains no recognized pools, including when you choose “Check quota now” in vault mode ([issue #91](https://github.com/cortexkit/antigravity-auth/issues/91), thanks @iceteaSA).
 - Reloading or shutting down OpenCode no longer hangs when a debug log writer has already failed and closed ([issue #92](https://github.com/cortexkit/antigravity-auth/issues/92), thanks @iceteaSA).
 - On OpenCode 2, the sidebar retries a stalled update and follows you to a different session without waiting for the old one ([issue #93](https://github.com/cortexkit/antigravity-auth/issues/93), thanks @iceteaSA).
+- The OpenCode 2 vault sidebar shows the newer quota amount and check time if quota changes while the sidebar is refreshing ([issue #94](https://github.com/cortexkit/antigravity-auth/issues/94), thanks @iceteaSA).
 
 ## [3.2.2] - 2026-11-26
 

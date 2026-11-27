@@ -33,6 +33,7 @@ import {
   type RowRef,
   readAccountStoreAdmission,
   sameRowRef,
+  type VaultProviderStateFile,
 } from '@cortexkit/antigravity-auth-core'
 import {
   ENGINE_REFUSALS,
@@ -3765,6 +3766,130 @@ describe('GA vault custody location', () => {
         else process.env[key] = value
       }
       rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('shows the newer vault reading when quota changes during sidebar row sync', async () => {
+    const now = Date.now()
+    const older = now - 20 * 60_000
+    const newer = now - 2 * 60_000
+    const route = {
+      routeId: 'route-1',
+      credentialId: 'credential-1',
+      accountIdentity: 'identity-1',
+      label: 'Vault account',
+    }
+    function sample(
+      remainingFraction: number,
+      cachedQuotaUpdatedAt: number,
+    ): VaultProviderStateFile {
+      return {
+        schemaVersion: 1,
+        accounts: {
+          [route.accountIdentity]: {
+            observed: {
+              routeId: route.routeId,
+              credentialId: route.credentialId,
+              recordVersion: 1,
+            },
+            quota: {
+              schemaVersion: 1,
+              cachedQuota: { gemini: { remainingFraction, modelCount: 1 } },
+              cachedQuotaUpdatedAt,
+            },
+          },
+        },
+      }
+    }
+
+    let committed = sample(0.25, older)
+    const uncalled = (): never => {
+      throw new Error(
+        'The sidebar must not open the local store or send a request',
+      )
+    }
+    const factory = createGaLocationServicesFactory({
+      loadStoreModules: uncalled,
+      resolveAccountFile: (directory) => join(directory, GA_ACCOUNTS_FILE),
+      now: () => now,
+      runtime: (input) =>
+        createGaRuntimeCollaborators({
+          ...input,
+          accounts: { current: null, quotaLogger: null },
+          now: () => now,
+        }),
+      createPipeline: uncalled,
+      custody: () => ({
+        readMode: async () => ({
+          ok: true,
+          record: { version: 1, mode: 'custody' },
+        }),
+        custodySource: async () => ({
+          refresh: async () => {
+            committed = sample(0.75, newer)
+          },
+          routes: () => [route],
+          admit: uncalled,
+          reportServedStatus: async () => false,
+          attribution: uncalled,
+          commitState: async () => ({ status: 'unchanged' }),
+          send: uncalled,
+        }),
+        readState: async () => committed,
+        menuSection: () => ({
+          id: 'vault',
+          title: 'Vault',
+          build: () => ({ lines: [], actions: [] }),
+        }),
+        dispose: async () => {},
+      }),
+    })
+    const directory = realpathSync(
+      mkdtempSync(join(tmpdir(), 'ga-vault-sync-')),
+    )
+    try {
+      const services = await factory({ directory, overrides: {} })
+      try {
+        const runtime = await createLocationRuntime({
+          ...services.runtime,
+          directory,
+          operatorSettingsRegistry: createOperatorSettingsRegistry(),
+        })
+        try {
+          const serving = await services.start({
+            runtime,
+            generation: 'g-vault-quota-freshness',
+            send: uncalled,
+            notify: () => null,
+            isConnected: () => false,
+          })
+          const request = {
+            scope: { kind: 'sessionless' as const },
+            signal: new AbortController().signal,
+          }
+          const read = await serving.state.read(request)
+          const nextRead = await serving.state.read(request)
+          expect(nextRead.status.checkedAt).toBe(newer)
+          const row =
+            read.accounts.kind === 'complete' && read.accounts.rows[0]?.row
+          if (!row) throw new Error('Expected one vault account in the sidebar')
+          expect({
+            remaining: row.cachedQuota?.gemini?.remainingFraction,
+            rowCheckedAt: row.cachedQuotaUpdatedAt,
+            sidebarCheckedAt: read.status.checkedAt,
+          }).toEqual({
+            remaining: 0.75,
+            rowCheckedAt: newer,
+            sidebarCheckedAt: newer,
+          })
+        } finally {
+          await runtime.dispose()
+        }
+      } finally {
+        await services.dispose()
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
     }
   })
 
