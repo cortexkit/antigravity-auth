@@ -600,6 +600,31 @@ describe('location-scoped quota', () => {
   })
 })
 
+const unrecognizedQuotaSummary = () =>
+  Response.json({
+    groups: [
+      {
+        displayName: 'Unrecognized pool',
+        buckets: [
+          {
+            bucketId: 'unrecognized-weekly',
+            displayName: 'Weekly',
+            window: 'weekly',
+            remainingFraction: 0.1,
+            resetTime: '2026-11-30T00:00:00Z',
+          },
+        ],
+      },
+    ],
+  })
+
+const legacyGeminiQuota = () =>
+  Response.json({
+    models: {
+      'gemini-3-flash-agent': { quotaInfo: { remainingFraction: 0.65 } },
+    },
+  })
+
 describe('authorized local quota fetcher', () => {
   type Options = Parameters<typeof createAuthorizedFetchAccountQuota>[0]
   type Transport = NonNullable<Options['transport']>
@@ -807,6 +832,29 @@ describe('authorized local quota fetcher', () => {
         request.body.includes('fake-authorized-project'),
       ),
     ).toBe(true)
+  })
+
+  it('uses the legacy local quota reading when the summary has no recognized buckets', async () => {
+    const requests: string[] = []
+    const fetchQuota = createAuthorizedFetchAccountQuota({
+      authorize: async () => authorized(),
+      logger: silent,
+      transport: () => async (url) => {
+        requests.push(url)
+        if (url.endsWith(':retrieveUserQuotaSummary'))
+          return unrecognizedQuotaSummary()
+        if (url.endsWith(':fetchAvailableModels')) return legacyGeminiQuota()
+        throw new Error(`Unexpected quota request: ${url}`)
+      },
+    })
+
+    const reading = await fetchQuota(ACCOUNT, new AbortController().signal)
+    expect(requests.map((url) => url.split(':').at(-1))).toEqual([
+      'retrieveUserQuotaSummary',
+      'fetchAvailableModels',
+    ])
+    expect(reading.status).toBe('ok')
+    expect(reading.quota?.groups.gemini?.remainingFraction).toBe(0.65)
   })
 
   it('keeps local quota failures on daily and never stores the production pool', async () => {
@@ -1612,6 +1660,34 @@ describe('vault quota check', () => {
       }
     }
   }
+
+  it('uses the legacy vault quota reading when the summary has no recognized buckets', async () => {
+    const vault = vaultSource()
+    const sent: Sent[] = []
+    const reading = await fetchVaultAccountQuota({
+      source: vault.source,
+      ref,
+      signal: new AbortController().signal,
+      logger: silent,
+      transport: recordingTransport(sent, ({ url }) => {
+        if (url.endsWith(':retrieveUserQuotaSummary'))
+          return unrecognizedQuotaSummary()
+        if (url.endsWith(':fetchAvailableModels')) return legacyGeminiQuota()
+        throw new Error(`Unexpected quota request: ${url}`)
+      }),
+    })
+
+    expect({
+      requests: sent.map(({ url }) => url.split(':').at(-1)),
+      fellBackToLegacy: reading.fellBackToLegacy,
+      geminiRemaining: reading.quota.groups.gemini?.remainingFraction,
+    }).toEqual({
+      requests: ['retrieveUserQuotaSummary', 'fetchAvailableModels'],
+      fellBackToLegacy: true,
+      geminiRemaining: 0.65,
+    })
+    expectOneAdmissionPerRequest(sent, vault.issued)
+  })
 
   it('keeps summary and legacy requests on daily after a failed summary', async () => {
     const vault = vaultSource()

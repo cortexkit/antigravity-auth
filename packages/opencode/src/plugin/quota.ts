@@ -603,6 +603,17 @@ async function fetchLegacyModelsFallback(options: {
   }
 }
 
+function aggregateRecognizedQuotaSummary(
+  summary: Parameters<typeof aggregateQuotaSummary>[0],
+): QuotaSummary {
+  const result = aggregateQuotaSummary(summary)
+  // Without a known pool, the summary cannot replace the model-list reading.
+  if (Object.keys(result.groups).length === 0) {
+    throw new Error('Quota summary contains no recognized pools')
+  }
+  return result
+}
+
 /**
  * Fetches the Antigravity quota summary for one account with a bearer and
  * project the caller already resolved, with a legacy model-list fallback. Shared by the OpenCode 1
@@ -634,7 +645,7 @@ async function fetchQuotaPayloads(options: {
         ...(fetchVia ? { fetchVia } : {}),
       })
       return {
-        result: aggregateQuotaSummary(summaryResult.summary),
+        result: aggregateRecognizedQuotaSummary(summaryResult.summary),
         fellBackToLegacy: summaryResult.fellBackToLegacy ?? false,
       }
     } catch {
@@ -861,7 +872,7 @@ export async function fetchVaultAccountQuota(
     for (const endpoint of [ANTIGRAVITY_QUOTA_ENDPOINT]) {
       // An answer that cannot be aggregated counts as a failed request.
       const result = await attempt(async (grant, fetchVia) =>
-        aggregateQuotaSummary(
+        aggregateRecognizedQuotaSummary(
           (
             await fetchQuotaSummary({
               accessToken: grant.accessToken,
