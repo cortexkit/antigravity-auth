@@ -45,6 +45,7 @@ import type {
   ProviderMetadata,
   QuotaState,
 } from './account-repository-types.ts'
+import { fenceRateLimitRemovals } from './account-selector.ts'
 import type { CommonAuthFsModule } from './common-auth-runtime.ts'
 import type { VaultClaustrumPort, VaultRoster } from './vault-account-source.ts'
 
@@ -389,6 +390,21 @@ function decodeAccount(raw: unknown, path: string): VaultAccountState {
   })
 }
 
+/** Fence an update against removal evidence read from disk under the lock. */
+function decodeUpdate(
+  raw: unknown,
+  current: VaultAccountState | undefined,
+): VaultAccountStateValue {
+  const value = decodeValue(raw, 'update', 'typed')
+  if (value.metadata) {
+    value.metadata = fenceRateLimitRemovals(
+      value.metadata,
+      current?.metadata?.rateLimitRemovedAt,
+    )
+  }
+  return value
+}
+
 /**
  * Reads a sidecar value. A newer schema, an unknown field, a credential or a
  * project anywhere in it is refused; nothing is silently dropped.
@@ -668,7 +684,7 @@ export async function commitVaultProviderState(
                 credentialId: attribution.credentialId,
                 recordVersion: attribution.recordVersion,
               }),
-              ...decodeValue(requested, 'update', 'typed'),
+              ...decodeUpdate(requested, current),
             })
             accounts[identity] = next
           }
@@ -883,7 +899,7 @@ export async function commitVaultProviderStates(
                   credentialId: entry.attribution.credentialId,
                   recordVersion: entry.attribution.recordVersion,
                 }),
-                ...decodeValue(requested, 'update', 'typed'),
+                ...decodeUpdate(requested, current),
               })
               accounts[identity] = next
               written.push({ ...entry, next })

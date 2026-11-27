@@ -119,6 +119,7 @@ import {
   type UsageObservation,
 } from './account-repository-types.ts'
 import {
+  fenceRateLimitRemovals,
   type RateLimitReadingUpdate,
   reconcileManualLimitClear,
   reconcileRateLimitsFromReading,
@@ -620,23 +621,48 @@ function mergeSameCredential(
   if (stored.dailyRequestCounts != null) {
     out.dailyRequestCounts = stored.dailyRequestCounts
   }
-  if (incoming.rateLimitResetTimes !== undefined) {
-    out.rateLimitResetTimes = mergeRateLimitResets(
-      stored.rateLimitResetTimes,
-      incoming.rateLimitResetTimes,
-    )
-  }
-  if (incoming.rateLimitWrittenAt !== undefined) {
-    out.rateLimitWrittenAt = mergeRateLimitResets(
-      stored.rateLimitWrittenAt,
-      incoming.rateLimitWrittenAt,
-    )
-  }
   const clearedAt = latest(
     stored.rateLimitClearedAt,
     incoming.rateLimitClearedAt,
   )
   if (clearedAt !== undefined) out.rateLimitClearedAt = clearedAt
+  if (
+    stored.rateLimitRemovedAt ||
+    incoming.rateLimitRemovedAt ||
+    stored.rateLimitWindow ||
+    incoming.rateLimitWindow
+  ) {
+    const fenced = fenceRateLimitRemovals(
+      { ...stored, rateLimitClearedAt: clearedAt },
+      incoming.rateLimitRemovedAt,
+    )
+    const merged = applyRateLimitObservation(
+      fenced,
+      incoming.rateLimitResetTimes ?? {},
+      incoming.rateLimitWrittenAt ?? {},
+      incoming.rateLimitWindow,
+    )
+    out.rateLimitResetTimes = merged.rateLimitResetTimes
+    out.rateLimitWrittenAt = merged.rateLimitWrittenAt
+    if (merged.rateLimitWindow) out.rateLimitWindow = merged.rateLimitWindow
+    else delete out.rateLimitWindow
+    if (merged.rateLimitRemovedAt)
+      out.rateLimitRemovedAt = merged.rateLimitRemovedAt
+    else delete out.rateLimitRemovedAt
+  } else {
+    if (incoming.rateLimitResetTimes !== undefined) {
+      out.rateLimitResetTimes = mergeRateLimitResets(
+        stored.rateLimitResetTimes,
+        incoming.rateLimitResetTimes,
+      )
+    }
+    if (incoming.rateLimitWrittenAt !== undefined) {
+      out.rateLimitWrittenAt = mergeRateLimitResets(
+        stored.rateLimitWrittenAt,
+        incoming.rateLimitWrittenAt,
+      )
+    }
+  }
   const extensions = mergeExtensions(stored.extensions, incoming.extensions)
   if (extensions !== undefined) out.extensions = extensions
   return out
@@ -820,13 +846,22 @@ export function applyRateLimitObservation(
   metadata: ProviderMetadata,
   resets: Readonly<StoredRateLimitResetTimes>,
   writtenAt: Readonly<StoredRateLimitResetTimes> = {},
+  windows?: Readonly<ProviderMetadata['rateLimitWindow']>,
 ): ProviderMetadata {
+  metadata = fenceRateLimitRemovals(metadata)
   const clearedAt = metadata.rateLimitClearedAt ?? undefined
   const storedResets = { ...metadata.rateLimitResetTimes }
   const storedWrites = { ...metadata.rateLimitWrittenAt }
+  const storedWindows =
+    metadata.rateLimitWindow || windows
+      ? { ...metadata.rateLimitWindow }
+      : undefined
   for (const [key, reset] of Object.entries(resets)) {
     const stamp = writtenAt[key] ?? undefined
     if (clearedAt !== undefined && (stamp === undefined || stamp <= clearedAt))
+      continue
+    const removedAt = metadata.rateLimitRemovedAt?.[key]
+    if (removedAt !== undefined && (stamp === undefined || stamp <= removedAt))
       continue
 
     const prior = storedResets[key]
@@ -844,21 +879,32 @@ export function applyRateLimitObservation(
     storedResets[key] = reset
     if (stamp === undefined || reset === null) delete storedWrites[key]
     else storedWrites[key] = stamp
+    const window = windows?.[key]
+    if (storedWindows) {
+      if (reset !== null && window !== undefined) storedWindows[key] = window
+      else delete storedWindows[key]
+    }
   }
+  const next: ProviderMetadata = {
+    ...metadata,
+    rateLimitResetTimes: storedResets,
+    rateLimitWrittenAt: storedWrites,
+  }
+  if (storedWindows) next.rateLimitWindow = storedWindows
+  else delete next.rateLimitWindow
+  if (next.rateLimitRemovedAt === undefined) delete next.rateLimitRemovedAt
   if (clearedAt !== undefined) {
     const state = {
       rateLimitResetTimes: numericLimits(storedResets),
       rateLimitWrittenAt: numericLimits(storedWrites),
       rateLimitClearedAt: clearedAt,
+      rateLimitWindow: storedWindows,
     }
     reconcileManualLimitClear(state)
-    return { ...metadata, ...state }
+    next.rateLimitResetTimes = state.rateLimitResetTimes
+    next.rateLimitWrittenAt = state.rateLimitWrittenAt
   }
-  return {
-    ...metadata,
-    rateLimitResetTimes: storedResets,
-    rateLimitWrittenAt: storedWrites,
-  }
+  return fenceRateLimitRemovals(next)
 }
 
 export function clearAccountLimits(
@@ -869,6 +915,7 @@ export function clearAccountLimits(
     ...metadata,
     rateLimitResetTimes: {},
     rateLimitWrittenAt: {},
+    ...(metadata.rateLimitWindow ? { rateLimitWindow: {} } : {}),
     rateLimitClearedAt: at,
   }
 }
@@ -879,10 +926,17 @@ export function applyRateLimitReadingUpdate(
   reading: RateLimitReadingUpdate,
   now: number,
 ): ProviderMetadata {
+  metadata = fenceRateLimitRemovals(metadata)
   const state = {
     rateLimitResetTimes: numericLimits(metadata.rateLimitResetTimes),
     rateLimitWrittenAt: numericLimits(metadata.rateLimitWrittenAt),
     rateLimitClearedAt: metadata.rateLimitClearedAt ?? undefined,
+    rateLimitWindow: metadata.rateLimitWindow
+      ? { ...metadata.rateLimitWindow }
+      : undefined,
+    rateLimitRemovedAt: metadata.rateLimitRemovedAt
+      ? { ...metadata.rateLimitRemovedAt }
+      : undefined,
   }
   reconcileManualLimitClear(state)
   const changed = reconcileRateLimitsFromReading(state, reading, now)
@@ -903,6 +957,12 @@ export function applyRateLimitReadingUpdate(
     ...metadata,
     rateLimitResetTimes: resets,
     rateLimitWrittenAt: written,
+    ...(state.rateLimitWindow
+      ? { rateLimitWindow: state.rateLimitWindow }
+      : {}),
+    ...(state.rateLimitRemovedAt
+      ? { rateLimitRemovedAt: state.rateLimitRemovedAt }
+      : {}),
   }
 }
 
@@ -1092,7 +1152,10 @@ function encodeEnvelope(
 ): JsonObject {
   return encodeProviderState({
     schemaVersion: PROVIDER_STATE_SCHEMA_VERSION,
-    metadata,
+    metadata: fenceRateLimitRemovals(
+      metadata,
+      prior?.metadata.rateLimitRemovedAt,
+    ),
     ...(prior?.extensions !== undefined
       ? { extensions: prior.extensions }
       : {}),

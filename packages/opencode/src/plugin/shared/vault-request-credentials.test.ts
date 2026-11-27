@@ -740,6 +740,25 @@ describe('vault pools sharing one provider-state file', () => {
       now: () => now,
       advance: (ms: number) => (now += ms),
       read: async () => (await readState()).accounts[by.accountIdentity],
+      async writeLegacyRepublish(writtenAt: number, reset: number) {
+        const file = await readState()
+        const account = file.accounts[by.accountIdentity]!
+        await fs.writeJsonAtomic(statePath, {
+          ...file,
+          accounts: {
+            ...file.accounts,
+            [by.accountIdentity]: {
+              ...account,
+              metadata: {
+                ...account.metadata,
+                rateLimitResetTimes: { [key]: reset },
+                rateLimitWrittenAt: { [key]: writtenAt },
+                rateLimitRemovedAt: { [key]: writtenAt },
+              },
+            },
+          },
+        })
+      },
       reads: () => reads,
       readDiagnostics,
       failRead: (error: Error) => {
@@ -881,7 +900,9 @@ describe('vault pools sharing one provider-state file', () => {
     // A has not seen the weekly reading and saves its old mark with usage.
     a.pool.selector.recordRequest(a.row.index, 'gemini')
     await a.pool.flush()
-    expect((await f.read())?.metadata?.rateLimitWrittenAt?.[key]).toBe(oldWrite)
+    const metadata = (await f.read())?.metadata
+    expect(metadata?.rateLimitRemovedAt?.[key]).toBe(oldWrite)
+    expect(metadata?.rateLimitWrittenAt?.[key]).toBeUndefined()
     await b.pool.sync()
     expect(b.pool.selector.getCurrentOrNextForFamily('gemini', model)).toBe(
       b.row,
@@ -896,6 +917,107 @@ describe('vault pools sharing one provider-state file', () => {
     expect(
       b.pool.selector.getCurrentOrNextForFamily('gemini', model),
     ).toBeNull()
+  })
+
+  it('another vault location and a restart reject a removed mark after a stale usage save', async () => {
+    const a = await f.open()
+    const c = await f.open()
+    const weekly = 65 * 60 * 60 * 1_000
+    a.pool.selector.markRateLimited(a.row, weekly, 'gemini', model)
+    await a.pool.flush()
+    const b = await f.open()
+
+    f.advance(100)
+    await f.checkQuota(b.pool, f.now(), 0.8, 'weekly')
+    f.advance(100)
+    await f.checkQuota(b.pool)
+    a.pool.selector.recordRequest(a.row.index, 'gemini')
+    await a.pool.flush()
+
+    await c.pool.sync()
+    expect(c.pool.selector.getCurrentOrNextForFamily('gemini', model)).toBe(
+      c.row,
+    )
+    const restarted = await f.open()
+    expect(
+      restarted.pool.selector.getCurrentOrNextForFamily('gemini', model),
+    ).toBe(restarted.row)
+
+    const newWrite = f.advance(100)
+    a.pool.selector.markRateLimited(a.row, weekly, 'gemini', model)
+    await a.pool.flush()
+    for (const { pool, row } of [c, restarted]) {
+      await pool.sync()
+      expect(row.rateLimitWrittenAt?.[key]).toBe(newWrite)
+      expect(
+        pool.selector.getCurrentOrNextForFamily('gemini', model),
+      ).toBeNull()
+    }
+    expect(
+      (await f.read())?.metadata?.rateLimitRemovedAt?.[key],
+    ).toBeUndefined()
+  })
+
+  it('kept and fresh vault rows ignore a stale mark even if an older writer put it back on disk', async () => {
+    const a = await f.open()
+    const oldWrite = f.now()
+    const weekly = 65 * 60 * 60 * 1_000
+    a.pool.selector.markRateLimited(a.row, weekly, 'gemini', model)
+    await a.pool.flush()
+    const b = await f.open()
+
+    f.advance(100)
+    await f.checkQuota(b.pool, f.now(), 0.8, 'weekly')
+    f.advance(100)
+    await f.checkQuota(b.pool)
+    await f.writeLegacyRepublish(oldWrite, oldWrite + weekly)
+
+    await a.pool.sync()
+    const restarted = await f.open()
+    expect([
+      a.pool.selector.getCurrentOrNextForFamily('gemini', model) === a.row,
+      restarted.pool.selector.getCurrentOrNextForFamily('gemini', model) ===
+        restarted.row,
+    ]).toEqual([true, true])
+  })
+
+  it('a remembered weekly window survives vault hydration near its reset', async () => {
+    const a = await f.open()
+    const remaining = 4 * 60 * 60 * 1_000
+    const reset = f.now() + remaining
+    a.row.cachedQuota = {
+      gemini: {
+        remainingFraction: 0,
+        modelCount: 1,
+        windows: [
+          {
+            window: 'weekly',
+            remainingFraction: 0,
+            resetTime: new Date(reset).toISOString(),
+          },
+        ],
+      },
+    }
+    a.row.cachedQuotaUpdatedAt = f.now()
+    a.pool.selector.markRateLimitedWithReason(
+      a.row,
+      'gemini',
+      model,
+      'QUOTA_EXHAUSTED',
+      remaining,
+    )
+    await a.pool.flush()
+
+    const b = await f.open()
+    f.advance(100)
+    await f.checkQuota(b.pool)
+    expect(b.row.rateLimitResetTimes[key]).toBe(reset)
+    expect(b.row.rateLimitWindow?.[key]).toBe('weekly')
+
+    f.advance(100)
+    await f.checkQuota(b.pool, f.now(), 0.8, 'weekly')
+    expect(b.row.rateLimitResetTimes[key]).toBeUndefined()
+    expect(b.row.rateLimitWindow?.[key]).toBeUndefined()
   })
 
   it('issue77 a kept vault row becomes selectable after another pool checks quota', async () => {

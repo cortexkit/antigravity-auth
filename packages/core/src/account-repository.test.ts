@@ -93,6 +93,56 @@ function fingerprint(seed: string): StoredFingerprint {
 
 describe('issue69 locked reading clears', () => {
   it(
+    'a local repository fences a stale rate-limit snapshot but accepts a newer mark',
+    async () => {
+      await withPool(async (pool) => {
+        const a = pool.open()
+        const b = pool.open()
+        const at = Date.now() - 10_000
+        const reset = at + 65 * 60 * 60 * 1_000
+        const key = 'gemini:gemini-3.8-flash'
+        const { ref } = await a.login(
+          login('local-removal', 'local-removal-refresh', {
+            rateLimitResetTimes: { [key]: reset },
+            rateLimitWrittenAt: { [key]: at },
+          }),
+        )
+        const stale = await metadataOf(a, 'local-removal')
+        const resetTime = new Date(reset).toISOString()
+        await b.recordQuota(ref, {
+          schemaVersion: 1,
+          cachedQuotaUpdatedAt: at + 1,
+          cachedQuota: {
+            gemini: {
+              modelCount: 1,
+              remainingFraction: 0.8,
+              windows: [
+                { window: 'weekly', remainingFraction: 0.8, resetTime },
+              ],
+            },
+          },
+        })
+
+        await a.recordUsage(ref, { at: at + 2, family: 'gemini' })
+        expect(
+          (await metadataOf(b, 'local-removal')).rateLimitResetTimes?.[key],
+        ).toBeUndefined()
+        await a.updateMetadata(ref, () => ({ kind: 'set', metadata: stale }))
+        const restarted = pool.open()
+        const afterStale = await metadataOf(restarted, 'local-removal')
+        expect(afterStale.rateLimitResetTimes?.[key]).toBeUndefined()
+        expect(afterStale.rateLimitRemovedAt?.[key]).toBe(at)
+
+        await a.recordRateLimits(ref, { [key]: reset + 10_000 })
+        const afterNew = await metadataOf(restarted, 'local-removal')
+        expect(afterNew.rateLimitResetTimes?.[key]).toBe(reset + 10_000)
+        expect(afterNew.rateLimitRemovedAt?.[key]).toBeUndefined()
+      })
+    },
+    STORE_TEST_TIMEOUT_MS,
+  )
+
+  it(
     'discards an older quota observation from a second repository without clearing marks',
     async () => {
       await withPool(async (pool) => {

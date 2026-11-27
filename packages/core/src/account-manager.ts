@@ -30,7 +30,8 @@ import {
   type AccountSessionIdentity,
   clampNonNegativeInt,
   type RateLimitReadingUpdate,
-  reconcileManualLimitClear,
+  reconcileRemovedRateLimits,
+  refreshKeptRateLimits,
   type SelectableAccount,
   type SelectionSink,
 } from './account-selector.ts'
@@ -223,6 +224,7 @@ interface PendingRowWrite {
   /** Per rate-limit key: a reset time to merge, or `clear` to drop it. */
   rateLimits: Map<string, number | 'clear'>
   rateLimitWrittenAt?: Record<string, number>
+  rateLimitWindow?: ProviderMetadata['rateLimitWindow']
   readingUpdate?: RateLimitReadingUpdate
   cooldown?: { value: CooldownObservation }
   switchReason?: LastSwitchReason
@@ -244,14 +246,26 @@ function applyPendingRowWrite(
     else resets[key] = value
   }
   if (Object.keys(resets).length > 0) {
-    next = applyRateLimitObservation(next, resets, pending.rateLimitWrittenAt)
+    next = applyRateLimitObservation(
+      next,
+      resets,
+      pending.rateLimitWrittenAt,
+      pending.rateLimitWindow,
+    )
   }
   if (cleared.length > 0 && next.rateLimitResetTimes != null) {
     const rates = { ...next.rateLimitResetTimes }
     for (const key of cleared) delete rates[key]
     const written = { ...next.rateLimitWrittenAt }
     for (const key of cleared) delete written[key]
-    next = { ...next, rateLimitResetTimes: rates, rateLimitWrittenAt: written }
+    const windows = next.rateLimitWindow && { ...next.rateLimitWindow }
+    if (windows) for (const key of cleared) delete windows[key]
+    next = {
+      ...next,
+      rateLimitResetTimes: rates,
+      rateLimitWrittenAt: written,
+      ...(windows ? { rateLimitWindow: windows } : {}),
+    }
   }
   // A pending mark can arrive after the quota write. Do not reconcile it
   // with a reading that was refused or has since been replaced on disk.
@@ -525,7 +539,7 @@ export class AccountManager {
             acc.refreshToken === authParts.refreshToken
           )
 
-          return {
+          const account: ManagedAccount = {
             index,
             email: acc.email,
             label: acc.label,
@@ -543,8 +557,12 @@ export class AccountManager {
             access: matchesFallback ? authFallback?.access : undefined,
             expires: matchesFallback ? authFallback?.expires : undefined,
             enabled: acc.enabled !== false,
-            rateLimitResetTimes: acc.rateLimitResetTimes ?? {},
+            rateLimitResetTimes: { ...acc.rateLimitResetTimes },
             rateLimitWrittenAt: { ...acc.rateLimitWrittenAt },
+            rateLimitWindow: acc.rateLimitWindow && { ...acc.rateLimitWindow },
+            rateLimitRemovedAt: acc.rateLimitRemovedAt && {
+              ...acc.rateLimitRemovedAt,
+            },
             rateLimitClearedAt: acc.rateLimitClearedAt,
             lastSwitchReason: acc.lastSwitchReason,
             coolingDownUntil: acc.coolingDownUntil,
@@ -572,6 +590,8 @@ export class AccountManager {
             accountIneligibleReason: acc.accountIneligibleReason,
             eligibilityStateUpdatedAt: acc.eligibilityStateUpdatedAt,
           }
+          reconcileRemovedRateLimits(account)
+          return account
         })
         .filter((a): a is ManagedAccount => a !== null)
 
@@ -676,6 +696,12 @@ export class AccountManager {
             pending.rateLimitWrittenAt ??= {}
             pending.rateLimitWrittenAt[key] = at
           }
+          const window = account.rateLimitWindow?.[key]
+          if (window !== undefined) {
+            pending.rateLimitWindow ??= {}
+            pending.rateLimitWindow[key] = window
+          } else if (pending.rateLimitWindow)
+            delete pending.rateLimitWindow[key]
         }),
       readingUpdate: (account, reading) =>
         this.queueRowWrite(account, (pending) => {
@@ -796,6 +822,10 @@ export class AccountManager {
           (entry): entry is [string, number] => typeof entry[1] === 'number',
         ),
       ),
+      rateLimitWindow: meta?.rateLimitWindow && { ...meta.rateLimitWindow },
+      rateLimitRemovedAt: meta?.rateLimitRemovedAt && {
+        ...meta.rateLimitRemovedAt,
+      },
       rateLimitClearedAt: meta?.rateLimitClearedAt ?? undefined,
       lastSwitchReason: present(meta?.lastSwitchReason),
       coolingDownUntil: present(meta?.coolingDownUntil),
@@ -830,6 +860,7 @@ export class AccountManager {
       accountIneligibleReason: present(meta?.accountIneligibleReason),
       eligibilityStateUpdatedAt: present(meta?.eligibilityStateUpdatedAt),
     }
+    reconcileRemovedRateLimits(account)
     if (account.fingerprint === undefined) {
       account.fingerprint = generateFingerprint()
       return { account, fingerprint: 'generated' }
@@ -1023,26 +1054,14 @@ export class AccountManager {
     }
     prior.enabled = fresh.enabled
 
-    const rates: RateLimitStateV3 = { ...fresh.rateLimitResetTimes }
-    const written: RateLimitStateV3 = { ...fresh.rateLimitWrittenAt }
-    for (const [key, value] of Object.entries(prior.rateLimitResetTimes)) {
-      written[key] =
-        Math.max(written[key] ?? 0, prior.rateLimitWrittenAt?.[key] ?? 0) ||
-        undefined
-      const stored = rates[key]
-      if (value !== undefined && (stored === undefined || value > stored)) {
-        rates[key] = value
+    refreshKeptRateLimits(prior, fresh)
+    for (const [key, value] of pending?.rateLimits ?? []) {
+      if (value === 'clear') {
+        delete prior.rateLimitResetTimes[key]
+        if (prior.rateLimitWrittenAt) delete prior.rateLimitWrittenAt[key]
+        if (prior.rateLimitWindow) delete prior.rateLimitWindow[key]
       }
     }
-    for (const [key, value] of pending?.rateLimits ?? []) {
-      if (value === 'clear') delete rates[key]
-    }
-    prior.rateLimitResetTimes = rates
-    prior.rateLimitWrittenAt = written
-    prior.rateLimitClearedAt =
-      Math.max(prior.rateLimitClearedAt ?? 0, fresh.rateLimitClearedAt ?? 0) ||
-      undefined
-    reconcileManualLimitClear(prior)
     if (pending?.cooldown === undefined) {
       prior.coolingDownUntil = fresh.coolingDownUntil
       prior.cooldownReason = fresh.cooldownReason
@@ -1178,7 +1197,14 @@ export class AccountManager {
       this.pendingRowWrites.set(key, failed)
     } else {
       for (const [rateKey, value] of failed.rateLimits) {
-        if (!newer.rateLimits.has(rateKey)) newer.rateLimits.set(rateKey, value)
+        if (!newer.rateLimits.has(rateKey)) {
+          newer.rateLimits.set(rateKey, value)
+          const window = failed.rateLimitWindow?.[rateKey]
+          if (window !== undefined) {
+            newer.rateLimitWindow ??= {}
+            newer.rateLimitWindow[rateKey] = window
+          }
+        }
       }
       newer.cooldown ??= failed.cooldown
       newer.rateLimitWrittenAt = {
@@ -1373,6 +1399,8 @@ export class AccountManager {
       parts: { ...a.parts },
       rateLimitResetTimes: { ...a.rateLimitResetTimes },
       rateLimitWrittenAt: { ...a.rateLimitWrittenAt },
+      rateLimitWindow: a.rateLimitWindow && { ...a.rateLimitWindow },
+      rateLimitRemovedAt: a.rateLimitRemovedAt && { ...a.rateLimitRemovedAt },
     }))
   }
 
@@ -1794,7 +1822,7 @@ export class AccountManager {
         enabled: a.enabled,
         rateLimitResetTimes:
           Object.keys(a.rateLimitResetTimes).length > 0
-            ? a.rateLimitResetTimes
+            ? { ...a.rateLimitResetTimes }
             : undefined,
         fingerprint: a.fingerprint,
         fingerprintHistory: a.fingerprintHistory?.length
@@ -1809,7 +1837,9 @@ export class AccountManager {
         // for a different account after an index shift.
         cachedQuotaAccountId: a.cachedQuotaAccountId,
         cachedQuotaUpdatedAt: a.cachedQuotaUpdatedAt,
-        rateLimitWrittenAt: a.rateLimitWrittenAt,
+        rateLimitWrittenAt: a.rateLimitWrittenAt && { ...a.rateLimitWrittenAt },
+        rateLimitWindow: a.rateLimitWindow && { ...a.rateLimitWindow },
+        rateLimitRemovedAt: a.rateLimitRemovedAt && { ...a.rateLimitRemovedAt },
         rateLimitClearedAt: a.rateLimitClearedAt,
         capturedTierId: a.capturedTierId,
         capturedPaidTierId: a.capturedPaidTierId,

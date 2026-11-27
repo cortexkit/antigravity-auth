@@ -39,7 +39,11 @@ import {
   MAX_FINGERPRINT_HISTORY,
 } from './fingerprint.ts'
 import { getQuotaGroupForModel } from './model-registry.ts'
-import type { QuotaGroup, QuotaGroupSummary } from './quota-types.ts'
+import type {
+  QuotaGroup,
+  QuotaGroupSummary,
+  QuotaWindow,
+} from './quota-types.ts'
 import {
   type AccountWithMetrics,
   calculateBackoffMs,
@@ -71,6 +75,8 @@ export interface SelectableAccount {
    */
   rateLimitResetTimes: RateLimitStateV3
   rateLimitWrittenAt?: RateLimitStateV3
+  rateLimitWindow?: Record<string, QuotaWindow>
+  rateLimitRemovedAt?: Record<string, number>
   rateLimitClearedAt?: number
   lastSwitchReason?: LastSwitchReason
   coolingDownUntil?: number
@@ -111,8 +117,6 @@ export interface SelectionSink<A> {
   /** A rate-limit reset time was set for `key`, or (`'clear'`) dropped. */
   rateLimit?(row: A, key: QuotaKey, resetAt: number | 'clear'): void
   readingUpdate?(row: A, reading: RateLimitReadingUpdate): void
-  /** A reading removed a mark in memory, even when it is persisted elsewhere. */
-  quotaReadingCleared?(row: A, key: QuotaKey, writtenAt: number): void
   /** A cooldown was set, or (`null`) cleared. */
   cooldown?(row: A, value: CooldownObservation): void
   /** The row was switched to for `reason`. */
@@ -243,7 +247,7 @@ function clearExpiredRateLimits(
       resetTime !== undefined &&
       now >= resetTime
     ) {
-      delete account.rateLimitResetTimes[key]
+      deleteRateLimitMark(account, key)
     }
   }
 }
@@ -323,23 +327,100 @@ export function stampRateLimitWrites(
   return stamped
 }
 
+type RateLimitMaps = {
+  rateLimitResetTimes?: Record<string, number | null | undefined> | null
+  rateLimitWrittenAt?: Record<string, number | null | undefined> | null
+  rateLimitWindow?: Record<string, QuotaWindow> | null
+  rateLimitRemovedAt?: Record<string, number> | null
+}
+
+function deleteRateLimitMark(account: RateLimitMaps, key: string): void {
+  if (account.rateLimitResetTimes) delete account.rateLimitResetTimes[key]
+  if (account.rateLimitWrittenAt) delete account.rateLimitWrittenAt[key]
+  if (account.rateLimitWindow) delete account.rateLimitWindow[key]
+}
+
+export function mergeRateLimitRemovalStamps(
+  a?: Readonly<Record<string, number>> | null,
+  b?: Readonly<Record<string, number>> | null,
+): Record<string, number> | undefined {
+  const merged = new Map(Object.entries(a ?? {}))
+  for (const [key, stamp] of Object.entries(b ?? {})) {
+    merged.set(key, Math.max(stamp, merged.get(key) ?? stamp))
+  }
+  return merged.size > 0 ? Object.fromEntries(merged) : undefined
+}
+
+/** A quota check may clear a mark before a different process next saves it. */
+export function reconcileRemovedRateLimits(account: RateLimitMaps): void {
+  for (const [key, stamp] of Object.entries(account.rateLimitRemovedAt ?? {})) {
+    if (account.rateLimitResetTimes?.[key] == null) continue
+    const writtenAt = account.rateLimitWrittenAt?.[key]
+    if (writtenAt != null && writtenAt > stamp)
+      delete account.rateLimitRemovedAt![key]
+    else deleteRateLimitMark(account, key)
+  }
+}
+
+/** Keep removal evidence when a writer brings a snapshot of an older mark. */
+export function fenceRateLimitRemovals<T extends RateLimitMaps>(
+  account: T,
+  stored?: Readonly<Record<string, number>>,
+): T {
+  const removed = mergeRateLimitRemovalStamps(
+    account.rateLimitRemovedAt,
+    stored,
+  )
+  if (!removed) return account
+  const next: T = {
+    ...account,
+    ...(account.rateLimitResetTimes
+      ? { rateLimitResetTimes: { ...account.rateLimitResetTimes } }
+      : {}),
+    ...(account.rateLimitWrittenAt
+      ? { rateLimitWrittenAt: { ...account.rateLimitWrittenAt } }
+      : {}),
+    ...(account.rateLimitWindow
+      ? { rateLimitWindow: { ...account.rateLimitWindow } }
+      : {}),
+    rateLimitRemovedAt: removed,
+  }
+  reconcileRemovedRateLimits(next)
+  if (Object.keys(removed).length === 0) delete next.rateLimitRemovedAt
+  return next
+}
+
 /** An operator clear also invalidates stale snapshots of the removed marks. */
 export function reconcileManualLimitClear(
   account: Pick<
     SelectableAccount,
-    'rateLimitResetTimes' | 'rateLimitWrittenAt' | 'rateLimitClearedAt'
+    | 'rateLimitResetTimes'
+    | 'rateLimitWrittenAt'
+    | 'rateLimitWindow'
+    | 'rateLimitClearedAt'
   >,
 ): void {
   if (account.rateLimitClearedAt === undefined) return
   for (const key of Object.keys(account.rateLimitResetTimes)) {
     if ((account.rateLimitWrittenAt?.[key] ?? 0) > account.rateLimitClearedAt)
       continue
-    delete account.rateLimitResetTimes[key]
-    if (account.rateLimitWrittenAt) delete account.rateLimitWrittenAt[key]
+    deleteRateLimitMark(account, key)
   }
 }
 
 const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000
+
+function exhaustedQuotaWindow(
+  group: QuotaGroup,
+  quota: QuotaGroupSummary | undefined,
+): QuotaWindow {
+  return group === 'gemini-argon' ||
+    quota?.windows?.some(
+      (entry) => entry.window === 'weekly' && entry.remainingFraction === 0,
+    )
+    ? 'weekly'
+    : '5h'
+}
 
 /** Re-evaluate the write-time fence on the state held under the writer's lock.
  * Positive quota in the limiting window removes a mark; empty quota only extends it.
@@ -347,11 +428,13 @@ const FIVE_HOUR_WINDOW_MS = 5 * 60 * 60 * 1000
 export function reconcileRateLimitsFromReading(
   account: Pick<
     SelectableAccount,
-    'rateLimitResetTimes' | 'rateLimitWrittenAt'
+    | 'rateLimitResetTimes'
+    | 'rateLimitWrittenAt'
+    | 'rateLimitWindow'
+    | 'rateLimitRemovedAt'
   >,
   reading: RateLimitReadingUpdate,
   now: number,
-  onClear?: (key: QuotaKey, writtenAt: number) => void,
 ): string[] {
   const at = reading.checkedAt
   if (at === undefined || !Number.isFinite(at) || at <= 0 || at > now) return []
@@ -376,6 +459,8 @@ export function reconcileRateLimitsFromReading(
       if (reset > (account.rateLimitResetTimes[key] ?? 0) && reset > now) {
         account.rateLimitResetTimes[key] = reset
         account.rateLimitWrittenAt![key] = at
+        account.rateLimitWindow ??= {}
+        account.rateLimitWindow[key] = exhaustedQuotaWindow(group, quota)
         cleared.push(key)
       }
       continue
@@ -388,13 +473,14 @@ export function reconcileRateLimitsFromReading(
       quota.remainingFraction <= 0
     )
       continue
-    // An omitted window says nothing about the quota that caused the mark.
-    // Argon has only a weekly window, even when its reset is close.
+    // Only long legacy marks can be identified from their reset alone.
     const window =
-      group === 'gemini-argon' || reset - at > FIVE_HOUR_WINDOW_MS
+      group === 'gemini-argon'
         ? 'weekly'
-        : '5h'
+        : (account.rateLimitWindow?.[key] ??
+          (reset - at > FIVE_HOUR_WINDOW_MS ? 'weekly' : undefined))
     if (
+      window !== undefined &&
       !quota.windows?.some(
         (entry) =>
           entry.window === window &&
@@ -403,10 +489,13 @@ export function reconcileRateLimitsFromReading(
       )
     )
       continue
-    delete account.rateLimitResetTimes[key]
-    if (account.rateLimitWrittenAt) delete account.rateLimitWrittenAt[key]
+    deleteRateLimitMark(account, key)
+    account.rateLimitRemovedAt ??= {}
+    account.rateLimitRemovedAt[key] = Math.max(
+      writtenAt,
+      account.rateLimitRemovedAt[key] ?? writtenAt,
+    )
     cleared.push(key)
-    onClear?.(key as QuotaKey, writtenAt)
   }
   return cleared
 }
@@ -509,6 +598,57 @@ const IN_MEMORY_FIELDS: ReadonlySet<string> = new Set([
   'lastFailureTime',
 ])
 
+/** Merge retained marks without attaching one mark's evidence to another's reset. */
+export function refreshKeptRateLimits(
+  prior: SelectableAccount,
+  fresh: SelectableAccount,
+): void {
+  const removed = mergeRateLimitRemovalStamps(
+    prior.rateLimitRemovedAt,
+    fresh.rateLimitRemovedAt,
+  )
+  const rates = { ...fresh.rateLimitResetTimes }
+  const written = { ...fresh.rateLimitWrittenAt }
+  const clearedAt =
+    Math.max(prior.rateLimitClearedAt ?? 0, fresh.rateLimitClearedAt ?? 0) ||
+    undefined
+  const windows =
+    prior.rateLimitWindow || fresh.rateLimitWindow
+      ? { ...fresh.rateLimitWindow }
+      : undefined
+  for (const [key, value] of Object.entries(prior.rateLimitResetTimes)) {
+    const priorWrite = prior.rateLimitWrittenAt?.[key]
+    const blockedAt = Math.max(
+      removed?.[key] ?? -Infinity,
+      clearedAt ?? -Infinity,
+    )
+    if (value === undefined || (priorWrite ?? 0) <= blockedAt) continue
+    const stored = rates[key]
+    const storedWrite = written[key]
+    if (
+      stored === undefined ||
+      (storedWrite ?? 0) <= blockedAt ||
+      value > stored ||
+      (value === stored && (priorWrite ?? 0) > (storedWrite ?? 0))
+    ) {
+      rates[key] = value
+      written[key] = priorWrite
+      if (windows) {
+        const window = prior.rateLimitWindow?.[key]
+        if (window) windows[key] = window
+        else delete windows[key]
+      }
+    }
+  }
+  prior.rateLimitResetTimes = rates
+  prior.rateLimitWrittenAt = written
+  prior.rateLimitWindow = windows
+  prior.rateLimitRemovedAt = removed
+  prior.rateLimitClearedAt = clearedAt
+  reconcileManualLimitClear(prior)
+  reconcileRemovedRateLimits(prior)
+}
+
 /**
  * The default refresh of a kept row from its fresh roster row: every field
  * the fresh row has replaces the kept one, and every field it lacks is
@@ -527,20 +667,8 @@ export function refreshSelectableRow<A extends SelectableAccount>(
   fresh: A,
 ): void {
   const lastUsed = Math.max(prior.lastUsed, fresh.lastUsed)
-  const rates: RateLimitStateV3 = { ...fresh.rateLimitResetTimes }
-  const written: RateLimitStateV3 = { ...fresh.rateLimitWrittenAt }
-  const clearedAt =
-    Math.max(prior.rateLimitClearedAt ?? 0, fresh.rateLimitClearedAt ?? 0) ||
-    undefined
-  for (const [key, value] of Object.entries(prior.rateLimitResetTimes)) {
-    written[key] =
-      Math.max(written[key] ?? 0, prior.rateLimitWrittenAt?.[key] ?? 0) ||
-      undefined
-    const stored = rates[key]
-    if (value !== undefined && (stored === undefined || value > stored)) {
-      rates[key] = value
-    }
-  }
+  const limits = { ...prior }
+  refreshKeptRateLimits(limits, fresh)
   for (const key of Object.keys(prior)) {
     if (!IN_MEMORY_FIELDS.has(key) && !Object.hasOwn(fresh, key)) {
       Reflect.deleteProperty(prior, key)
@@ -550,10 +678,11 @@ export function refreshSelectableRow<A extends SelectableAccount>(
     if (!IN_MEMORY_FIELDS.has(key)) Reflect.set(prior, key, value)
   }
   prior.lastUsed = lastUsed
-  prior.rateLimitResetTimes = rates
-  prior.rateLimitWrittenAt = written
-  prior.rateLimitClearedAt = clearedAt
-  reconcileManualLimitClear(prior)
+  prior.rateLimitResetTimes = limits.rateLimitResetTimes
+  prior.rateLimitWrittenAt = limits.rateLimitWrittenAt
+  prior.rateLimitWindow = limits.rateLimitWindow
+  prior.rateLimitRemovedAt = limits.rateLimitRemovedAt
+  prior.rateLimitClearedAt = limits.rateLimitClearedAt
 }
 
 interface AccountSessionState {
@@ -715,6 +844,7 @@ export class AccountSelector<A extends SelectableAccount> {
   /** Disable persistence when the caller already writes the reading under its lock. */
   reconcileQuotaReading(account: A, persist = true): void {
     reconcileManualLimitClear(account)
+    reconcileRemovedRateLimits(account)
     const stamped = stampRateLimitWrites(account, this.now())
     for (const key of persist ? stamped : []) {
       this.sink.rateLimit?.(
@@ -728,15 +858,7 @@ export class AccountSelector<A extends SelectableAccount> {
       checkedAt: account.cachedQuotaUpdatedAt,
       quota: account.cachedQuota,
     }
-    const cleared = reconcileRateLimitsFromReading(
-      account,
-      reading,
-      this.now(),
-      this.sink.quotaReadingCleared
-        ? (key, writtenAt) =>
-            this.sink.quotaReadingCleared?.(account, key, writtenAt)
-        : undefined,
-    )
+    const cleared = reconcileRateLimitsFromReading(account, reading, this.now())
     // Even an empty local map may hide a mark written by another process.
     if (
       persist &&
@@ -909,6 +1031,9 @@ export class AccountSelector<A extends SelectableAccount> {
     return this.accounts.map((a) => ({
       ...a,
       rateLimitResetTimes: { ...a.rateLimitResetTimes },
+      rateLimitWrittenAt: a.rateLimitWrittenAt && { ...a.rateLimitWrittenAt },
+      rateLimitWindow: a.rateLimitWindow && { ...a.rateLimitWindow },
+      rateLimitRemovedAt: a.rateLimitRemovedAt && { ...a.rateLimitRemovedAt },
     }))
   }
 
@@ -1479,10 +1604,23 @@ export class AccountSelector<A extends SelectableAccount> {
     this.setRateLimit(account, key, this.now() + retryAfterMs)
   }
 
-  private setRateLimit(account: A, key: QuotaKey, resetAt: number): void {
+  private setRateLimit(
+    account: A,
+    key: QuotaKey,
+    resetAt: number,
+    window?: QuotaWindow,
+  ): void {
+    const writtenAt = this.now()
+    const removedAt = account.rateLimitRemovedAt?.[key]
+    if (removedAt !== undefined && writtenAt <= removedAt) return
+    if (account.rateLimitRemovedAt) delete account.rateLimitRemovedAt[key]
     account.rateLimitResetTimes[key] = resetAt
     account.rateLimitWrittenAt ??= {}
-    account.rateLimitWrittenAt[key] = this.now()
+    account.rateLimitWrittenAt[key] = writtenAt
+    if (window !== undefined) {
+      account.rateLimitWindow ??= {}
+      account.rateLimitWindow[key] = window
+    } else if (account.rateLimitWindow) delete account.rateLimitWindow[key]
     const report = this.sink.rateLimit
     if (report !== undefined && this.isLoaded(account, 'state change')) {
       report.call(this.sink, account, key, resetAt)
@@ -1490,8 +1628,7 @@ export class AccountSelector<A extends SelectableAccount> {
   }
 
   private clearRateLimit(account: A, key: QuotaKey): void {
-    delete account.rateLimitResetTimes[key]
-    if (account.rateLimitWrittenAt) delete account.rateLimitWrittenAt[key]
+    deleteRateLimitMark(account, key)
     const report = this.sink.rateLimit
     if (report !== undefined && this.isLoaded(account, 'state change')) {
       report.call(this.sink, account, key, 'clear')
@@ -1666,14 +1803,29 @@ export class AccountSelector<A extends SelectableAccount> {
     account.consecutiveFailures = failures
     account.lastFailureTime = now
 
+    const admittedRetryAfter = quotaRetryAfter(
+      account,
+      family,
+      model,
+      reason,
+      retryAfterMs,
+      now,
+    )
     const backoffMs = calculateBackoffMs(
       reason,
       failures - 1,
-      quotaRetryAfter(account, family, model, reason, retryAfterMs, now),
+      admittedRetryAfter,
       this.random,
     )
     const key = getQuotaKey(family, model)
-    this.setRateLimit(account, key, now + backoffMs)
+    const group = resolveQuotaGroup(family, model, account.cachedQuota)
+    const window =
+      reason === 'QUOTA_EXHAUSTED' &&
+      admittedRetryAfter != null &&
+      admittedRetryAfter > MAX_QUOTA_EXHAUSTED_BACKOFF_MS
+        ? exhaustedQuotaWindow(group, account.cachedQuota?.[group])
+        : undefined
+    this.setRateLimit(account, key, now + backoffMs, window)
 
     return backoffMs
   }
