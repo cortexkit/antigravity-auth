@@ -85,6 +85,12 @@ import {
 } from './shared/runtime.ts'
 import { createOpenCodeVaultCustody } from './vault-custody'
 
+// The smallest quota summary with a pool the plugin knows. A summary with no
+// known pool now counts as a failed read and triggers the model-list fallback
+// (issue #91), so tests that only need a successful summary send use this.
+const RECOGNIZED_QUOTA_SUMMARY_JSON =
+  '{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-weekly","displayName":"Weekly Limit","window":"weekly","remainingFraction":0.5,"resetTime":"2099-01-01T00:00:00Z"}]}]}'
+
 const activeCases = new Set<GaTestCase>()
 
 /** Bun timeouts leave test promises running; afterEach drains owned work before releasing global paths. */
@@ -2669,7 +2675,9 @@ describe('GA quota check authorization', () => {
       let quotaCalls = 0
       const transport = async () => {
         quotaCalls++
-        return Response.json({ groups: [] })
+        return new Response(RECOGNIZED_QUOTA_SUMMARY_JSON, {
+          headers: { 'content-type': 'application/json' },
+        })
       }
       const ensureProject = async (
         auth: ReturnType<typeof manager.toAuthDetails>,
@@ -2805,7 +2813,7 @@ describe('GA quota check authorization', () => {
             })
             return new Response(
               url.includes('retrieveUserQuotaSummary')
-                ? '{"groups":[]}'
+                ? RECOGNIZED_QUOTA_SUMMARY_JSON
                 : '{"buckets":[]}',
               { status: 200, headers: { 'content-type': 'application/json' } },
             )
@@ -3089,7 +3097,7 @@ describe('createGaLocationServices (production factory)', () => {
             })
             return new Response(
               url.includes('retrieveUserQuotaSummary')
-                ? '{"groups":[]}'
+                ? RECOGNIZED_QUOTA_SUMMARY_JSON
                 : '{"buckets":[]}',
               { status: 200, headers: { 'content-type': 'application/json' } },
             )

@@ -45,6 +45,12 @@ import {
   type RequestServicesDeps,
 } from './request-executor'
 
+// The smallest quota summary with a pool the plugin knows. A summary with no
+// known pool now counts as a failed read and triggers the model-list fallback
+// (issue #91), so tests that only need a successful summary send use this.
+const RECOGNIZED_QUOTA_SUMMARY_JSON =
+  '{"groups":[{"displayName":"Gemini Models","buckets":[{"bucketId":"gemini-weekly","displayName":"Weekly Limit","window":"weekly","remainingFraction":0.5,"resetTime":"2099-01-01T00:00:00Z"}]}]}'
+
 const TOKEN_A = 'synthetic-access-before'
 const TOKEN_B = 'synthetic-access-after'
 const TOKEN_C = 'synthetic-access-again'
@@ -1046,7 +1052,7 @@ it('quota admits healthy initialized metadata and confirms the summary physical 
           })
           return new Response(
             url.includes('retrieveUserQuotaSummary')
-              ? '{"groups":[]}'
+              ? RECOGNIZED_QUOTA_SUMMARY_JSON
               : '{"buckets":[]}',
             { headers: { 'content-type': 'application/json' } },
           )
