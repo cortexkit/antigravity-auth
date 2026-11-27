@@ -9,6 +9,7 @@ import {
   it as bunIt,
   describe,
   expect,
+  setDefaultTimeout,
   type Test,
 } from 'bun:test'
 import { createHash } from 'node:crypto'
@@ -62,6 +63,17 @@ const VERSION = '3.0.14'
 const ENV_NAMES = ['OPENCODE_CONFIG_DIR', 'XDG_STATE_HOME'] as const
 const POSIX = process.platform !== 'win32'
 const NAME = OPENCODE_VAULT_ENROLLMENT_NAME
+// On Windows every private file is one native call (DACL check, write and
+// FlushFileBuffers), and GitHub's Windows runners sometimes take 1 to 1.7 s per
+// call with no retries or contention. A real move makes about a dozen such
+// calls, so a slow-disk runner pushed whichever case was moving files past
+// Bun's 5 s default: after 3.1.1, 3.1.4, 3.1.5 and 3.1.9, and on 27 Nov 2026,
+// when the failure-only lock trace in this file showed exactly that. The limit
+// covers the whole file because the stall hits any case that is moving files.
+// Linux and macOS keep 5 s. If a case needs more than 20 s, read its trace
+// before raising this again.
+const LAYOUT_CASE_TIMEOUT_MS = POSIX ? 5_000 : 20_000
+if (!POSIX) setDefaultTimeout(LAYOUT_CASE_TIMEOUT_MS)
 const it = Object.assign(layoutTests(bunIt), {
   skipIf: (condition: boolean) => layoutTests(bunIt.skipIf(condition)),
 })
@@ -166,8 +178,8 @@ function traceCase<Args extends readonly unknown[]>(register: Test<Args>) {
         if (!current) throw new Error('layout test setup did not run')
         let index = 0
         const label = name.replaceAll('%s', () => String(args[index++]))
-        // Use Bun's default only for the trace timer; leave the registered timeout unchanged.
-        current.trace?.arm(label, timeout ?? 5_000)
+        // Use the file's default only for the trace timer; leave the registered timeout unchanged.
+        current.trace?.arm(label, timeout ?? LAYOUT_CASE_TIMEOUT_MS)
         const body = async () => work(...args)
         current.body = tracePhase('body', body)
           .then<CaseResult, CaseResult>(
