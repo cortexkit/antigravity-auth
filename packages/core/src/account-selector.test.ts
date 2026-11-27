@@ -244,7 +244,17 @@ describe('issue69 dated quota evidence', () => {
 
   it('a five-hour mark clears with five-hour quota, not weekly quota', () => {
     const { pool, row, advance } = manager()
-    pool.markRateLimited(row, 5 * hour, 'gemini', model)
+    pool.updateQuotaCache(
+      0,
+      geminiQuota({ ...geminiBucket('5h'), remainingFraction: 0 }),
+    )
+    pool.markRateLimitedWithReason(
+      row,
+      'gemini',
+      model,
+      'QUOTA_EXHAUSTED',
+      5 * hour,
+    )
     advance(1)
     pool.updateQuotaCache(0, geminiQuota(geminiBucket('weekly')))
     expect(row.rateLimitResetTimes[key]).toBe(start + 5 * hour)
@@ -252,6 +262,78 @@ describe('issue69 dated quota evidence', () => {
     advance(1)
     pool.updateQuotaCache(0, geminiQuota(geminiBucket('5h')))
     expect(row.rateLimitResetTimes[key]).toBeUndefined()
+  })
+
+  it('keeps a Gemini mark extended to a weekly reset when five-hour quota returns near the reset', () => {
+    const { pool, row, advance } = manager()
+    pool.markRateLimited(row, 60_000, 'gemini', model)
+    advance(1)
+    pool.updateQuotaCache(
+      0,
+      geminiQuota({ ...geminiBucket('weekly'), remainingFraction: 0 }),
+    )
+    expect(row.rateLimitResetTimes[key]).toBe(start + long)
+
+    advance(long - 4 * hour - 1)
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBeNull()
+    pool.updateQuotaCache(0, geminiQuota(geminiBucket('5h')))
+    expect(row.rateLimitResetTimes[key]).toBe(start + long)
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBeNull()
+  })
+
+  it('clears an unconfirmed short retry mark with weekly-only Gemini quota', () => {
+    const { pool, row, advance } = manager()
+    pool.markRateLimitedWithReason(
+      row,
+      'gemini',
+      model,
+      'QUOTA_EXHAUSTED',
+      long,
+    )
+    expect(pool.isRateLimited(row, 'gemini', model)).toBe(true)
+
+    advance(1)
+    pool.updateQuotaCache(0, geminiQuota(geminiBucket('weekly')))
+    expect(row.rateLimitResetTimes[key]).toBeUndefined()
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
+  })
+
+  it('keeps a weekly mark admitted four hours before reset until weekly quota returns', () => {
+    const { pool, row, advance } = manager()
+    advance(long - 4 * hour)
+    pool.updateQuotaCache(
+      0,
+      geminiQuota({ ...geminiBucket('weekly'), remainingFraction: 0 }),
+    )
+    pool.markRateLimitedWithReason(
+      row,
+      'gemini',
+      model,
+      'QUOTA_EXHAUSTED',
+      4 * hour,
+    )
+    expect(row.rateLimitResetTimes[key]).toBe(start + long)
+
+    advance(1)
+    pool.updateQuotaCache(0, geminiQuota(geminiBucket('5h')))
+    expect(row.rateLimitResetTimes[key]).toBe(start + long)
+
+    advance(1)
+    pool.updateQuotaCache(0, geminiQuota(geminiBucket('weekly')))
+    expect(row.rateLimitResetTimes[key]).toBeUndefined()
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
+  })
+
+  it('requires weekly quota for an unstamped legacy mark more than five hours from reset', () => {
+    const { pool, row, advance } = manager(undefined, true, true)
+    advance(1)
+    pool.updateQuotaCache(0, geminiQuota(geminiBucket('5h')))
+    expect(row.rateLimitResetTimes[key]).toBe(start + long)
+
+    advance(1)
+    pool.updateQuotaCache(0, geminiQuota(geminiBucket('weekly')))
+    expect(row.rateLimitResetTimes[key]).toBeUndefined()
+    expect(pool.getCurrentOrNextForFamily('gemini', model)).toBe(row)
   })
 
   it('classifies the limiting window at the reading time, not when it is processed', () => {

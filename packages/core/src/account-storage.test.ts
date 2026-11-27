@@ -21,11 +21,13 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AccountManager } from './account-manager.ts'
 import {
   AccountStorageLockContentionError,
   AccountStorageUnreadableError,
   clearAccountStorage,
   deduplicateAccountsByEmail,
+  defaultAccountStorageStore,
   loadAccountStorage,
   mergeAccountStorage,
   mutateAccountStorage,
@@ -115,6 +117,71 @@ function makeV1(
 } {
   return { version: 1, accounts, activeIndex }
 }
+
+it('a local pool usage save does not restore a mark cleared by another manager', async () => {
+  const path = storagePath()
+  const model = 'gemini-3.8-flash'
+  const key = `gemini:${model}`
+  const weekly = 65 * 60 * 60 * 1_000
+  let now = Date.now()
+  const oldWrite = now
+  const options = { now: () => now, store: defaultAccountStorageStore }
+  const seed = makeV4([{ refreshToken: 'local-pool', addedAt: 1, lastUsed: 0 }])
+  const managers: AccountManager[] = []
+  const open = (stored: AccountStorageV4 | null) => {
+    const manager = new AccountManager(undefined, stored, {
+      ...options,
+      storagePath: path,
+    })
+    managers.push(manager)
+    return manager
+  }
+  try {
+    const a = open(seed)
+    const [aRow] = a.getAccounts()
+    a.markRateLimited(aRow!, weekly, 'gemini', model)
+    await a.saveToDisk()
+    const b = open(await loadAccountStorage(path))
+    const quota = (window: 'weekly' | '5h') => ({
+      gemini: {
+        remainingFraction: 0.8,
+        modelCount: 1,
+        windows: [
+          {
+            window,
+            remainingFraction: 0.8,
+            resetTime: new Date(now + weekly).toISOString(),
+          },
+        ],
+      },
+    })
+    now += 100
+    b.updateQuotaCache(0, quota('weekly'))
+    await b.saveToDiskReplace()
+    now += 100
+    b.updateQuotaCache(0, quota('5h'))
+    await b.saveToDiskReplace()
+
+    a.recordRequest(0, 'gemini')
+    await a.saveToDisk()
+    const c = open(await loadAccountStorage(path))
+    expect(c.getCurrentOrNextForFamily('gemini', model)).toBe(
+      c.getAccounts()[0]!,
+    )
+    expect((await loadAccountStorage(path))?.accounts[0]).toMatchObject({
+      rateLimitRemovedAt: { [key]: oldWrite },
+    })
+
+    now += 100
+    a.markRateLimited(aRow!, weekly, 'gemini', model)
+    await a.saveToDisk()
+    const d = open(await loadAccountStorage(path))
+    expect(d.getCurrentOrNextForFamily('gemini', model)).toBeNull()
+    expect(d.getAccounts()[0]!.rateLimitWrittenAt?.[key]).toBe(now)
+  } finally {
+    for (const manager of managers) await manager.dispose()
+  }
+})
 
 describe('deduplicateAccountsByEmail', () => {
   it('returns empty array for empty input', () => {
