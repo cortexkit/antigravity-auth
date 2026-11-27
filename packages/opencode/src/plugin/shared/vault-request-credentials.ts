@@ -664,7 +664,7 @@ export function createVaultSelectionState(
             ...metadata,
             rateLimitResetTimes: resets,
             rateLimitWrittenAt: written,
-            rateLimitWindow: windows,
+            ...(windows ? { rateLimitWindow: windows } : {}),
           }
         }
         if (current?.quota)

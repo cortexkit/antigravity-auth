@@ -264,7 +264,7 @@ function applyPendingRowWrite(
       ...next,
       rateLimitResetTimes: rates,
       rateLimitWrittenAt: written,
-      rateLimitWindow: windows,
+      ...(windows ? { rateLimitWindow: windows } : {}),
     }
   }
   // A pending mark can arrive after the quota write. Do not reconcile it

@@ -644,8 +644,11 @@ function mergeSameCredential(
     )
     out.rateLimitResetTimes = merged.rateLimitResetTimes
     out.rateLimitWrittenAt = merged.rateLimitWrittenAt
-    out.rateLimitWindow = merged.rateLimitWindow
-    out.rateLimitRemovedAt = merged.rateLimitRemovedAt
+    if (merged.rateLimitWindow) out.rateLimitWindow = merged.rateLimitWindow
+    else delete out.rateLimitWindow
+    if (merged.rateLimitRemovedAt)
+      out.rateLimitRemovedAt = merged.rateLimitRemovedAt
+    else delete out.rateLimitRemovedAt
   } else {
     if (incoming.rateLimitResetTimes !== undefined) {
       out.rateLimitResetTimes = mergeRateLimitResets(
@@ -882,11 +885,14 @@ export function applyRateLimitObservation(
       else delete storedWindows[key]
     }
   }
-  const limits = {
+  const next: ProviderMetadata = {
+    ...metadata,
     rateLimitResetTimes: storedResets,
     rateLimitWrittenAt: storedWrites,
-    ...(storedWindows ? { rateLimitWindow: storedWindows } : {}),
   }
+  if (storedWindows) next.rateLimitWindow = storedWindows
+  else delete next.rateLimitWindow
+  if (next.rateLimitRemovedAt === undefined) delete next.rateLimitRemovedAt
   if (clearedAt !== undefined) {
     const state = {
       rateLimitResetTimes: numericLimits(storedResets),
@@ -895,9 +901,10 @@ export function applyRateLimitObservation(
       rateLimitWindow: storedWindows,
     }
     reconcileManualLimitClear(state)
-    return fenceRateLimitRemovals({ ...metadata, ...state })
+    next.rateLimitResetTimes = state.rateLimitResetTimes
+    next.rateLimitWrittenAt = state.rateLimitWrittenAt
   }
-  return fenceRateLimitRemovals({ ...metadata, ...limits })
+  return fenceRateLimitRemovals(next)
 }
 
 export function clearAccountLimits(
