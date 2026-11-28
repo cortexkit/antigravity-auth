@@ -851,6 +851,96 @@ describe('acquireFencedFileLock — eviction marker TTL/PID reclamation', () => 
   })
 })
 
+describe('acquireFencedFileLock — partial takeover marker', () => {
+  const now = Date.UTC(2026, 0, 1)
+  const name = 'bg-vault-quota-poll'
+  const partialMarker = '{"ownerId":'
+
+  async function setUpMarker(fileAgeMs: number, dirAgeMs: number) {
+    const path = join(root, 'state.json')
+    const lockPath = `${path}.${name}.lock`
+    const markerDir = `${lockPath}.evicting`
+    const markerPath = join(markerDir, 'owner.json')
+    await writeLock(lockPath, 'expired-owner', now - 1)
+    await mkdir(markerDir)
+    await writeFile(markerPath, partialMarker)
+    await setMtime(markerPath, fileAgeMs, now)
+    await setMtime(markerDir, dirAgeMs, now)
+    return {
+      markerDir,
+      markerPath,
+      options: { path, name, ttlMs: 60_000, renew: false, now: () => now },
+    }
+  }
+
+  function beforeMarkerStat(markerPath: string, action: () => Promise<void>) {
+    const realStat = fsp.stat
+    return spyOn(fsp, 'stat').mockImplementation((async (
+      ...args: Parameters<typeof realStat>
+    ) => {
+      if (args[0] === markerPath) await action()
+      return realStat(...args)
+    }) as typeof realStat)
+  }
+
+  it('recovers the quota poll fence from an old partial eviction marker', async () => {
+    const { options } = await setUpMarker(60_000, 0)
+
+    const lock = await acquireFencedFileLock(options)
+    expect(lock).not.toBeNull()
+    await lock?.assertOwned()
+  })
+
+  it('keeps a young partial eviction marker even in an old marker directory', async () => {
+    const { markerPath, options } = await setUpMarker(0, 60_000)
+
+    expect(await acquireFencedFileLock(options)).toBeNull()
+    expect(await readFile(markerPath, 'utf8')).toBe(partialMarker)
+  })
+
+  it('uses the directory age when the partial eviction marker file vanishes', async () => {
+    const { markerDir, markerPath, options } = await setUpMarker(0, 0)
+    const leftover = join(markerDir, 'leftover')
+    await writeFile(leftover, '')
+    const markerStat = beforeMarkerStat(markerPath, async () => {
+      await rm(markerPath)
+      await setMtime(markerDir, 60_000, now)
+    })
+
+    try {
+      const lock = await acquireFencedFileLock({
+        ...options,
+        async onStep(step) {
+          if (step === 'stale-marker-claimed') {
+            await expect(stat(leftover)).rejects.toMatchObject({
+              code: 'ENOENT',
+            })
+          }
+        },
+      })
+      expect(lock).not.toBeNull()
+      await lock?.assertOwned()
+    } finally {
+      markerStat.mockRestore()
+    }
+  })
+
+  it('retries the claim when the partial eviction marker directory vanishes', async () => {
+    const { markerDir, markerPath, options } = await setUpMarker(0, 0)
+    const markerStat = beforeMarkerStat(markerPath, () =>
+      rm(markerDir, { recursive: true }),
+    )
+
+    try {
+      const lock = await acquireFencedFileLock(options)
+      expect(lock).not.toBeNull()
+      await lock?.assertOwned()
+    } finally {
+      markerStat.mockRestore()
+    }
+  })
+})
+
 describe('acquireFencedFileLock — renewal TOCTOU', () => {
   it('makes release terminal and resolves existing whenLost waiters', async () => {
     const target = join(root, 'state.json')

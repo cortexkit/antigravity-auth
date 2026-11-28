@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Background quota checks resume automatically if a crash leaves an incomplete lock behind (issue #95, thanks @iceteaSA).
+
 ## [3.2.3] - 2026-11-27
 
 - A five-hour quota check no longer clears a Gemini weekly rate limit near its reset, and a weekly check with quota can clear a short retry wait (issue #86, thanks @iceteaSA).
