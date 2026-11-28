@@ -59,30 +59,37 @@ https://www.googleapis.com/auth/experimentsandconfigs
 
 ### Required Headers
 
+The plugin sends only these headers. It does not send `X-Goog-Api-Client`,
+`Client-Metadata`, or `Accept`.
+
 ```http
 Authorization: Bearer {access_token}
 Content-Type: application/json
-User-Agent: antigravity/1.15.8 windows/amd64
-X-Goog-Api-Client: google-cloud-sdk vscode_cloudshelleditor/0.1
-Client-Metadata: {"ideType":"ANTIGRAVITY","platform":"MACOS","pluginType":"GEMINI"}
+Accept-Encoding: gzip
+User-Agent: antigravity/cli/1.5.8 (aidev_client; os_type=linux; arch=amd64; cl=1020628950; auth_method=consumer)
 ```
 
-For streaming requests, also include:
-```http
-Accept: text/event-stream
-```
+The `User-Agent` follows the CLI form `antigravity/cli/<version>
+(aidev_client; os_type=<os>; arch=<arch>; cl=<changelist>;
+auth_method=consumer)`; the OS and architecture match the sender.
+Streaming requests use `:streamGenerateContent?alt=sse`, not an `Accept` header.
 
 ---
 
 ## Available Models
 
-| Model Name | Model ID | Type | Status |
-|------------|----------|------|--------|
-| Claude Sonnet 4.6 | `claude-sonnet-4-6` | Anthropic | ✅ Verified |
-| Claude Opus 4.6 Thinking | `claude-opus-4-6-thinking` | Anthropic | ✅ Verified |
-| Gemini 3 Pro High | `gemini-3-pro-high` | Google | ✅ Verified |
-| Gemini 3 Pro Low | `gemini-3-pro-low` | Google | ✅ Verified |
-| GPT-OSS 120B Medium | `gpt-oss-120b-medium` | Other | ✅ Verified |
+The plugin serves these eight catalog models:
+
+| Model ID | Type |
+|----------|------|
+| `antigravity-gemini-4-argon` | Google |
+| `antigravity-gemini-4-carbon` | Google |
+| `antigravity-gemini-4-hydrogen` | Google |
+| `antigravity-gemini-4-neon` | Google |
+| `antigravity-gemini-3.8-flash` | Google |
+| `antigravity-claude-sonnet-5-5` | Anthropic |
+| `antigravity-claude-opus-5-5` | Anthropic |
+| `antigravity-gpt-oss-120b-medium` | Other |
 
 ---
 
@@ -264,6 +271,8 @@ Accept: text/event-stream
 ---
 
 ## Response Format
+
+Historical example from earlier releases; model versions below are retired.
 
 ### Non-Streaming Response
 
@@ -502,7 +511,7 @@ The following Anthropic/Vertex AI features are **NOT supported**:
 ```json
 {
   "project": "my-project-id",
-  "model": "claude-sonnet-4-6",
+  "model": "claude-sonnet-5-5-low",
   "request": {
     "contents": [
       {
@@ -545,7 +554,7 @@ The following Anthropic/Vertex AI features are **NOT supported**:
 | Endpoint | `cloudcode-pa.googleapis.com` | `aiplatform.googleapis.com` |
 | Request format | Gemini-style `contents` | Anthropic `messages` |
 | `anthropic_version` | Not used | Required |
-| Model names | Simple (`claude-sonnet-4-6`) | Versioned (`claude-4-5@date`) |
+| Model names | Simple (`claude-sonnet-5-5-low`) | Versioned (`claude-4-5@date`) |
 | Response format | `candidates[]` | Anthropic `content[]` |
 | Multi-model support | Yes (Claude, Gemini, etc.) | Anthropic only |
 

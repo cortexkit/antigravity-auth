@@ -50,7 +50,7 @@ antigravity-auth rollback --offline [--yes]
 - `setup`: [guided host detection/registration and optional vault enrollment](CONFIGURATION.md#guided-setup). See `setup --help` for its options.
 - `login`: PKCE and a local callback at `http://localhost:51121/oauth-callback`. `--project <id>` pins the project before login. `--no-browser` prints the URL; headless detection (`SSH_*`, `OPENCODE_HEADLESS=1`) also avoids browser launch. It does not free an occupied callback port. See [remote callback troubleshooting](TROUBLESHOOTING.md#wsl2--docker--remote-development).
 - `list`: `INDEX`, `EMAIL`, and `STATUS` (`active`, `disabled`, `ineligible`, or `verification-required`); `--json` emits the same data as JSON.
-- `quota`: `ACCOUNT`, `STATUS`, `GROUP`, `REMAINING`, and `RESET`; `--refresh` forces a live reading and `--json` emits the same array as JSON.
+- `quota`: local accounts only. Shows `ACCOUNT`, `STATUS`, `GROUP`, `REMAINING`, and `RESET`. `--refresh` forces a live reading; `--json` gives an object with an `accounts` array. For vault accounts, use `/antigravity` → Quota.
 - `init`, `migrate`, `rollback`: change the active local store. Follow [offline migration and rollback](MIGRATION.md) first; `--yes` skips the prompt, not the stopped-process requirement.
 
 Exit codes are `0` for success, `1` for a thrown error, and `2` for parse failure, including unsupported commands/options. `list` and `quota` do not initialize or migrate account storage.

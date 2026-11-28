@@ -6,7 +6,7 @@ Local OpenCode 1 and OpenCode 2 share an initialized/migrated account repository
 
 Initialize a fresh pool or complete [offline migration](MIGRATION.md) before CLI/OpenCode 1 login. Standalone `antigravity-auth login` starts or replaces the pool rather than adding accounts; local OpenCode setup login and the host account menu add accounts instead. See [commands](COMMANDS.md#standalone-cli). OpenCode 2's [pool browser method](OPENCODE-2.md#pool-browser-login) can initialize a truly fresh store but refuses a pending migration. Use the [login route for your OpenCode version](COMMANDS.md#host-login-routes) or `/antigravity` → Sign in to add local accounts. Use Accounts to enable/disable, remove, or reauthorize them; a disabled account remains visible but is excluded from rotation. Duplicate identities are not additional pool accounts: use reauthorization to replace an existing account's credentials.
 
-Use `/antigravity` → Quota or `antigravity-auth quota [--refresh] [--json]` for readings. The old standalone quota script no longer ships. The account menu checks the freshly read local/vault enrollment choice before applying an action; local logins are unavailable while the vault is in use. [Vault mode](VAULT.md) uses approved vault-served accounts with no local fallback.
+Use `/antigravity` → Quota for local or vault accounts. The standalone `antigravity-auth quota [--refresh] [--json]` command works only with local accounts. The old standalone quota script no longer ships. The account menu checks the freshly read local/vault enrollment choice before applying an action; local logins are unavailable while the vault is in use. [Vault mode](VAULT.md) uses approved vault-served accounts with no local fallback.
 
 ## Account storage
 
@@ -26,7 +26,7 @@ Set `account_selection_strategy` in `antigravity-auth.jsonc` (see [Plugin config
 | `hybrid` (default) | Token bucket, health score, and least-recently-used freshness |
 | `round-robin` | Advance the account cursor when selecting an account |
 
-All strategies first reuse a usable existing session pin. The sticky path applies `pid_offset_enabled` once per model family to offset the initial account index by process ID; it does not give every session a unique account. `max_account_switches` (default `10`) bounds the number of accounts tried per request. `switch_on_first_rate_limit` (default on) chooses rotation on the first 429 rather than one same-account retry. `default_retry_after_seconds` and `max_backoff_seconds` default to `60`; `request_jitter_max_ms` can spread simultaneous requests. See [configuration](CONFIGURATION.md#account-rotation).
+All strategies first reuse a usable existing session pin. The sticky path applies `pid_offset_enabled` once per model family to offset the initial account index by process ID; it does not give every session a unique account. `max_account_switches` (default `10`) bounds the number of accounts tried per request. `switch_on_first_rate_limit` (default on) chooses rotation on the first 429 rather than one same-account retry. `default_retry_after_seconds` defaults to `60`; `request_jitter_max_ms` can spread simultaneous requests. See [configuration](CONFIGURATION.md#account-rotation).
 
 ## Antigravity routing
 
@@ -39,7 +39,7 @@ Antigravity content sends use its User-Agent without `X-Goog-Api-Client` or `Cli
 Each cached quota entry carries `{ remainingFraction, resetTime }` per quota group (`claude`, `gemini-pro`, `gemini-flash`, `gpt-oss`). Gemini 4 Argon's remaining quota and reset time are reported per model. [Whether Argon uses the same weekly quota allowance as other models, and which allowance, is unverified](MODEL-VARIANTS.md#gemini).
 
 - **Refresh:** the quota manager refreshes opportunistically after successful requests according to `quota_refresh_interval_minutes` (default `30`, `0` disables that cadence).
-- **TTL:** `soft_quota_cache_ttl_minutes = "auto"` resolves to `max(2 × refresh_interval, 10)` minutes.
+- **TTL:** `soft_quota_cache_ttl = "auto"` resolves to `max(2 × refresh_interval, 10)` minutes. Set `soft_quota_cache_ttl = "minutes"` with `soft_quota_cache_ttl_minutes` (1–120) for an explicit TTL.
 - **Soft threshold (opt-in):** `soft_quota_threshold_percent` defaults to `100` (off). Set `"soft_quota_threshold_percent": 80` in `antigravity-auth.jsonc` to skip accounts at 80% usage and keep a 20% reserve. Existing explicit thresholds are preserved, and a single-account pool remains exempt. Set the threshold back to `100` to disable the filter; it is not a `/antigravity` menu setting.
 - **Stale/missing fail-open:** readings older than TTL, or never refreshed, are unknown and allowed through the soft check so cold starts cannot deadlock.
 - **All exhausted:** wait for eligible quota/reset/cooldown. `max_rate_limit_wait_seconds` (default `300`, `0` removes the cap) is one cumulative budget for a continuous period with no eligible account, shared by rate-limit and soft-quota waits. Each sleep is capped at the remaining budget; selecting an eligible account resets it. A proposed wait above the full cap still fails fast, and an exhausted budget ends with a native error rather than inventing success.

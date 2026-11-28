@@ -9,9 +9,9 @@
  * vault folder the entry point settled for this process (`vault-folder.ts`):
  * the non-secret mode file, the vault roster and this host's enrollment files
  * (written by the vault library).
- * The mode file holds only the mode; no token, project or account data is
- * written here. A missing mode file is local mode, so nothing connects to
- * the vault and no source starts while local custody is in force.
+ * The mode file records a preference only; no token, project or account data
+ * is written here. Host authority or vault enrollment decides custody, also
+ * when that file is missing. If the authority cannot be read, access is refused.
  *
  * Every custody entry re-reads the mode and checks the host's own auth slot
  * against it through the vault library: a real host login while the vault
@@ -210,9 +210,8 @@ function parseMode(raw: unknown): OpenCodeVaultModeRecord | undefined {
 }
 
 /**
- * Reads the mode file. A missing file is local mode. A file that exists but
- * cannot be read or understood is reported, never guessed: custody is then
- * refused, because the user's choice is unknown.
+ * Reads the preference. A missing file gives a local preference; a file that
+ * cannot be read gives an error. Neither result decides the account source.
  */
 export async function readOpenCodeVaultMode(
   modeFile: string,

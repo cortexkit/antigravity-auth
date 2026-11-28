@@ -267,7 +267,7 @@ These settings are `false` by default:
 
 ## Additional settings and environment overrides
 
-The [schema](../src/plugin/config/schema.ts) is the source of truth for complete bounds and defaults. The notification, warmup, retry, quota, account-floor, and logging settings formerly listed in the [root README](../../../README.md) are collected below:
+The core settings definition (`packages/core/src/settings/definition.ts`) gives the bounds and defaults for `antigravity-auth.jsonc`. The legacy schema applies to installs that still use `antigravity.json`. The notification, warmup, retry, quota, account-floor, and logging settings formerly listed in the [root README](../../../README.md) are collected below:
 
 | Setting | Default | Effect / environment override |
 | --- | --- | --- |

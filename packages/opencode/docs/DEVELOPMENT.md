@@ -51,7 +51,7 @@ OpenCode 1 disposal marks the plugin closing synchronously, aborts/waits for liv
 
 Maintainers supply the chosen semver to [release.sh](../../../scripts/release.sh); `--dry` previews version synchronization without committing/pushing. This is a description, not an instruction to publish during development.
 
-The script enforces semver, refuses a dirty tree, and requires confirmation on a non-`main`/`master` branch. After toolchain/embedding preflight it runs typecheck, test, and build, synchronizes versions, and then commits/tags/pushes. [version-sync.mjs](../../../scripts/version-sync.mjs) sets the three publishable package versions and adapter core pins, not every workspace.
+The script enforces semver, refuses a dirty tree, and requires confirmation on a non-`main`/`master` branch. See [RELEASING.md](../../../RELEASING.md) for the two phases: `--prepare` syncs versions and commits only, and the tag phase checks CI, the prepared version, and the recorded gate, then pushes only the tag. [version-sync.mjs](../../../scripts/version-sync.mjs) sets the three publishable package versions and adapter core pins, not every workspace.
 
 The [Release workflow](../../../.github/workflows/release.yml) runs from a tag or explicit dispatch ref. Publishing requires **test**, **rpc-runtime-matrix**, and **windows-migration**. The test job includes embedding, typecheck, build, TUI smoke, source tests, deterministic E2E, OpenCode 2 Docker smoke, format, and lint. The RPC job tests Node.js 20.0.0, Node.js 24.16.0, Bun 1.3.14, and Bun 1.4.2; Windows migration is a separate prerequisite, not covered by a Linux source-test pass.
 

@@ -12,10 +12,7 @@ schedule a flush timer or install lifecycle handlers.
   Operator `error`, `warn`, `info` and `debug` levels apply immediately to existing
   channels; `trace` maps to `debug`. The provider's initial `debug` level includes
   records that the library's default `info` level would omit.
-- `debug_tui` forwards scrubbed provider records to `client.app.log`, independently
-  of `debug` file tracing. `OPENCODE_ANTIGRAVITY_CONSOLE_LOG=1` (or `true`, ignoring
-  case) independently enables the provider console destination. Otherwise provider
-  logging is silent. A failed destination must not prevent another destination.
+- `debug_tui` forwards scrubbed provider records to the host destination: `client.app.log` on OpenCode 1, stderr on OpenCode 2, independently of `debug` file tracing. `OPENCODE_ANTIGRAVITY_CONSOLE_LOG=1` (or `true`, ignoring case) independently enables the provider console destination. Otherwise provider logging is silent, except vault send attribution, which can reach the host destination with `debug_tui` off. OpenCode 2 setup errors and layout diagnostics also write to stderr. A failed destination must not prevent another destination.
 - The TUI explicitly supplies `debug` and writes only to its retained file writer,
   regardless of either console environment variable or provider level changes.
   No TUI import loads provider logging, debug streams, accounts, storage or OAuth.

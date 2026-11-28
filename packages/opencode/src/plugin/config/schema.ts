@@ -423,7 +423,7 @@ export const AntigravityConfigSchema = z.object({
    * Quota is refreshed opportunistically after successful API requests.
    * Set to 0 to disable automatic refresh (manual only via Check quotas).
    *
-   * @default 15
+   * @default 30
    */
   quota_refresh_interval_minutes: z.number().min(0).max(120).default(30),
   /**

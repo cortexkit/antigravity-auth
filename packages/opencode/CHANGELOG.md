@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Corrected several docs and code comments that no longer matched the code (issue #97, thanks @iceteaSA).
+
 ## [3.2.3] - 2026-11-27
 
 - A five-hour quota check no longer clears a Gemini weekly rate limit near its reset, and a weekly check with quota can clear a short retry wait (issue #86, thanks @iceteaSA).

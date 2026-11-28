@@ -814,10 +814,10 @@ export interface FetchQuotaSummaryResult {
  * Uses the same transport/UA/timeout conventions as `fetchAvailableModels`.
  * On a 429 or 5xx against one endpoint, falls through to the next entry
  * in `options.endpoints` (matching the legacy fetchers' failover
- * convention). On 403 with the managedProjectId, retries with the
- * regular projectId. If that also 403s, falls back to
- * `fetchAvailableModels` so quota never goes dark. On missing
- * managedProjectId, tries projectId first.
+ * convention). Tries the endpoints with the managed project ID, or with the
+ * regular project ID if there is no managed ID. After a managed-project 403,
+ * it can try a different regular project ID. If no attempt succeeds, it
+ * throws. The OpenCode caller owns the model-list fallback.
  */
 export async function fetchQuotaSummary(
   options: FetchQuotaSummaryOptions,
@@ -898,9 +898,9 @@ export async function fetchQuotaSummary(
     }
   }
 
-  // Try managedProjectId first, then projectId, then legacy fallback.
-  // For each project, iterate the endpoint list so a 500/429 on the
-  // primary endpoint falls through to the next entry.
+  // Try managedProjectId first, then projectId. For each project, iterate
+  // the endpoint list so a 500/429 on the primary endpoint falls through
+  // to the next entry.
   const primary = options.managedProjectId ?? options.projectId
   let primaryGot403 = false
   if (primary) {

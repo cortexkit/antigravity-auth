@@ -686,7 +686,7 @@ export interface RequestExecuteOptions {
   /**
    * Raw sender for this request's `antigravity` header-style sends, in place
    * of `RequestServicesDeps.transport`. It receives the transformed request's
-   * URL and init, and the caller's AbortSignal object itself.
+   * URL and init, and the pre-response deadline's signal.
    */
   readonly transport?: RequestTransport
 }
@@ -752,8 +752,9 @@ function agyMetadataIdentity(
 export interface AntigravityRequestExecutor {
   /**
    * Sends a Generative Language request through account selection, retries
-   * and response transformation. Abort uses `init.signal` (or the Request's
-   * signal) at every wait and send.
+   * and response transformation. Cancellation from the caller and from
+   * shutdown goes to the pre-response deadline, whose signal guards every
+   * wait and send.
    */
   execute(
     input: RequestInfo | URL,
@@ -1362,7 +1363,7 @@ export function createRequestExecutor<A extends RequestAccountRow>(
 
     // A host that sends each request through its own raw sender (the GA
     // loopback bridge) supplies it per request; every send of this request,
-    // warmups included, then goes through it with the same AbortSignal.
+    // warmups included, then goes through it with the deadline's signal.
     const sender = options.transport ?? defaultTransport
     const transport = (
       url: string,
