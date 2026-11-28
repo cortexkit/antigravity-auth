@@ -9,8 +9,15 @@ import {
   openSettings as realOpenSettings,
 } from '@cortexkit/antigravity-auth-core/common-auth/settings'
 import { accountKeyForRefreshToken } from '@cortexkit/antigravity-auth-core/engine'
+import {
+  createOpenCodeVaultAntigravityMenu,
+  menuInvocation,
+} from '../plugin/commands'
 import { getProjectConfigPath, loadConfig } from '../plugin/config/loader'
-import { createOperatorSettingsController } from '../plugin/operator-settings'
+import {
+  acquireLocationOperatorSettings,
+  createOperatorSettingsController,
+} from '../plugin/operator-settings'
 import { floorKeyTableFromRows } from './legacy'
 import { createProtectionStore } from './protection'
 import {
@@ -438,6 +445,74 @@ describe('menu writes', () => {
       `The settings file couldn't be read, so nothing was changed. Fix or remove ${f.file}.`,
     )
     expect(await readFile(f.file, 'utf8')).toBe('{ "schema_version": 1, ')
+  })
+})
+
+describe('legacy settings menu apply', () => {
+  it.each([
+    ['OpenCode 1', createOperatorSettingsController],
+    ['OpenCode 2', acquireLocationOperatorSettings],
+  ] as const)('shows a fixed refusal for unreadable %s settings', async (_host, createOperator) => {
+    const f = await fixture()
+    const original = '{"debug":false,'
+    await writeFile(f.legacyUserFile, original)
+    const warnings: unknown[] = []
+    const runtime = f.runtime({
+      separateInstall: true,
+      log: { ...silent, warn: (_message, data) => warnings.push(data) },
+    })
+    const settings = await runtime.openProject(f.project, {
+      config: () => loadConfig(f.project),
+      operator: () =>
+        createOperator({
+          projectConfigPath: getProjectConfigPath(f.project),
+          userConfigPath: f.legacyUserFile,
+        }),
+    })
+    const levels: string[] = []
+    const menu = await createOpenCodeVaultAntigravityMenu({
+      settings: settings.operator,
+      dump: { isEnabled: () => false, setEnabled() {} },
+      applyLogLevel: (level) => levels.push(level),
+      sections: {
+        accounts: { title: 'Accounts', build: () => ({ lines: [] }) },
+        quota: { title: 'Quota', build: () => ({ lines: [] }) },
+      },
+    })
+    const invocation = menuInvocation(() => {}, 's1')
+    await menu.open(invocation)
+    const limits = await menu.apply(
+      {
+        command: 'antigravity',
+        sectionId: 'limits',
+        actionId: 'set',
+        values: { enabled: true },
+      },
+      invocation,
+    )
+    const diagnostics = await menu.apply(
+      {
+        command: 'antigravity',
+        sectionId: 'diagnostics',
+        actionId: 'logging',
+        values: { level: 'trace' },
+      },
+      invocation,
+    )
+
+    const refused = {
+      ok: false,
+      code: 'settings-unparseable',
+      text: "The settings file couldn't be read, so nothing was saved. Fix antigravity.json and try again.",
+    }
+    expect(limits).toMatchObject(refused)
+    expect(diagnostics).toMatchObject(refused)
+    expect(await readFile(f.legacyUserFile, 'utf8')).toBe(original)
+    expect(warnings).toEqual([
+      { path: f.legacyUserFile },
+      { path: f.legacyUserFile },
+    ])
+    expect(levels).toEqual([])
   })
 })
 

@@ -53,6 +53,14 @@ export interface WriteOperatorConfigOptions {
   operator: OperatorSettings
 }
 
+export class UnreadableOperatorConfigError extends Error {
+  override readonly name = 'UnreadableOperatorConfigError'
+
+  constructor(readonly path: string) {
+    super('Could not read antigravity.json.')
+  }
+}
+
 export async function writeOperatorConfig(
   options: WriteOperatorConfigOptions,
 ): Promise<void> {
@@ -99,21 +107,22 @@ export async function writeOperatorConfigAt(
 }
 
 function readExistingConfig(target: string): Record<string, unknown> {
-  if (!existsSync(target)) return {}
+  let raw: string
   try {
-    const raw = readFileSync(target, 'utf-8')
-    const parsed = JSON.parse(raw) as unknown
-    if (
-      parsed !== null &&
-      typeof parsed === 'object' &&
-      !Array.isArray(parsed)
-    ) {
-      return parsed as Record<string, unknown>
-    }
-    return {}
-  } catch {
-    return {}
+    raw = readFileSync(target, 'utf-8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {}
+    throw new UnreadableOperatorConfigError(target)
   }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new UnreadableOperatorConfigError(target)
+  }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed))
+    throw new UnreadableOperatorConfigError(target)
+  return parsed as Record<string, unknown>
 }
 
 function mergeOperator(

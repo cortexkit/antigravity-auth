@@ -1,9 +1,10 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test'
+import * as fs from 'node:fs'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { writeOperatorConfig } from './writer'
+import { writeOperatorConfig, writeOperatorConfigAt } from './writer'
 
 interface Fixture {
   dir: string
@@ -139,5 +140,75 @@ describe('writeOperatorConfig', () => {
         },
       }),
     ).rejects.toThrow()
+  })
+})
+
+describe('writeOperatorConfigAt', () => {
+  const operator = {
+    killswitch: { enabled: false, minimum_remaining_percent: 5 },
+    log_level: 'warn' as const,
+  }
+  let fixture: Fixture
+  let path: string
+
+  beforeEach(() => {
+    fixture = makeFixture()
+    path = join(fixture.dir, 'antigravity.json')
+  })
+
+  afterEach(() => fixture.cleanup())
+
+  it.each([
+    ['malformed JSON', '{"debug":false,'],
+    ['a JSON array', '[]'],
+    ['a JSON string', '"x"'],
+  ])('refuses %s without replacing the settings file', async (_label, original) => {
+    writeFileSync(path, original)
+
+    const error = await writeOperatorConfigAt(path, operator).catch(
+      (error: unknown) => error,
+    )
+
+    expect({ error, contents: readFileSync(path, 'utf8') }).toEqual({
+      error: expect.objectContaining({
+        name: 'UnreadableOperatorConfigError',
+        path,
+      }),
+      contents: original,
+    })
+  })
+
+  it('refuses an existing settings file that cannot be read', async () => {
+    const original = '{"debug":false}'
+    writeFileSync(path, original)
+    const read = fs.readFileSync
+    const readSpy = spyOn(fs, 'readFileSync').mockImplementation(((
+      ...args: Parameters<typeof read>
+    ) => {
+      if (args[0] === path)
+        throw Object.assign(new Error('Permission denied'), { code: 'EACCES' })
+      return read(...args)
+    }) as typeof read)
+
+    try {
+      const error = await writeOperatorConfigAt(path, operator).catch(
+        (error: unknown) => error,
+      )
+      expect({ error, contents: read(path, 'utf8') }).toEqual({
+        error: expect.objectContaining({
+          name: 'UnreadableOperatorConfigError',
+          path,
+        }),
+        contents: original,
+      })
+    } finally {
+      readSpy.mockRestore()
+    }
+  })
+
+  it('writes operator settings to a missing file', async () => {
+    await writeOperatorConfigAt(path, operator)
+
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ operator })
   })
 })
