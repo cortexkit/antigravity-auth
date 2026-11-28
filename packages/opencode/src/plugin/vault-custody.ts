@@ -13,11 +13,11 @@
  * is written here. Host authority or vault enrollment decides custody, also
  * when that file is missing. If the authority cannot be read, access is refused.
  *
- * Every custody entry re-reads the mode and checks the host's own auth slot
- * against it through the vault library: a real host login while the vault
- * holds the accounts refuses custody instead of silently picking one of the
- * two. The host supplies a reader for its slot; a slot that cannot be read
- * refuses custody rather than being treated as empty.
+ * Every custody entry checks that authority again. The check is cached
+ * only briefly, against the enrollment files' identity, so a change of
+ * enrollment takes effect without a restart. The host's own auth slot is
+ * read only for the status shown in the menu; it never decides custody, and
+ * a slot that cannot be read shows as unreadable there.
  */
 
 import { chmod, mkdir, readFile, stat } from 'node:fs/promises'
