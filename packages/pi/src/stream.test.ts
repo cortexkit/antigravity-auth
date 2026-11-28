@@ -1889,19 +1889,21 @@ describe('streamCortexKitAntigravity', () => {
     }
   })
 
-  it('preserves partial text and refuses an unsupported CONTINUATION finish', async () => {
-    const { events, result } = await runStream(
-      fakeModel(),
-      sseResponse([
-        'data: {"candidates":[{"content":{"parts":[{"text":"partial answer"}]}}]}\n\n',
-        'data: {"candidates":[{"finishReason":"CONTINUATION"}]}\n\n',
-      ]),
-      'candidate-continuation',
-    )
-    expect(events.at(-1)?.type).toBe('error')
-    expect(result.stopReason).toBe('error')
-    expect(result.errorMessage).toBe('Response stopped by Google: unknown.')
-    expect(result.content).toEqual([{ type: 'text', text: 'partial answer' }])
+  it('ends a CONTINUATION finish like the output limit and keeps partial text', async () => {
+    for (const finishReason of ['MAX_TOKENS', 'CONTINUATION']) {
+      const { events, result } = await runStream(
+        fakeModel(),
+        sseResponse([
+          'data: {"candidates":[{"content":{"parts":[{"text":"partial answer"}]}}]}\n\n',
+          `data: {"candidates":[{"finishReason":"${finishReason}"}]}\n\n`,
+        ]),
+        'candidate-continuation',
+      )
+      expect(events.at(-1)?.type).toBe('done')
+      expect(result.stopReason).toBe('length')
+      expect(result.errorMessage).toBeUndefined()
+      expect(result.content).toEqual([{ type: 'text', text: 'partial answer' }])
+    }
   })
 
   it('does not use a tool call to override the Gemini token limit', async () => {

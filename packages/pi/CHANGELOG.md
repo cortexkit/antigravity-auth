@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Google's CONTINUATION finish now ends a reply like the output limit, as it did before 3.2.0, instead of as an error.
+
 ## [3.2.3] - 2026-11-27
 
 - No changes for Pi. This version keeps the Pi package in step with the OpenCode package.

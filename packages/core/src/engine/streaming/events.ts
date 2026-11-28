@@ -214,7 +214,11 @@ export async function* readRequestEvents(
           toolState.pendingThoughtSignature = part.thoughtSignature
         }
       }
-      finish = candidate?.finishReason
+      // Google's CONTINUATION finish reports the same output-limit halt as
+      // MAX_TOKENS (Pi's own Google adapter maps both to length). Normalize
+      // it so every host ends the reply the same way instead of refusing it.
+      const reason = candidate?.finishReason
+      finish = reason === 'CONTINUATION' ? 'MAX_TOKENS' : reason
     }
     if (usage) yield { type: 'usage', usage }
     if (!finish)

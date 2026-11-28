@@ -105,7 +105,17 @@ export function enforceStreamRefusals(
       )
     if (typeof reason === 'string' && reason) {
       startDrain()
-      if (reason !== 'STOP' && reason !== 'MAX_TOKENS') {
+      if (reason === 'CONTINUATION') {
+        // Google's CONTINUATION finish reports the same output-limit halt as
+        // MAX_TOKENS (Pi's own Google adapter maps both to length). Rewrite
+        // it so every host ends the reply like the output limit instead of
+        // refusing it; downstream hosts only ever see MAX_TOKENS.
+        candidate.finishReason = 'MAX_TOKENS'
+      }
+      if (
+        candidate.finishReason !== 'STOP' &&
+        candidate.finishReason !== 'MAX_TOKENS'
+      ) {
         log(`Antigravity finish reason: ${JSON.stringify(reason)}`)
         failure =
           !visible && invalidOutputCodes.has(reason)
