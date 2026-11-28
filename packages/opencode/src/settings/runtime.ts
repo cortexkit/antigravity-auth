@@ -43,6 +43,7 @@ import {
   OperatorSettingsSchema,
 } from '../plugin/config/operator-settings-schema'
 import { type AntigravityConfig, DEFAULT_CONFIG } from '../plugin/config/schema'
+import { UnreadableOperatorConfigError } from '../plugin/config/writer'
 import {
   createOperatorSettingsController,
   type OperatorSettingsController,
@@ -726,10 +727,24 @@ export function createSettingsRuntime(
           mode === 'shared'
             ? structuredClone(operator)
             : legacyOperator(entry).get(),
-        update: (mutator) =>
-          mode === 'shared'
-            ? updateShared(mutator)
-            : legacyOperator(entry).update(mutator),
+        async update(mutator) {
+          if (mode === 'shared') return updateShared(mutator)
+          try {
+            await legacyOperator(entry).update(mutator)
+          } catch (error) {
+            if (!(error instanceof UnreadableOperatorConfigError)) throw error
+            log.warn(
+              'Could not read legacy settings file; operator settings were not saved',
+              {
+                path: error.path,
+              },
+            )
+            throw new AntigravityMenuRefusal(
+              "The settings file couldn't be read, so nothing was saved. Fix antigravity.json and try again.",
+              'settings-unparseable',
+            )
+          }
+        },
         floorKeying: () =>
           mode === 'shared' ? 'stable' : 'refresh-token-hash',
         sourcePath: () =>

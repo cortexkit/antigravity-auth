@@ -274,7 +274,6 @@ export async function acquireFencedFileLock(
         break
       } catch (err) {
         if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
-        // Existing marker — check whether it is reclaimed-able.
         const existing = await readMarkerPayload(evictingPath)
         if (existing) {
           const ageMs = now() - existing.createdAt
@@ -283,6 +282,23 @@ export async function acquireFencedFileLock(
             // Stale marker — recycle the directory and retry the claim.
             await rmEvictingDir(evictingPath)
             continue
+          }
+        } else {
+          // A process can stop before finishing the marker write. Only
+          // reclaim an unreadable marker when its mtime proves it is old.
+          try {
+            const markerStats = await stat(evictingPath).catch(
+              (err: NodeJS.ErrnoException) => {
+                if (err.code !== 'ENOENT') throw err
+                return stat(evictingDir)
+              },
+            )
+            if (now() - markerStats.mtimeMs > MARKER_TTL_MS) {
+              await rmEvictingDir(evictingPath)
+              continue
+            }
+          } catch (err) {
+            if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue
           }
         }
         await sleep(MARKER_CLAIM_BACKOFF_MS)

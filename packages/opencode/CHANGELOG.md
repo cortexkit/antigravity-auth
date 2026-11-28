@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Background quota checks resume automatically if a crash leaves an incomplete lock behind (issue #95, thanks @iceteaSA).
+- The Antigravity menu leaves an unreadable `antigravity.json` untouched and asks you to fix it before saving settings (issue #96, thanks @iceteaSA).
 - Corrected several docs and code comments that no longer matched the code (issue #97, thanks @iceteaSA).
 
 ## [3.2.3] - 2026-11-27

@@ -18,7 +18,7 @@ export const DISK_TEST_FILES: Readonly<Record<string, string>> = {
   'packages/opencode/src/plugin/config/writer-lock-interop.test.ts':
     'Real processes contend for one lock file with the old fenced lock and withLock.',
   'packages/core/src/file-lock.test.ts':
-    'Fenced lock ownership, eviction, renewal, and concurrent writers.',
+    'Fenced lock ownership, takeover marker ages, renewal, and concurrent writers.',
   'packages/core/src/atomic-write.test.ts':
     'Atomic replacement and secure file permissions.',
   'packages/core/src/account-storage.test.ts':
